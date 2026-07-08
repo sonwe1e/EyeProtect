@@ -167,6 +167,7 @@ export class SettingsStore extends EventEmitter {
     this.settings = next;
     this.write(next);
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
+    this.emit('todos-changed', this.get().todos);
     return this.get().todos;
   }
 
@@ -179,6 +180,7 @@ export class SettingsStore extends EventEmitter {
     this.settings = next;
     this.write(next);
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
+    this.emit('todos-changed', this.get().todos);
     return this.get().todos;
   }
 

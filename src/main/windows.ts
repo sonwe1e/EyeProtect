@@ -2,7 +2,7 @@ import { app, BrowserWindow, screen } from 'electron';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Alarm, ReminderStatus, RuntimeInfo, Settings } from '../shared/types';
+import type { Alarm, ReminderStatus, RuntimeInfo, Settings, TodoItem } from '../shared/types';
 import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getAlertBounds } from './windowBounds';
@@ -145,6 +145,10 @@ export class AppWindows {
 
   broadcastAlarmFired(alarm: Alarm): void {
     this.sendAll('alarm:fired', alarm);
+  }
+
+  broadcastTodos(todos: TodoItem[]): void {
+    this.sendAll('todo:changed', todos);
   }
 
   applySettings(settings: Settings): void {
