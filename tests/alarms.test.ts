@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AlarmClock, nextFireAt } from '../src/main/alarms';
+import { Alarm, sanitizeAlarm, sanitizeAlarms } from '../src/shared/types';
 
 // Fixed local time: 2026-07-08 10:30:59.500 (a Wednesday).
 // Placed just under a minute boundary so a 10:31 alarm fires in ~500ms of real
@@ -98,4 +99,43 @@ test('once and daily alarms both fire on the first trigger; daily stays armed', 
   for (const alarm of remaining) {
     clock.cancelAlarm(alarm.id);
   }
+});
+
+test('sanitizeAlarm keeps a fully-populated valid alarm', () => {
+  const alarm = sanitizeAlarm({
+    id: 'a1',
+    hour: 7,
+    minute: 30,
+    label: 'wake',
+    repeat: 'once',
+    enabled: true,
+    createdAt: 1000
+  });
+  assert.deepEqual(alarm, {
+    id: 'a1',
+    hour: 7,
+    minute: 30,
+    label: 'wake',
+    repeat: 'once',
+    enabled: true,
+    createdAt: 1000
+  });
+});
+
+test('sanitizeAlarm drops an alarm with an out-of-range hour or minute', () => {
+  assert.equal(sanitizeAlarm({ id: 'a1', hour: 25, minute: 0, repeat: 'once', enabled: true, createdAt: 1 }), null);
+  assert.equal(sanitizeAlarm({ id: 'a1', hour: 7, minute: 60, repeat: 'once', enabled: true, createdAt: 1 }), null);
+  assert.equal(sanitizeAlarm({ id: 'a1', hour: 7, minute: 30, repeat: 'yearly', enabled: true, createdAt: 1 }), null);
+});
+
+test('sanitizeAlarms keeps valid entries in order and drops malformed ones', () => {
+  const result = sanitizeAlarms([
+    { id: 'a1', hour: 7, minute: 0, repeat: 'daily', enabled: true, createdAt: 1 },
+    { id: 'a2', hour: -1, minute: 0, repeat: 'once', enabled: true, createdAt: 2 },
+    'nonsense',
+    { id: 'a3', hour: 23, minute: 59, repeat: 'once', enabled: false, createdAt: 3 }
+  ]);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].id, 'a1');
+  assert.equal(result[1].id, 'a3');
 });

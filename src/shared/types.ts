@@ -126,3 +126,45 @@ export const sanitizeTodos = (value: unknown): TodoItem[] => {
   }
   return value.map((entry) => sanitizeTodo(entry)).filter((entry): entry is TodoItem => Boolean(entry));
 };
+
+export const sanitizeAlarm = (value: unknown): Alarm | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<Alarm>;
+  if (typeof candidate.id !== 'string' || !candidate.id) {
+    return null;
+  }
+  if (typeof candidate.hour !== 'number' || candidate.hour < 0 || candidate.hour > 23 || !Number.isInteger(candidate.hour)) {
+    return null;
+  }
+  if (typeof candidate.minute !== 'number' || candidate.minute < 0 || candidate.minute > 59 || !Number.isInteger(candidate.minute)) {
+    return null;
+  }
+  if (candidate.label !== undefined && typeof candidate.label !== 'string') {
+    return null;
+  }
+  if (candidate.repeat !== 'once' && candidate.repeat !== 'daily') {
+    return null;
+  }
+  if (typeof candidate.enabled !== 'boolean') {
+    return null;
+  }
+  const createdAt = typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now();
+  return {
+    id: candidate.id,
+    hour: candidate.hour,
+    minute: candidate.minute,
+    label: candidate.label,
+    repeat: candidate.repeat,
+    enabled: candidate.enabled,
+    createdAt
+  };
+};
+
+export const sanitizeAlarms = (value: unknown): Alarm[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => sanitizeAlarm(entry)).filter((entry): entry is Alarm => Boolean(entry));
+};
