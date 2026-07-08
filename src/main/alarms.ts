@@ -37,6 +37,17 @@ export class AlarmClock extends EventEmitter {
     return this.alarms.map((alarm) => ({ ...alarm }));
   }
 
+  hydrate(alarms: Alarm[]): void {
+    const restored = alarms.map((alarm) => ({ ...alarm }));
+    for (const alarm of restored) {
+      if (alarm.enabled) {
+        const delay = nextFireAt(alarm.hour, alarm.minute, this.now()) - this.now();
+        this.arm(alarm, delay);
+      }
+    }
+    this.alarms = restored;
+  }
+
   setAlarm(input: AlarmInput): Alarm[] {
     const now = this.now();
     const alarm: Alarm = {

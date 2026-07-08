@@ -166,6 +166,36 @@ test('persistAlarms writes alarms and a second SettingsStore instance reads them
   }
 });
 
+test('hydrate re-arms enabled alarms; restarting from the persisted list fires again', async () => {
+  // Fixed clock 120ms before a 10:31 trigger so the real setTimeout elapses quickly.
+  const now = () => new Date(2026, 6, 8, 10, 30, 59, 880).getTime();
+  const alarms: Alarm[] = [
+    { id: 'once-1', hour: 10, minute: 31, repeat: 'once', enabled: true, createdAt: 100 },
+    { id: 'disabled-1', hour: 10, minute: 31, repeat: 'daily', enabled: false, createdAt: 101 }
+  ];
+
+  const clock = new AlarmClock(now);
+  clock.hydrate(alarms);
+  const fired: string[] = [];
+  clock.on('fired', (entry) => fired.push(entry.id));
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  assert.deepEqual(fired, ['once-1'], 'only the enabled alarm should fire after hydrate');
+  clock.cancelAlarm('once-1');
+
+  // Simulate a restart: rebuild the clock from the SAME persisted alarm list.
+  const restarted = new AlarmClock(now);
+  restarted.hydrate(alarms);
+  const firedAfterRestart: string[] = [];
+  restarted.on('fired', (entry) => firedAfterRestart.push(entry.id));
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  assert.deepEqual(firedAfterRestart, ['once-1'], 'rehydrated alarm fires again after restart');
+  restarted.cancelAlarm('once-1');
+});
+
 test('sanitizeAlarms keeps valid entries in order and drops malformed ones', () => {
   const result = sanitizeAlarms([
     { id: 'a1', hour: 7, minute: 0, repeat: 'daily', enabled: true, createdAt: 1 },
