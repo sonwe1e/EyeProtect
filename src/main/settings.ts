@@ -1,4 +1,4 @@
-import { app, shell } from 'electron';
+import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import {
@@ -112,6 +112,12 @@ export const getDataDir = (): string => {
     return process.env.EYEPROTECT_DATA_DIR;
   }
 
+  // Loaded lazily: `app` from electron cannot be imported at the module top
+  // level in pure-Node test runs (electron's CJS entry throws outside the
+  // Electron runtime), and `getDataDir` only reaches this branch on the
+  // packaged-app path — never in tests, which set EYEPROTECT_DATA_DIR.
+  const require = createRequire(import.meta.url);
+  const { app } = require('electron');
   const baseDir = app.isPackaged ? dirname(process.execPath) : process.cwd();
   return join(baseDir, 'data');
 };
@@ -210,6 +216,11 @@ export class SettingsStore extends EventEmitter {
 }
 
 export const syncStartupShortcut = (settings: Settings): void => {
+  // Electron is required lazily (see getDataDir): its CJS entry throws when
+  // loaded outside the Electron runtime, as happens under the Node test runner.
+  const require = createRequire(import.meta.url);
+  const { app, shell } = require('electron');
+
   if (!app.isPackaged) {
     return;
   }
