@@ -128,6 +128,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('alarm:list', () => alarmClock.getAlarms());
   ipcMain.handle('alarm:set', (_event, input) => alarmClock.setAlarm(input));
   ipcMain.handle('alarm:cancel', (_event, id: string) => alarmClock.cancelAlarm(id));
+  ipcMain.handle('todo:list', () => settingsStore.get().todos);
+  ipcMain.handle('todo:add', (_event, text: unknown) =>
+    settingsStore.addTodo(typeof text === 'string' ? text : '')
+  );
+  ipcMain.handle('todo:remove', (_event, id: string) => settingsStore.removeTodo(id));
 
   await windows.createPetWindow();
   createTray(windows, scheduler);

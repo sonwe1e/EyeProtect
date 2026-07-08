@@ -22,6 +22,12 @@ export interface PetPosition {
   y: number;
 }
 
+export interface TodoItem {
+  id: string;
+  text: string;
+  createdAt: number;
+}
+
 export interface Settings {
   eyeIntervalMinutes: number;
   walkIntervalMinutes: number;
@@ -31,6 +37,7 @@ export interface Settings {
   petPosition: PetPosition | null;
   petSkin: PetSkin;
   dimDesktop: boolean;
+  todos: TodoItem[];
 }
 
 export interface ActiveReminder {
@@ -71,6 +78,10 @@ export interface EyeProtectApi {
   cancelAlarm: (id: string) => Promise<Alarm[]>;
   onAlarmFired: (callback: (alarm: Alarm) => void) => () => void;
   onAlarmsChanged: (callback: (alarms: Alarm[]) => void) => () => void;
+  getTodos: () => Promise<TodoItem[]>;
+  addTodo: (text: string) => Promise<TodoItem[]>;
+  removeTodo: (id: string) => Promise<TodoItem[]>;
+  onTodosChanged: (callback: (todos: TodoItem[]) => void) => () => void;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -81,7 +92,8 @@ export const DEFAULT_SETTINGS: Settings = {
   petScale: 1,
   petPosition: null,
   petSkin: 'stable',
-  dimDesktop: true
+  dimDesktop: true,
+  todos: []
 };
 
 export const SETTINGS_LIMITS = {
@@ -90,3 +102,27 @@ export const SETTINGS_LIMITS = {
   snoozeMinutes: { min: 1, max: 60 },
   petScale: { min: 0.7, max: 1.8 }
 } as const;
+
+export const TODO_TEXT_MAX = 60;
+
+export const sanitizeTodo = (value: unknown): TodoItem | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<TodoItem>;
+  if (typeof candidate.id !== 'string' || !candidate.id) {
+    return null;
+  }
+  if (typeof candidate.text !== 'string') {
+    return null;
+  }
+  const createdAt = typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now();
+  return { id: candidate.id, text: candidate.text, createdAt };
+};
+
+export const sanitizeTodos = (value: unknown): TodoItem[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => sanitizeTodo(entry)).filter((entry): entry is TodoItem => Boolean(entry));
+};

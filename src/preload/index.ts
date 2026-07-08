@@ -7,7 +7,8 @@ import type {
   ReminderKind,
   ReminderStatus,
   RuntimeInfo,
-  Settings
+  Settings,
+  TodoItem
 } from '../shared/types';
 
 interface AlarmInput {
@@ -41,7 +42,11 @@ const api: EyeProtectApi = {
   setAlarm: (input: AlarmInput) => ipcRenderer.invoke('alarm:set', input) as Promise<Alarm[]>,
   cancelAlarm: (id: string) => ipcRenderer.invoke('alarm:cancel', id) as Promise<Alarm[]>,
   onAlarmFired: (callback) => on<Alarm>('alarm:fired', callback),
-  onAlarmsChanged: (callback) => on<Alarm[]>('alarm:changed', callback)
+  onAlarmsChanged: (callback) => on<Alarm[]>('alarm:changed', callback),
+  getTodos: () => ipcRenderer.invoke('todo:list') as Promise<TodoItem[]>,
+  addTodo: (text: string) => ipcRenderer.invoke('todo:add', text) as Promise<TodoItem[]>,
+  removeTodo: (id: string) => ipcRenderer.invoke('todo:remove', id) as Promise<TodoItem[]>,
+  onTodosChanged: (callback) => on<TodoItem[]>('todo:changed', callback)
 };
 
 contextBridge.exposeInMainWorld('eyeProtect', api);

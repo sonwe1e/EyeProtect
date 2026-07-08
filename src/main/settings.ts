@@ -1,5 +1,6 @@
 import { app, shell } from 'electron';
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -14,9 +15,11 @@ import {
   DEFAULT_SETTINGS,
   PET_SKINS,
   SETTINGS_LIMITS,
+  sanitizeTodos,
   type PetPosition,
   type PetSkin,
-  type Settings
+  type Settings,
+  type TodoItem
 } from '../shared/types';
 
 type SettingsChangedPayload = {
@@ -34,6 +37,8 @@ const clampNumber = (value: unknown, fallback: number, min: number, max: number)
   }
   return Math.min(max, Math.max(min, parsed));
 };
+
+const LOCAL_TODO_TEXT_MAX = 60;
 
 const normalizePosition = (value: unknown): PetPosition | null => {
   if (!value || typeof value !== 'object') {
@@ -94,7 +99,8 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       ? (input.petSkin as PetSkin)
       : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
-      typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop
+      typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
+    todos: sanitizeTodos(input.todos)
   };
 };
 
@@ -124,7 +130,11 @@ export class SettingsStore extends EventEmitter {
   }
 
   get(): Settings {
-    return { ...this.settings, petPosition: this.settings.petPosition ? { ...this.settings.petPosition } : null };
+    return {
+      ...this.settings,
+      petPosition: this.settings.petPosition ? { ...this.settings.petPosition } : null,
+      todos: this.settings.todos.map((todo) => ({ ...todo }))
+    };
   }
 
   save(partial: Partial<Settings>): Settings {
@@ -134,6 +144,33 @@ export class SettingsStore extends EventEmitter {
     this.write(next);
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
     return this.get();
+  }
+
+  addTodo(rawText: string): TodoItem[] {
+    const text = typeof rawText === 'string' ? rawText.trim().slice(0, LOCAL_TODO_TEXT_MAX) : '';
+    if (!text) {
+      return this.get().todos;
+    }
+    const now = Date.now();
+    const todo: TodoItem = { id: randomUUID(), text, createdAt: now };
+    const previous = this.get();
+    const next = sanitizeSettings({ ...previous, todos: [...previous.todos, todo] });
+    this.settings = next;
+    this.write(next);
+    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
+    return this.get().todos;
+  }
+
+  removeTodo(id: string): TodoItem[] {
+    if (typeof id !== 'string' || !id) {
+      return this.get().todos;
+    }
+    const previous = this.get();
+    const next = sanitizeSettings({ ...previous, todos: previous.todos.filter((todo) => todo.id !== id) });
+    this.settings = next;
+    this.write(next);
+    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
+    return this.get().todos;
   }
 
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {
