@@ -1,0 +1,63 @@
+{
+  "name": "eye-protect-pet",
+  "version": "0.2.0",
+  "description": "Portable Windows desktop pet reminders for eye rest and walking breaks.",
+  "main": "out/main/index.js",
+  "author": "EyeProtect",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "start": "electron-vite preview",
+    "package": "npm run build && electron-builder --win portable --x64"
+  },
+  "dependencies": {
+    "@rive-app/react-canvas": "^4.20.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "local.eyeprotect.pet",
+    "productName": "EyeProtect",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "public/assets/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "EyeProtect-${version}-win-x64.exe"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+
+# Packaging output (portable exe + unpacked assets)
+release/
+
+# Runtime user data (per-machine settings)
+data/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local env
+.env
+.env.local
