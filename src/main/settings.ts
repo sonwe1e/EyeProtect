@@ -15,7 +15,9 @@ import {
   DEFAULT_SETTINGS,
   PET_SKINS,
   SETTINGS_LIMITS,
+  sanitizeAlarms,
   sanitizeTodos,
+  type Alarm,
   type PetPosition,
   type PetSkin,
   type Settings,
@@ -100,6 +102,7 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
+    alarms: sanitizeAlarms(input.alarms),
     todos: sanitizeTodos(input.todos)
   };
 };
@@ -171,6 +174,14 @@ export class SettingsStore extends EventEmitter {
     this.write(next);
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
     return this.get().todos;
+  }
+
+  persistAlarms(alarms: Alarm[]): void {
+    const previous = this.get();
+    const next = sanitizeSettings({ ...previous, alarms });
+    this.settings = next;
+    this.write(next);
+    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
   }
 
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {

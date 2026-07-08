@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { AlarmClock, nextFireAt } from '../src/main/alarms';
+import { SettingsStore } from '../src/main/settings';
 import { Alarm, sanitizeAlarm, sanitizeAlarms } from '../src/shared/types';
 
 // Fixed local time: 2026-07-08 10:30:59.500 (a Wednesday).
@@ -126,6 +130,40 @@ test('sanitizeAlarm drops an alarm with an out-of-range hour or minute', () => {
   assert.equal(sanitizeAlarm({ id: 'a1', hour: 25, minute: 0, repeat: 'once', enabled: true, createdAt: 1 }), null);
   assert.equal(sanitizeAlarm({ id: 'a1', hour: 7, minute: 60, repeat: 'once', enabled: true, createdAt: 1 }), null);
   assert.equal(sanitizeAlarm({ id: 'a1', hour: 7, minute: 30, repeat: 'yearly', enabled: true, createdAt: 1 }), null);
+});
+
+test('persistAlarms writes alarms and a second SettingsStore instance reads them back', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-a-'));
+  const original = process.env.EYEPROTECT_DATA_DIR;
+  process.env.EYEPROTECT_DATA_DIR = dir;
+  try {
+    const store = new SettingsStore();
+    store.persistAlarms([
+      { id: 'a1', hour: 7, minute: 30, label: 'wake', repeat: 'once', enabled: true, createdAt: 1000 },
+      { id: 'a2', hour: 12, minute: 0, repeat: 'daily', enabled: false, createdAt: 1001 }
+    ]);
+
+    const readback = new SettingsStore().get().alarms;
+    assert.equal(readback.length, 2);
+    assert.deepEqual(readback[0], {
+      id: 'a1',
+      hour: 7,
+      minute: 30,
+      label: 'wake',
+      repeat: 'once',
+      enabled: true,
+      createdAt: 1000
+    });
+    assert.equal(readback[1].repeat, 'daily');
+    assert.equal(readback[1].enabled, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (original === undefined) {
+      delete process.env.EYEPROTECT_DATA_DIR;
+    } else {
+      process.env.EYEPROTECT_DATA_DIR = original;
+    }
+  }
 });
 
 test('sanitizeAlarms keeps valid entries in order and drops malformed ones', () => {
