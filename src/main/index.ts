@@ -94,6 +94,7 @@ app.whenReady().then(async () => {
   const settingsStore = new SettingsStore();
   const scheduler = new ReminderScheduler(settingsStore.get());
   const alarmClock = new AlarmClock();
+  alarmClock.hydrate(settingsStore.get().alarms);
   const windows = new AppWindows(settingsStore, scheduler);
 
   app.on('second-instance', () => {
@@ -112,6 +113,8 @@ app.whenReady().then(async () => {
   });
 
   alarmClock.on('changed', (alarms) => windows.broadcastAlarms(alarms));
+  alarmClock.on('changed', (alarms) => settingsStore.persistAlarms(alarms));
+  settingsStore.on('todos-changed', (todos) => windows.broadcastTodos(todos));
   alarmClock.on('fired', (alarm) => windows.broadcastAlarmFired(alarm));
 
   ipcMain.handle('settings:get', () => settingsStore.get());
