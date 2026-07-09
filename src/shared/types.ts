@@ -7,6 +7,8 @@ export const PET_SKINS: PetSkin[] = ['stable', 'eye', 'fu', 'sleep'];
 
 export type AlarmRepeat = 'once' | 'daily';
 
+export type PanelTab = 'alarms' | 'todos';
+
 export interface Alarm {
   id: string;
   hour: number;
@@ -72,6 +74,10 @@ export interface EyeProtectApi {
   pause: (minutes: number) => Promise<ReminderStatus>;
   openSettings: () => Promise<void>;
   closeSettings: () => Promise<void>;
+  openPanel: (tab: PanelTab) => Promise<void>;
+  closePanel: () => Promise<void>;
+  getPanelTab: () => Promise<PanelTab>;
+  onPanelTab: (callback: (tab: PanelTab) => void) => () => void;
   onSettingsChanged: (callback: (settings: Settings) => void) => () => void;
   onReminderChanged: (callback: (status: ReminderStatus) => void) => () => void;
   getAlarms: () => Promise<Alarm[]>;

@@ -128,6 +128,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('reminder:pause', (_event, minutes: number) => scheduler.pause(minutes));
   ipcMain.handle('window:settings:open', () => windows.showSettingsWindow());
   ipcMain.handle('window:settings:close', () => windows.closeSettingsWindow());
+  ipcMain.handle('window:panel:open', (_event, tab: unknown) =>
+    windows.openPanel(tab === 'alarms' ? 'alarms' : 'todos')
+  );
+  ipcMain.handle('window:panel:close', () => windows.closePanel());
+  ipcMain.handle('window:panel:tab', () => windows.getPanelTab());
   ipcMain.handle('alarm:list', () => alarmClock.getAlarms());
   ipcMain.handle('alarm:set', (_event, input) => alarmClock.setAlarm(input));
   ipcMain.handle('alarm:cancel', (_event, id: string) => alarmClock.cancelAlarm(id));

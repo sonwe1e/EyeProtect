@@ -16,6 +16,8 @@
 - `AlarmClock` constructor signature MUST stay `constructor(now: () => number = Date.now)` — existing `tests/alarms.test.ts` instantiates `new AlarmClock(() => BASE_TS)` with the factory as the first positional arg. Add a separate `hydrate` method instead of a constructor change.
 - Tests: `npm test` = `tsx --test tests/*.test.ts`. typecheck: `npm run typecheck` = `tsc --noEmit`.
 - A test touching `SettingsStore` sets `process.env.EYEPROTECT_DATA_DIR` to a fresh temp dir and restores it in a `finally` block.
+
+ELECTRON IMPORT DEVERRAL (commit 42c51cb, applied during Task 2): the top-level `import { app, shell } from 'electron'` in `src/main/settings.ts` crashes under `tsx --test` (native ESM) because electron's CJS entry throws outside the Electron runtime — so any test importing `settings.ts` failed at module load. Fix: electron is now imported lazily via `createRequire` inside `getDataDir()` and `syncStartupShortcut()` (the only two users), both on the packaged-app path that tests never reach. Production behavior unchanged. Tasks 2 and 4 depend on this — their tests construct `SettingsStore` and will not load without it.
 - Verification is by BUILDING the release `.exe` (`npm run package`) and running it — browser mockups are not representative of the Electron window. Build once after all code changes, not per task.
 
 ---

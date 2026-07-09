@@ -1,6 +1,6 @@
 {
   "name": "eye-protect-pet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Portable Windows desktop pet reminders for eye rest and walking breaks.",
   "main": "out/main/index.js",
   "author": "EyeProtect",

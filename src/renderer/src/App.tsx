@@ -7,6 +7,7 @@ import {
   type ActiveReminder,
   type Alarm,
   type AlarmRepeat,
+  type PanelTab,
   type PetSkin,
   type ReminderKind,
   type ReminderStatus,
@@ -77,7 +78,16 @@ const minutesLeft = (timestamp: number): string => {
 const route = window.location.hash.replace('#', '') || 'pet';
 
 export function App(): JSX.Element {
-  return route === 'settings' ? <SettingsView /> : <PetView />;
+  if (route === 'settings') {
+    return <SettingsView />;
+  }
+  if (route === 'panel') {
+    return <PanelView />;
+  }
+  if (route === 'bubble') {
+    return <BubbleView />;
+  }
+  return <PetView />;
 }
 
 function useAppState() {
@@ -124,11 +134,10 @@ function useAppState() {
 }
 
 function PetView(): JSX.Element {
-  const { settings, status, alarms, todos } = useAppState();
+  const { settings, status, todos } = useAppState();
   const active = status.activeReminder;
   const copy = active ? reminderCopy[active.kind] : null;
   const alertClass = active ? 'is-alert' : '';
-  const [alarmOpen, setAlarmOpen] = useState(false);
   const [firingAlarms, setFiringAlarms] = useState<Alarm[]>([]);
 
   const handleReminderDoubleClick = useCallback(() => {
@@ -139,23 +148,16 @@ function PetView(): JSX.Element {
   const handleSkinSelect = useCallback((skin: PetSkin) => {
     void window.eyeProtect.saveSettings({ petSkin: skin });
   }, []);
-  const handleAddTodo = useCallback((text: string) => {
-    void window.eyeProtect.addTodo(text);
+  const handleOpenAlarms = useCallback(() => {
+    void window.eyeProtect.openPanel('alarms');
   }, []);
-  const handleRemoveTodo = useCallback((id: string) => {
-    void window.eyeProtect.removeTodo(id);
-  }, []);
-  const handleCancelAlarm = useCallback((id: string) => {
-    void window.eyeProtect.cancelAlarm(id);
+  const handleOpenTodos = useCallback(() => {
+    void window.eyeProtect.openPanel('todos');
   }, []);
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    setAlarmOpen(true);
-  }, []);
-
-  const closeAlarm = useCallback(() => {
-    setAlarmOpen(false);
+    void window.eyeProtect.openPanel('alarms');
   }, []);
 
   useEffect(() => {
@@ -178,17 +180,17 @@ function PetView(): JSX.Element {
     <main className={shellClass} onContextMenu={handleContextMenu}>
       {active ? null : (
         <>
-          <button className="pet-alarm" title="闹钟" onClick={() => setAlarmOpen(true)}>
+          <button className="pet-alarm" title="闹钟" onClick={handleOpenAlarms}>
             <Clock3 size={18} />
           </button>
           <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openSettings()}>
             <SettingsIcon size={18} />
           </button>
-          <TodoPanel
-            todos={todos}
-            onAdd={handleAddTodo}
-            onRemove={handleRemoveTodo}
-          />
+          <button className="pet-todo-tab" title="今日待办" onClick={handleOpenTodos}>
+            <ListChecks size={16} />
+            <span className="pet-todo-tab-label">待办</span>
+            {todos.length > 0 ? <span className="todo-count">{todos.length}</span> : null}
+          </button>
         </>
       )}
 
@@ -238,14 +240,54 @@ function PetView(): JSX.Element {
         </section>
       ) : null}
 
-      {alarmOpen ? (
-        <AlarmPanel
-          alarms={alarms}
-          onClose={closeAlarm}
-          onCancel={handleCancelAlarm}
-        />
-      ) : null}
     </main>
+  );
+}
+
+function BubbleView(): JSX.Element {
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.eyeProtect.getTodos().then((next) => {
+      if (mounted) {
+        setTodos(next);
+      }
+    });
+    const offTodos = window.eyeProtect.onTodosChanged(setTodos);
+    return () => {
+      mounted = false;
+      offTodos();
+    };
+  }, []);
+
+  const openTodos = useCallback(() => {
+    void window.eyeProtect.openPanel('todos');
+  }, []);
+
+  const preview = todos.slice(0, 3);
+  const overflow = todos.length - preview.length;
+
+  return (
+    <div className="bubble-shell" role="button" title="查看全部待办" onClick={openTodos}>
+      <div className="bubble-card">
+        <div className="bubble-title">
+          <ListChecks size={13} />
+          <span>今日待办</span>
+          <span className="bubble-count">{todos.length}</span>
+        </div>
+        <ul className="bubble-list">
+          {preview.map((todo) => (
+            <li key={todo.id} className="bubble-item">
+              <span className="bubble-dot" />
+              <span className="bubble-text">{todo.text}</span>
+            </li>
+          ))}
+        </ul>
+        {overflow > 0 ? <span className="bubble-more">还有 {overflow} 项…</span> : null}
+      </div>
+      <span className="bubble-tail" />
+    </div>
   );
 }
 
@@ -331,13 +373,101 @@ function clampAlarm(hour: number, minute: number): { hour: number; minute: numbe
   return { hour: h, minute: m };
 }
 
-function AlarmPanel({
+function PanelView(): JSX.Element {
+  const [tab, setTab] = useState<PanelTab>('todos');
+  const [alarms, setAlarms] = useState<Alarm[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void Promise.all([
+      window.eyeProtect.getPanelTab(),
+      window.eyeProtect.getAlarms(),
+      window.eyeProtect.getTodos()
+    ]).then(([initialTab, nextAlarms, nextTodos]) => {
+      if (!mounted) {
+        return;
+      }
+      setTab(initialTab);
+      setAlarms(nextAlarms);
+      setTodos(nextTodos);
+    });
+
+    const offTab = window.eyeProtect.onPanelTab(setTab);
+    const offAlarms = window.eyeProtect.onAlarmsChanged(setAlarms);
+    const offTodos = window.eyeProtect.onTodosChanged(setTodos);
+    return () => {
+      mounted = false;
+      offTab();
+      offAlarms();
+      offTodos();
+    };
+  }, []);
+
+  const handleAddTodo = useCallback((text: string) => {
+    void window.eyeProtect.addTodo(text);
+  }, []);
+  const handleRemoveTodo = useCallback((id: string) => {
+    void window.eyeProtect.removeTodo(id);
+  }, []);
+  const handleCancelAlarm = useCallback((id: string) => {
+    void window.eyeProtect.cancelAlarm(id);
+  }, []);
+
+  return (
+    <main className="panel-shell">
+      <header className="panel-header">
+        <div className="panel-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'todos'}
+            className={tab === 'todos' ? 'is-active' : ''}
+            onClick={() => setTab('todos')}
+          >
+            <ListChecks size={15} />
+            待办
+            {todos.length > 0 ? <span className="panel-tab-count">{todos.length}</span> : null}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'alarms'}
+            className={tab === 'alarms' ? 'is-active' : ''}
+            onClick={() => setTab('alarms')}
+          >
+            <Clock3 size={15} />
+            闹钟
+            {alarms.length > 0 ? <span className="panel-tab-count">{alarms.length}</span> : null}
+          </button>
+        </div>
+        <button
+          type="button"
+          className="panel-close"
+          title="关闭"
+          onClick={() => void window.eyeProtect.closePanel()}
+        >
+          <X size={16} />
+        </button>
+      </header>
+
+      <div className="panel-body">
+        {tab === 'todos' ? (
+          <TodoSection todos={todos} onAdd={handleAddTodo} onRemove={handleRemoveTodo} />
+        ) : (
+          <AlarmSection alarms={alarms} onCancel={handleCancelAlarm} />
+        )}
+      </div>
+    </main>
+  );
+}
+
+function AlarmSection({
   alarms,
-  onClose,
   onCancel
 }: {
   alarms: Alarm[];
-  onClose: () => void;
   onCancel: (id: string) => void;
 }): JSX.Element {
   const [editorOpen, setEditorOpen] = useState(false);
@@ -361,110 +491,101 @@ function AlarmPanel({
   }, [hour, minute, label, repeat]);
 
   return (
-    <div className="alarm-backdrop" onClick={onClose}>
-      <div className="alarm-panel-card" role="dialog" aria-label="闹钟" onClick={(event) => event.stopPropagation()}>
-        <header className="alarm-panel-header">
-          <span className="alarm-panel-title">闹钟</span>
-          <button type="button" className="alarm-panel-close" title="关闭" onClick={onClose}>
-            <X size={16} />
-          </button>
-        </header>
-
-        <div className="alarm-panel-body">
-          <span className="alarm-section-title">已创建的闹钟</span>
-          {alarms.length === 0 ? (
-            <p className="alarm-menu-empty">还没有闹钟</p>
-          ) : (
-            <ul className="alarm-list">
-              {alarms.map((alarm) => (
-                <li key={alarm.id} className="alarm-list-item">
-                  <Clock3 size={14} />
-                  <span className="alarm-time">{formatAlarmClock(alarm.hour, alarm.minute)}</span>
-                  {alarm.label ? <span className="alarm-label">{alarm.label}</span> : null}
-                  <span className={`alarm-repeat ${alarm.repeat}`}>
-                    {alarm.repeat === 'daily' ? '每天' : '单次'}
-                  </span>
-                  <button
-                    type="button"
-                    className="alarm-remove"
-                    title="删除闹钟"
-                    onClick={() => onCancel(alarm.id)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {editorOpen ? (
-            <div className="alarm-editor">
-              <span className="alarm-section-title">新建闹钟</span>
-              <div className="alarm-time-inputs">
-                <input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={hour}
-                  onChange={(event) => setHour(Number(event.currentTarget.value))}
-                  aria-label="小时"
-                />
-                <span className="alarm-time-sep">:</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={minute}
-                  onChange={(event) => setMinute(Number(event.currentTarget.value))}
-                  aria-label="分钟"
-                />
-              </div>
-              <input
-                className="alarm-label-input"
-                type="text"
-                placeholder="标签（可选）"
-                value={label}
-                maxLength={20}
-                onChange={(event) => setLabel(event.currentTarget.value)}
-              />
-              <div className="alarm-repeat-toggle">
+    <div className="panel-section">
+      <div className="panel-scroll">
+        <span className="alarm-section-title">已创建的闹钟</span>
+        {alarms.length === 0 ? (
+          <p className="alarm-menu-empty">还没有闹钟</p>
+        ) : (
+          <ul className="alarm-list">
+            {alarms.map((alarm) => (
+              <li key={alarm.id} className="alarm-list-item">
+                <Clock3 size={14} />
+                <span className="alarm-time">{formatAlarmClock(alarm.hour, alarm.minute)}</span>
+                {alarm.label ? <span className="alarm-label">{alarm.label}</span> : null}
+                <span className={`alarm-repeat ${alarm.repeat}`}>
+                  {alarm.repeat === 'daily' ? '每天' : '单次'}
+                </span>
                 <button
                   type="button"
-                  className={repeat === 'once' ? 'is-active' : ''}
-                  onClick={() => setRepeat('once')}
+                  className="alarm-remove"
+                  title="删除闹钟"
+                  onClick={() => onCancel(alarm.id)}
                 >
-                  单次
+                  <Trash2 size={13} />
                 </button>
-                <button
-                  type="button"
-                  className={repeat === 'daily' ? 'is-active' : ''}
-                  onClick={() => setRepeat('daily')}
-                >
-                  每天
-                </button>
-              </div>
-              <div className="alarm-editor-actions">
-                <button type="button" className="primary" onClick={submit}>
-                  确定
-                </button>
-                <button type="button" onClick={() => setEditorOpen(false)}>
-                  取消
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button type="button" className="alarm-add" onClick={() => setEditorOpen(true)}>
-              <Plus size={14} />
-              新建闹钟
-            </button>
-          )}
-        </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+
+      {editorOpen ? (
+        <div className="alarm-editor">
+          <span className="alarm-section-title">新建闹钟</span>
+          <div className="alarm-time-inputs">
+            <input
+              type="number"
+              min={0}
+              max={23}
+              value={hour}
+              onChange={(event) => setHour(Number(event.currentTarget.value))}
+              aria-label="小时"
+            />
+            <span className="alarm-time-sep">:</span>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={minute}
+              onChange={(event) => setMinute(Number(event.currentTarget.value))}
+              aria-label="分钟"
+            />
+          </div>
+          <input
+            className="alarm-label-input"
+            type="text"
+            placeholder="标签（可选）"
+            value={label}
+            maxLength={20}
+            onChange={(event) => setLabel(event.currentTarget.value)}
+          />
+          <div className="alarm-repeat-toggle">
+            <button
+              type="button"
+              className={repeat === 'once' ? 'is-active' : ''}
+              onClick={() => setRepeat('once')}
+            >
+              单次
+            </button>
+            <button
+              type="button"
+              className={repeat === 'daily' ? 'is-active' : ''}
+              onClick={() => setRepeat('daily')}
+            >
+              每天
+            </button>
+          </div>
+          <div className="alarm-editor-actions">
+            <button type="button" className="primary" onClick={submit}>
+              确定
+            </button>
+            <button type="button" onClick={() => setEditorOpen(false)}>
+              取消
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="alarm-add" onClick={() => setEditorOpen(true)}>
+          <Plus size={14} />
+          新建闹钟
+        </button>
+      )}
     </div>
   );
 }
 
-function TodoPanel({
+function TodoSection({
   todos,
   onAdd,
   onRemove
@@ -473,7 +594,6 @@ function TodoPanel({
   onAdd: (text: string) => void;
   onRemove: (id: string) => void;
 }): JSX.Element {
-  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
 
   const submit = useCallback(
@@ -489,21 +609,8 @@ function TodoPanel({
   );
 
   return (
-    <div className={`todo-panel ${open ? 'is-open' : ''}`}>
-      <button
-        type="button"
-        className="todo-tab"
-        title="今日待办"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ListChecks size={16} />
-        <span className="todo-tab-label">待办</span>
-        {todos.length > 0 ? <span className="todo-count">{todos.length}</span> : null}
-      </button>
-
-      <div className="todo-bubble" role="dialog" aria-label="今日待办">
-        <span className="todo-bubble-title">今日待办</span>
+    <div className="panel-section">
+      <div className="panel-scroll">
         {todos.length === 0 ? (
           <p className="todo-empty">还没有待办，添加一件吧。</p>
         ) : (
@@ -523,19 +630,19 @@ function TodoPanel({
             ))}
           </ul>
         )}
-        <form className="todo-compose" onSubmit={submit}>
-          <input
-            type="text"
-            placeholder="添加待办..."
-            value={draft}
-            maxLength={60}
-            onChange={(event) => setDraft(event.currentTarget.value)}
-          />
-          <button type="submit" title="添加" disabled={!draft.trim()}>
-            <Plus size={14} />
-          </button>
-        </form>
       </div>
+      <form className="todo-compose" onSubmit={submit}>
+        <input
+          type="text"
+          placeholder="添加待办..."
+          value={draft}
+          maxLength={60}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+        />
+        <button type="submit" title="添加" disabled={!draft.trim()}>
+          <Plus size={14} />
+        </button>
+      </form>
     </div>
   );
 }
