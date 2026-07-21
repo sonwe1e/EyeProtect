@@ -513,6 +513,32 @@ button {
   border-color: #217a70;
 }
 
+.alert-actions button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.force-rest-hint {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  background: rgb(31 42 46 / 7%);
+  border-radius: 6px;
+}
+
+.force-rest-time {
+  font-weight: 600;
+  color: #1f2a2e;
+}
+
+.force-rest-clicks {
+  color: #526166;
+}
+
 .settings-shell {
   min-height: 100vh;
   padding: 22px;

@@ -102,6 +102,8 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
+    forceRest:
+      typeof input.forceRest === 'boolean' ? input.forceRest : DEFAULT_SETTINGS.forceRest,
     alarms: sanitizeAlarms(input.alarms),
     todos: sanitizeTodos(input.todos)
   };

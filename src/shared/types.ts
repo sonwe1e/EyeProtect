@@ -39,6 +39,7 @@ export interface Settings {
   petPosition: PetPosition | null;
   petSkin: PetSkin;
   dimDesktop: boolean;
+  forceRest: boolean;
   alarms: Alarm[];
   todos: TodoItem[];
 }
@@ -100,6 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   petPosition: null,
   petSkin: 'stable',
   dimDesktop: true,
+  forceRest: false,
   alarms: [],
   todos: []
 };

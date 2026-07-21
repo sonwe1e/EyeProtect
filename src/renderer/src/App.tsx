@@ -133,18 +133,44 @@ function useAppState() {
   return { settings, setSettings, status, setStatus, runtime, alarms, todos };
 }
 
+const FORCE_CLICKS = 30;
+
 function PetView(): JSX.Element {
   const { settings, status, todos } = useAppState();
   const active = status.activeReminder;
   const copy = active ? reminderCopy[active.kind] : null;
   const alertClass = active ? 'is-alert' : '';
   const [firingAlarms, setFiringAlarms] = useState<Alarm[]>([]);
+  const [forceTimeLeft, setForceTimeLeft] = useState(0);
+  const [forceClicks, setForceClicks] = useState(0);
+
+  const forceActive = settings.forceRest && !!active;
+  const forceUnlocked = !forceActive || forceTimeLeft === 0 || forceClicks >= FORCE_CLICKS;
+
+  useEffect(() => {
+    if (!active || !settings.forceRest) {
+      return;
+    }
+    const dur = active.kind === 'eye' ? 30 : 60;
+    setForceTimeLeft(dur);
+    setForceClicks(0);
+    const t = window.setInterval(() => {
+      setForceTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1_000);
+    return () => window.clearInterval(t);
+  }, [active?.id, settings.forceRest]);
 
   const handleReminderDoubleClick = useCallback(() => {
-    if (active) {
+    if (active && forceUnlocked) {
       void window.eyeProtect.reminderAction('complete', active.id);
     }
-  }, [active]);
+  }, [active, forceUnlocked]);
+
+  const handleArtworkClick = useCallback(() => {
+    if (forceActive && !forceUnlocked) {
+      setForceClicks((prev) => Math.min(FORCE_CLICKS, prev + 1));
+    }
+  }, [forceActive, forceUnlocked]);
   const handleSkinSelect = useCallback((skin: PetSkin) => {
     void window.eyeProtect.saveSettings({ petSkin: skin });
   }, []);
@@ -195,7 +221,7 @@ function PetView(): JSX.Element {
       )}
 
       {active ? (
-        <ReminderArtwork active={active} onDoubleClick={handleReminderDoubleClick} />
+        <ReminderArtwork active={active} onDoubleClick={handleReminderDoubleClick} onClick={handleArtworkClick} />
       ) : (
         <div className="character-stage">
           <PetCharacter skin={settings.petSkin} onSelect={handleSkinSelect} />
@@ -220,19 +246,34 @@ function PetView(): JSX.Element {
             <h1>{copy?.title}</h1>
             <p>{copy?.detail}</p>
           </div>
+          {forceActive && !forceUnlocked ? (
+            <div className="force-rest-hint">
+              <span className="force-rest-time">
+                {forceTimeLeft > 0 ? `${forceTimeLeft} 秒后解锁` : '解锁中…'}
+              </span>
+              <span className="force-rest-clicks">点击画面 {forceClicks} / {FORCE_CLICKS} 次</span>
+            </div>
+          ) : null}
           <div className="alert-actions">
             <button
               className="primary"
+              disabled={!forceUnlocked}
               onClick={() => void window.eyeProtect.reminderAction('complete', active.id)}
             >
               <Check size={18} />
               完成
             </button>
-            <button onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}>
+            <button
+              disabled={!forceUnlocked}
+              onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}
+            >
               <Clock3 size={18} />
               稍后
             </button>
-            <button onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}>
+            <button
+              disabled={!forceUnlocked}
+              onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}
+            >
               <X size={18} />
               跳过
             </button>
@@ -303,10 +344,12 @@ function artworkFor(kind: ReminderKind): string[] {
 
 function ReminderArtwork({
   active,
-  onDoubleClick
+  onDoubleClick,
+  onClick
 }: {
   active: ActiveReminder;
   onDoubleClick: () => void;
+  onClick?: () => void;
 }): JSX.Element {
   const images = useMemo(() => artworkFor(active.kind), [active.kind]);
   const [index, setIndex] = useState(0);
@@ -327,7 +370,7 @@ function ReminderArtwork({
   const src = images[index] ?? images[0];
 
   return (
-    <div className="reminder-artwork" title="双击完成提醒" onDoubleClick={onDoubleClick}>
+    <div className="reminder-artwork" title="双击完成提醒" onDoubleClick={onDoubleClick} onClick={onClick}>
       <img src={src} alt={active.kind === 'walk' ? '走动提醒插画' : '护眼提醒插画'} draggable={false} />
     </div>
   );
@@ -763,6 +806,17 @@ function SettingsView(): JSX.Element {
             type="checkbox"
             checked={settings.startWithWindows}
             onChange={(event) => void update({ startWithWindows: event.currentTarget.checked })}
+          />
+        </label>
+        <label className="switch-row">
+          <span>
+            <strong>强制休息</strong>
+            <small>提醒出现后需等待（护眼 30 秒 / 走动 60 秒）或点击提醒画面 30 次，才能完成、稍后或跳过</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={settings.forceRest}
+            onChange={(event) => void update({ forceRest: event.currentTarget.checked })}
           />
         </label>
       </section>

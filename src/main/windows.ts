@@ -121,6 +121,7 @@ export class AppWindows {
       minHeight: 620,
       title: 'EyeProtect 设置',
       autoHideMenuBar: true,
+      skipTaskbar: true,
       backgroundColor: '#f7f2e8',
       show: false,
       webPreferences: {
