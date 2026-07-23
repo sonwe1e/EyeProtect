@@ -28,6 +28,9 @@ export interface TodoItem {
   id: string;
   text: string;
   createdAt: number;
+  completed: boolean;
+  /** Epoch ms when the item was last marked completed; cleared on un-complete. */
+  completedAt?: number;
 }
 
 export interface Settings {
@@ -39,7 +42,6 @@ export interface Settings {
   petPosition: PetPosition | null;
   petSkin: PetSkin;
   dimDesktop: boolean;
-  forceRest: boolean;
   alarms: Alarm[];
   todos: TodoItem[];
 }
@@ -49,6 +51,8 @@ export interface ActiveReminder {
   kind: ReminderKind;
   kinds: SingleReminderKind[];
   startedAt: number;
+  /** How many times this reminder cycle has been snoozed; resets on complete/skip. */
+  snoozeCount: number;
 }
 
 export interface ReminderStatus {
@@ -79,6 +83,8 @@ export interface EyeProtectApi {
   closePanel: () => Promise<void>;
   getPanelTab: () => Promise<PanelTab>;
   onPanelTab: (callback: (tab: PanelTab) => void) => () => void;
+  /** Fired when the panel lost focus to a window outside the app. */
+  onPanelBlur: (callback: () => void) => () => void;
   onSettingsChanged: (callback: (settings: Settings) => void) => () => void;
   onReminderChanged: (callback: (status: ReminderStatus) => void) => () => void;
   getAlarms: () => Promise<Alarm[]>;
@@ -88,6 +94,8 @@ export interface EyeProtectApi {
   onAlarmsChanged: (callback: (alarms: Alarm[]) => void) => () => void;
   getTodos: () => Promise<TodoItem[]>;
   addTodo: (text: string) => Promise<TodoItem[]>;
+  toggleTodo: (id: string) => Promise<TodoItem[]>;
+  updateTodo: (id: string, text: string) => Promise<TodoItem[]>;
   removeTodo: (id: string) => Promise<TodoItem[]>;
   onTodosChanged: (callback: (todos: TodoItem[]) => void) => () => void;
 }
@@ -101,7 +109,6 @@ export const DEFAULT_SETTINGS: Settings = {
   petPosition: null,
   petSkin: 'stable',
   dimDesktop: true,
-  forceRest: false,
   alarms: [],
   todos: []
 };
@@ -127,7 +134,9 @@ export const sanitizeTodo = (value: unknown): TodoItem | null => {
     return null;
   }
   const createdAt = typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now();
-  return { id: candidate.id, text: candidate.text, createdAt };
+  const completed = typeof candidate.completed === 'boolean' ? candidate.completed : false;
+  const completedAt = typeof candidate.completedAt === 'number' ? candidate.completedAt : undefined;
+  return { id: candidate.id, text: candidate.text, createdAt, completed, completedAt };
 };
 
 export const sanitizeTodos = (value: unknown): TodoItem[] => {
@@ -135,6 +144,16 @@ export const sanitizeTodos = (value: unknown): TodoItem[] => {
     return [];
   }
   return value.map((entry) => sanitizeTodo(entry)).filter((entry): entry is TodoItem => Boolean(entry));
+};
+
+/** Display order: pending items first (insertion order), then completed sunk to
+ * the bottom ordered by when they were completed. Storage stays append-only. */
+export const sortTodosForDisplay = (todos: TodoItem[]): TodoItem[] => {
+  const pending = todos.filter((todo) => !todo.completed);
+  const done = todos
+    .filter((todo) => todo.completed)
+    .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+  return [...pending, ...done];
 };
 
 export const sanitizeAlarm = (value: unknown): Alarm | null => {

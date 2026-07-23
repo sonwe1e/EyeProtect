@@ -140,6 +140,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('todo:add', (_event, text: unknown) =>
     settingsStore.addTodo(typeof text === 'string' ? text : '')
   );
+  ipcMain.handle('todo:toggle', (_event, id: unknown) =>
+    settingsStore.toggleTodo(typeof id === 'string' ? id : '')
+  );
+  ipcMain.handle('todo:update', (_event, id: unknown, text: unknown) =>
+    settingsStore.updateTodo(typeof id === 'string' ? id : '', typeof text === 'string' ? text : '')
+  );
   ipcMain.handle('todo:remove', (_event, id: string) => settingsStore.removeTodo(id));
 
   await windows.createPetWindow();

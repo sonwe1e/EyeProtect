@@ -519,7 +519,7 @@ button {
   pointer-events: none;
 }
 
-.force-rest-hint {
+.alert-wait-hint {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -530,17 +530,17 @@ button {
   border-radius: 6px;
 }
 
-.force-rest-time {
+.alert-wait-time {
   font-weight: 600;
   color: #1f2a2e;
 }
 
-.force-rest-clicks {
+.alert-wait-note {
   color: #526166;
 }
 
 .settings-shell {
-  min-height: 100vh;
+  height: 100vh;
   padding: 22px;
   overflow-y: auto;
   color: #223034;
@@ -992,47 +992,6 @@ button {
   border-color: #217a70;
 }
 
-.todo-panel {
-  position: absolute;
-  top: 10px;
-  right: 94px;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.todo-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  height: 32px;
-  color: #274247;
-  background: rgb(255 255 255 / 78%);
-  border: 1px solid rgb(31 42 46 / 14%);
-  border-radius: 8px;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 140ms ease;
-  -webkit-app-region: no-drag;
-}
-
-.pet-shell:hover .todo-tab,
-.todo-panel.is-open .todo-tab {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.todo-tab:hover {
-  background: rgb(255 255 255 / 96%);
-}
-
-.todo-tab-label {
-  font-size: 12px;
-}
-
 .todo-count {
   display: grid;
   place-items: center;
@@ -1044,33 +1003,6 @@ button {
   font-weight: 700;
   background: #c0392b;
   border-radius: 999px;
-}
-
-.todo-bubble {
-  display: none;
-  width: min(260px, calc(100vw - 24px));
-  margin-top: 4px;
-  padding: 8px;
-  color: #1f2a2e;
-  background: rgb(255 255 255 / 96%);
-  border: 1px solid rgb(31 42 46 / 14%);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 28%);
-  -webkit-app-region: no-drag;
-}
-
-.todo-panel.is-open .todo-bubble {
-  display: grid;
-  gap: 6px;
-  grid-template-rows: auto 1fr auto;
-  max-height: min(60vh, 420px);
-}
-
-.todo-bubble-title {
-  padding: 2px 4px 4px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #526166;
 }
 
 .todo-empty {
@@ -1091,6 +1023,18 @@ button {
   overflow-y: auto;
 }
 
+@keyframes todo-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .todo-item {
   display: flex;
   align-items: center;
@@ -1099,6 +1043,40 @@ button {
   background: rgb(247 248 244 / 70%);
   border-radius: 6px;
   font-size: 12px;
+  animation: todo-item-in 140ms ease;
+}
+
+.todo-item.is-done {
+  opacity: 0.55;
+}
+
+.todo-item.is-done .todo-text {
+  text-decoration: line-through;
+}
+
+.todo-toggle {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: #ffffff;
+  background: #ffffff;
+  border: 1.5px solid rgb(33 122 112 / 55%);
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.todo-toggle:hover {
+  border-color: #217a70;
+  background: rgb(33 122 112 / 10%);
+}
+
+.todo-item.is-done .todo-toggle {
+  background: #217a70;
+  border-color: #217a70;
 }
 
 .todo-text {
@@ -1107,6 +1085,18 @@ button {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  cursor: default;
+}
+
+.todo-edit-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  background: #ffffff;
+  border: 1px solid rgb(33 122 112 / 55%);
+  border-radius: 5px;
 }
 
 .todo-remove {
@@ -1128,15 +1118,34 @@ button {
   background: rgb(192 57 43 / 12%);
 }
 
+.todo-remove-confirm {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  color: #ffffff;
+  font-size: 11px;
+  background: #c0392b;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
 .todo-compose {
   display: flex;
+  flex-direction: column;
   gap: 4px;
   padding-top: 2px;
   border-top: 1px solid rgb(31 42 46 / 8%);
 }
 
+.todo-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .todo-compose input {
   flex: 1;
+  min-width: 0;
   height: 30px;
   padding: 0 8px;
   background: #ffffff;
@@ -1149,6 +1158,7 @@ button {
   place-items: center;
   width: 30px;
   height: 30px;
+  flex-shrink: 0;
   color: #217a70;
   background: rgb(33 122 112 / 10%);
   border: 1px solid rgb(33 122 112 / 30%);
@@ -1161,6 +1171,17 @@ button {
   background: #eef2ec;
   border-color: transparent;
   cursor: not-allowed;
+}
+
+.todo-hint {
+  color: #c0392b;
+  font-size: 11px;
+}
+
+.char-counter {
+  flex-shrink: 0;
+  color: #9aa6a9;
+  font-size: 10px;
 }
 
 /* Pet-window todo shortcut button (opens the dedicated panel window) */
@@ -1181,6 +1202,10 @@ button {
   opacity: 0;
   transition: opacity 140ms ease;
   -webkit-app-region: no-drag;
+}
+
+.pet-todo-tab.has-todos {
+  opacity: 0.55;
 }
 
 .pet-shell:hover .pet-todo-tab {
@@ -1270,6 +1295,14 @@ button {
   color: #1f2a2e;
 }
 
+.panel-nudge {
+  padding: 4px 12px;
+  color: #8a6d1a;
+  font-size: 11px;
+  background: rgb(240 173 78 / 14%);
+  border-bottom: 1px solid rgb(240 173 78 / 25%);
+}
+
 .panel-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -1356,6 +1389,14 @@ button {
   gap: 6px;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.bubble-item.is-done {
+  opacity: 0.5;
+}
+
+.bubble-item.is-done .bubble-text {
+  text-decoration: line-through;
 }
 
 .bubble-dot {

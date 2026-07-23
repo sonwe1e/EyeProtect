@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Clock3, Eye, Footprints, ListChecks, Pause, Play, Plus, RotateCcw, Settings as SettingsIcon, Trash2, X } from 'lucide-react';
 import {
   DEFAULT_SETTINGS,
   PET_SKINS,
   SETTINGS_LIMITS,
+  TODO_TEXT_MAX,
+  sortTodosForDisplay,
   type ActiveReminder,
   type Alarm,
   type AlarmRepeat,
@@ -133,7 +135,11 @@ function useAppState() {
   return { settings, setSettings, status, setStatus, runtime, alarms, todos };
 }
 
-const FORCE_CLICKS = 30;
+const COMPLETE_WAIT_SECONDS: Record<ReminderKind, number> = { eye: 30, walk: 60, combined: 60 };
+
+const TODO_CONFIRM_RESET_MS = 2500;
+const TODO_HINT_RESET_MS = 1800;
+const TODO_CHAR_COUNTER_FROM = 48;
 
 function PetView(): JSX.Element {
   const { settings, status, todos } = useAppState();
@@ -141,36 +147,31 @@ function PetView(): JSX.Element {
   const copy = active ? reminderCopy[active.kind] : null;
   const alertClass = active ? 'is-alert' : '';
   const [firingAlarms, setFiringAlarms] = useState<Alarm[]>([]);
-  const [forceTimeLeft, setForceTimeLeft] = useState(0);
-  const [forceClicks, setForceClicks] = useState(0);
+  const [waitSeconds, setWaitSeconds] = useState(0);
 
-  const forceActive = settings.forceRest && !!active;
-  const forceUnlocked = !forceActive || forceTimeLeft === 0 || forceClicks >= FORCE_CLICKS;
+  // 「完成」必须先等倒计时走完；「跳过」随时可用；「稍后」只对每个提醒周期的
+  // 第一次免等待，已经稍后过的提醒要像「完成」一样等完才能再点。
+  const waiting = !!active && waitSeconds > 0;
+  const completeLocked = waiting;
+  const snoozeLocked = waiting && (active?.snoozeCount ?? 0) > 0;
 
   useEffect(() => {
-    if (!active || !settings.forceRest) {
+    if (!active) {
+      setWaitSeconds(0);
       return;
     }
-    const dur = active.kind === 'eye' ? 30 : 60;
-    setForceTimeLeft(dur);
-    setForceClicks(0);
+    setWaitSeconds(COMPLETE_WAIT_SECONDS[active.kind]);
     const t = window.setInterval(() => {
-      setForceTimeLeft((prev) => Math.max(0, prev - 1));
+      setWaitSeconds((prev) => Math.max(0, prev - 1));
     }, 1_000);
     return () => window.clearInterval(t);
-  }, [active?.id, settings.forceRest]);
+  }, [active?.id]);
 
   const handleReminderDoubleClick = useCallback(() => {
-    if (active && forceUnlocked) {
+    if (active && !completeLocked) {
       void window.eyeProtect.reminderAction('complete', active.id);
     }
-  }, [active, forceUnlocked]);
-
-  const handleArtworkClick = useCallback(() => {
-    if (forceActive && !forceUnlocked) {
-      setForceClicks((prev) => Math.min(FORCE_CLICKS, prev + 1));
-    }
-  }, [forceActive, forceUnlocked]);
+  }, [active, completeLocked]);
   const handleSkinSelect = useCallback((skin: PetSkin) => {
     void window.eyeProtect.saveSettings({ petSkin: skin });
   }, []);
@@ -212,7 +213,11 @@ function PetView(): JSX.Element {
           <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openSettings()}>
             <SettingsIcon size={18} />
           </button>
-          <button className="pet-todo-tab" title="今日待办" onClick={handleOpenTodos}>
+          <button
+            className={`pet-todo-tab ${todos.length > 0 ? 'has-todos' : ''}`.trim()}
+            title="待办"
+            onClick={handleOpenTodos}
+          >
             <ListChecks size={16} />
             <span className="pet-todo-tab-label">待办</span>
             {todos.length > 0 ? <span className="todo-count">{todos.length}</span> : null}
@@ -221,7 +226,7 @@ function PetView(): JSX.Element {
       )}
 
       {active ? (
-        <ReminderArtwork active={active} onDoubleClick={handleReminderDoubleClick} onClick={handleArtworkClick} />
+        <ReminderArtwork active={active} onDoubleClick={handleReminderDoubleClick} />
       ) : (
         <div className="character-stage">
           <PetCharacter skin={settings.petSkin} onSelect={handleSkinSelect} />
@@ -246,34 +251,31 @@ function PetView(): JSX.Element {
             <h1>{copy?.title}</h1>
             <p>{copy?.detail}</p>
           </div>
-          {forceActive && !forceUnlocked ? (
-            <div className="force-rest-hint">
-              <span className="force-rest-time">
-                {forceTimeLeft > 0 ? `${forceTimeLeft} 秒后解锁` : '解锁中…'}
+          {completeLocked ? (
+            <div className="alert-wait-hint">
+              <span className="alert-wait-time">
+                {waitSeconds} 秒后{snoozeLocked ? '可「完成」或「稍后」' : '可「完成」'}
               </span>
-              <span className="force-rest-clicks">点击画面 {forceClicks} / {FORCE_CLICKS} 次</span>
+              <span className="alert-wait-note">「跳过」随时可用</span>
             </div>
           ) : null}
           <div className="alert-actions">
             <button
               className="primary"
-              disabled={!forceUnlocked}
+              disabled={completeLocked}
               onClick={() => void window.eyeProtect.reminderAction('complete', active.id)}
             >
               <Check size={18} />
               完成
             </button>
             <button
-              disabled={!forceUnlocked}
+              disabled={snoozeLocked}
               onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}
             >
               <Clock3 size={18} />
               稍后
             </button>
-            <button
-              disabled={!forceUnlocked}
-              onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}
-            >
+            <button onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}>
               <X size={18} />
               跳过
             </button>
@@ -306,7 +308,16 @@ function BubbleView(): JSX.Element {
     void window.eyeProtect.openPanel('todos');
   }, []);
 
-  const preview = todos.slice(0, 3);
+  const sorted = useMemo(() => sortTodosForDisplay(todos), [todos]);
+  const pendingCount = useMemo(() => todos.filter((todo) => !todo.completed).length, [todos]);
+
+  if (todos.length === 0) {
+    // Defense in depth: the main process hides the bubble when the list is
+    // empty, but never render a hollow card if a race ever shows it.
+    return <></>;
+  }
+
+  const preview = sorted.slice(0, 3);
   const overflow = todos.length - preview.length;
 
   return (
@@ -314,12 +325,14 @@ function BubbleView(): JSX.Element {
       <div className="bubble-card">
         <div className="bubble-title">
           <ListChecks size={13} />
-          <span>今日待办</span>
-          <span className="bubble-count">{todos.length}</span>
+          <span>待办</span>
+          <span className="bubble-count" title={`共 ${todos.length} 件，已完成 ${todos.length - pendingCount} 件`}>
+            {pendingCount}
+          </span>
         </div>
         <ul className="bubble-list">
           {preview.map((todo) => (
-            <li key={todo.id} className="bubble-item">
+            <li key={todo.id} className={`bubble-item ${todo.completed ? 'is-done' : ''}`.trim()}>
               <span className="bubble-dot" />
               <span className="bubble-text">{todo.text}</span>
             </li>
@@ -344,12 +357,10 @@ function artworkFor(kind: ReminderKind): string[] {
 
 function ReminderArtwork({
   active,
-  onDoubleClick,
-  onClick
+  onDoubleClick
 }: {
   active: ActiveReminder;
   onDoubleClick: () => void;
-  onClick?: () => void;
 }): JSX.Element {
   const images = useMemo(() => artworkFor(active.kind), [active.kind]);
   const [index, setIndex] = useState(0);
@@ -370,7 +381,7 @@ function ReminderArtwork({
   const src = images[index] ?? images[0];
 
   return (
-    <div className="reminder-artwork" title="双击完成提醒" onDoubleClick={onDoubleClick} onClick={onClick}>
+    <div className="reminder-artwork" title="双击完成提醒" onDoubleClick={onDoubleClick}>
       <img src={src} alt={active.kind === 'walk' ? '走动提醒插画' : '护眼提醒插画'} draggable={false} />
     </div>
   );
@@ -420,6 +431,9 @@ function PanelView(): JSX.Element {
   const [tab, setTab] = useState<PanelTab>('todos');
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [nudge, setNudge] = useState(false);
+  const dirtyRef = useRef(false);
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -448,8 +462,52 @@ function PanelView(): JSX.Element {
     };
   }, []);
 
+  // Smart close: when focus leaves the app entirely (main forwards panel:blur
+  // only then), close automatically unless the user is mid-composition (todo
+  // draft/edit or open alarm editor) — in that case stay open and nudge, so
+  // alt-tabbing never destroys typed input.
+  useEffect(() => {
+    const offBlur = window.eyeProtect.onPanelBlur(() => {
+      if (dirtyRef.current) {
+        setNudge(true);
+        if (nudgeTimerRef.current) {
+          clearTimeout(nudgeTimerRef.current);
+        }
+        nudgeTimerRef.current = setTimeout(() => setNudge(false), TODO_HINT_RESET_MS);
+        return;
+      }
+      void window.eyeProtect.closePanel();
+    });
+    return () => {
+      offBlur();
+      if (nudgeTimerRef.current) {
+        clearTimeout(nudgeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !dirtyRef.current) {
+        void window.eyeProtect.closePanel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty;
+  }, []);
+
   const handleAddTodo = useCallback((text: string) => {
     void window.eyeProtect.addTodo(text);
+  }, []);
+  const handleToggleTodo = useCallback((id: string) => {
+    void window.eyeProtect.toggleTodo(id);
+  }, []);
+  const handleUpdateTodo = useCallback((id: string, text: string) => {
+    void window.eyeProtect.updateTodo(id, text);
   }, []);
   const handleRemoveTodo = useCallback((id: string) => {
     void window.eyeProtect.removeTodo(id);
@@ -457,6 +515,8 @@ function PanelView(): JSX.Element {
   const handleCancelAlarm = useCallback((id: string) => {
     void window.eyeProtect.cancelAlarm(id);
   }, []);
+
+  const pendingCount = useMemo(() => todos.filter((todo) => !todo.completed).length, [todos]);
 
   return (
     <main className="panel-shell">
@@ -467,11 +527,12 @@ function PanelView(): JSX.Element {
             role="tab"
             aria-selected={tab === 'todos'}
             className={tab === 'todos' ? 'is-active' : ''}
+            title={`共 ${todos.length} 件，已完成 ${todos.length - pendingCount} 件`}
             onClick={() => setTab('todos')}
           >
             <ListChecks size={15} />
             待办
-            {todos.length > 0 ? <span className="panel-tab-count">{todos.length}</span> : null}
+            {pendingCount > 0 ? <span className="panel-tab-count">{pendingCount}</span> : null}
           </button>
           <button
             type="button"
@@ -495,11 +556,20 @@ function PanelView(): JSX.Element {
         </button>
       </header>
 
+      {nudge ? <span className="panel-nudge">有未保存内容，按 Esc 或点 × 关闭</span> : null}
+
       <div className="panel-body">
         {tab === 'todos' ? (
-          <TodoSection todos={todos} onAdd={handleAddTodo} onRemove={handleRemoveTodo} />
+          <TodoSection
+            todos={todos}
+            onAdd={handleAddTodo}
+            onToggle={handleToggleTodo}
+            onUpdate={handleUpdateTodo}
+            onRemove={handleRemoveTodo}
+            onDirtyChange={handleDirtyChange}
+          />
         ) : (
-          <AlarmSection alarms={alarms} onCancel={handleCancelAlarm} />
+          <AlarmSection alarms={alarms} onCancel={handleCancelAlarm} onDirtyChange={handleDirtyChange} />
         )}
       </div>
     </main>
@@ -508,16 +578,23 @@ function PanelView(): JSX.Element {
 
 function AlarmSection({
   alarms,
-  onCancel
+  onCancel,
+  onDirtyChange
 }: {
   alarms: Alarm[];
   onCancel: (id: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const [editorOpen, setEditorOpen] = useState(false);
   const [hour, setHour] = useState(() => new Date().getHours());
   const [minute, setMinute] = useState(() => new Date().getMinutes());
   const [label, setLabel] = useState('');
   const [repeat, setRepeat] = useState<AlarmRepeat>('once');
+
+  useEffect(() => {
+    onDirtyChange?.(editorOpen);
+    return () => onDirtyChange?.(false);
+  }, [editorOpen, onDirtyChange]);
 
   const submit = useCallback(() => {
     const clamped = clampAlarm(hour, minute);
@@ -631,60 +708,223 @@ function AlarmSection({
 function TodoSection({
   todos,
   onAdd,
-  onRemove
+  onToggle,
+  onUpdate,
+  onRemove,
+  onDirtyChange
 }: {
   todos: TodoItem[];
   onAdd: (text: string) => void;
+  onToggle: (id: string) => void;
+  onUpdate: (id: string, text: string) => void;
   onRemove: (id: string) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
+  const [hint, setHint] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const shouldScrollRef = useRef(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const sorted = useMemo(() => sortTodosForDisplay(todos), [todos]);
+  const dirty = draft.trim().length > 0 || editingId !== null;
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) {
+        clearTimeout(confirmTimerRef.current);
+      }
+      if (hintTimerRef.current) {
+        clearTimeout(hintTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (shouldScrollRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      shouldScrollRef.current = false;
+    }
+  }, [sorted.length]);
+
+  const showHint = useCallback((message: string) => {
+    setHint(message);
+    if (hintTimerRef.current) {
+      clearTimeout(hintTimerRef.current);
+    }
+    hintTimerRef.current = setTimeout(() => setHint(null), TODO_HINT_RESET_MS);
+  }, []);
 
   const submit = useCallback(
     (event: React.FormEvent) => {
       event.preventDefault();
-      if (!draft.trim()) {
+      const text = draft.trim();
+      if (!text) {
         return;
       }
-      onAdd(draft);
+      if (todos.some((todo) => !todo.completed && todo.text === text)) {
+        showHint('已有相同待办');
+        return;
+      }
+      shouldScrollRef.current = true;
+      onAdd(text);
       setDraft('');
     },
-    [draft, onAdd]
+    [draft, todos, onAdd, showHint]
+  );
+
+  const handleRemoveClick = useCallback(
+    (id: string) => {
+      if (confirmingId === id) {
+        if (confirmTimerRef.current) {
+          clearTimeout(confirmTimerRef.current);
+          confirmTimerRef.current = null;
+        }
+        setConfirmingId(null);
+        onRemove(id);
+        return;
+      }
+      setConfirmingId(id);
+      if (confirmTimerRef.current) {
+        clearTimeout(confirmTimerRef.current);
+      }
+      confirmTimerRef.current = setTimeout(() => setConfirmingId(null), TODO_CONFIRM_RESET_MS);
+    },
+    [confirmingId, onRemove]
+  );
+
+  const startEdit = useCallback((todo: TodoItem) => {
+    setEditingId(todo.id);
+    setEditText(todo.text);
+  }, []);
+
+  const commitEdit = useCallback(() => {
+    if (editingId === null) {
+      return;
+    }
+    const text = editText.trim();
+    if (text) {
+      onUpdate(editingId, text);
+    }
+    setEditingId(null);
+    setEditText('');
+  }, [editingId, editText, onUpdate]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setEditText('');
+  }, []);
+
+  const handleDraftKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      event.stopPropagation();
+      if (draft) {
+        setDraft('');
+      } else {
+        void window.eyeProtect.closePanel();
+      }
+    },
+    [draft]
   );
 
   return (
     <div className="panel-section">
-      <div className="panel-scroll">
-        {todos.length === 0 ? (
+      <div className="panel-scroll" ref={scrollRef}>
+        {sorted.length === 0 ? (
           <p className="todo-empty">还没有待办，添加一件吧。</p>
         ) : (
           <ul className="todo-list">
-            {todos.map((todo) => (
-              <li key={todo.id} className="todo-item">
-                <span className="todo-text">{todo.text}</span>
+            {sorted.map((todo) => (
+              <li key={todo.id} className={`todo-item ${todo.completed ? 'is-done' : ''}`.trim()}>
                 <button
                   type="button"
-                  className="todo-remove"
-                  title="删除"
-                  onClick={() => onRemove(todo.id)}
+                  className="todo-toggle"
+                  title={todo.completed ? '标记为未完成' : '标记为完成'}
+                  aria-pressed={todo.completed}
+                  onClick={() => onToggle(todo.id)}
                 >
-                  <Trash2 size={13} />
+                  {todo.completed ? <Check size={11} /> : null}
                 </button>
+                {editingId === todo.id ? (
+                  <input
+                    className="todo-edit-input"
+                    type="text"
+                    autoFocus
+                    value={editText}
+                    maxLength={TODO_TEXT_MAX}
+                    onChange={(event) => setEditText(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commitEdit();
+                      } else if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        cancelEdit();
+                      }
+                    }}
+                    onBlur={commitEdit}
+                  />
+                ) : (
+                  <span className="todo-text" title="双击编辑" onDoubleClick={() => startEdit(todo)}>
+                    {todo.text}
+                  </span>
+                )}
+                {confirmingId === todo.id ? (
+                  <button
+                    type="button"
+                    className="todo-remove-confirm"
+                    onClick={() => handleRemoveClick(todo.id)}
+                  >
+                    确认?
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="todo-remove"
+                    title="删除"
+                    aria-label={`删除「${todo.text}」`}
+                    onClick={() => handleRemoveClick(todo.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
       <form className="todo-compose" onSubmit={submit}>
-        <input
-          type="text"
-          placeholder="添加待办..."
-          value={draft}
-          maxLength={60}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-        />
-        <button type="submit" title="添加" disabled={!draft.trim()}>
-          <Plus size={14} />
-        </button>
+        {hint ? <span className="todo-hint">{hint}</span> : null}
+        <div className="todo-compose-row">
+          <input
+            type="text"
+            placeholder="添加待办..."
+            value={draft}
+            maxLength={TODO_TEXT_MAX}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={handleDraftKeyDown}
+          />
+          {draft.length >= TODO_CHAR_COUNTER_FROM ? (
+            <span className="char-counter">
+              {draft.length}/{TODO_TEXT_MAX}
+            </span>
+          ) : null}
+          <button type="submit" title="添加" aria-label="添加" disabled={!draft.trim()}>
+            <Plus size={14} />
+          </button>
+        </div>
       </form>
     </div>
   );
@@ -806,17 +1046,6 @@ function SettingsView(): JSX.Element {
             type="checkbox"
             checked={settings.startWithWindows}
             onChange={(event) => void update({ startWithWindows: event.currentTarget.checked })}
-          />
-        </label>
-        <label className="switch-row">
-          <span>
-            <strong>强制休息</strong>
-            <small>提醒出现后需等待（护眼 30 秒 / 走动 60 秒）或点击提醒画面 30 次，才能完成、稍后或跳过</small>
-          </span>
-          <input
-            type="checkbox"
-            checked={settings.forceRest}
-            onChange={(event) => void update({ forceRest: event.currentTarget.checked })}
           />
         </label>
       </section>

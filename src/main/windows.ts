@@ -152,6 +152,10 @@ export class AppWindows {
 
   async openPanel(tab: PanelTab): Promise<void> {
     this.panelTab = tab;
+    // The panel supersedes the bubble while open; it returns when the panel closes.
+    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
+      this.bubbleWindow.hide();
+    }
     if (this.panelWindow && !this.panelWindow.isDestroyed()) {
       this.positionPanelWindow();
       this.panelWindow.show();
@@ -182,9 +186,27 @@ export class AppWindows {
     });
 
     this.panelWindow.setAlwaysOnTop(true, 'floating');
-    this.panelWindow.on('blur', () => this.closePanel());
+    // Smart close: the renderer decides whether blur may close the panel (it
+    // stays open while a draft is being composed). Defer so the incoming
+    // focus has settled, and skip entirely when focus only moved to another
+    // app window (pet, settings) — the user is still inside the app.
+    this.panelWindow.on('blur', () => {
+      setTimeout(() => {
+        if (!this.panelWindow || this.panelWindow.isDestroyed()) {
+          return;
+        }
+        const appFocused = BrowserWindow.getAllWindows().some(
+          (window) => !window.isDestroyed() && window.isFocused()
+        );
+        if (appFocused) {
+          return;
+        }
+        this.panelWindow.webContents.send('panel:blur');
+      }, 0);
+    });
     this.panelWindow.on('closed', () => {
       this.panelWindow = null;
+      this.refreshBubble();
     });
 
     await loadRenderer(this.panelWindow, 'panel');
@@ -242,7 +264,11 @@ export class AppWindows {
     const status = this.scheduler.getStatus();
     const active = Boolean(status.activeReminder);
     const todos = this.settingsStore.get().todos;
-    const shouldShow = !active && todos.length > 0 && Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
+    const panelOpen = Boolean(
+      this.panelWindow && !this.panelWindow.isDestroyed() && this.panelWindow.isVisible()
+    );
+    const shouldShow =
+      !active && !panelOpen && todos.length > 0 && Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
 
     if (!shouldShow) {
       if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {

@@ -41,6 +41,7 @@ const api: EyeProtectApi = {
   closePanel: () => ipcRenderer.invoke('window:panel:close') as Promise<void>,
   getPanelTab: () => ipcRenderer.invoke('window:panel:tab') as Promise<PanelTab>,
   onPanelTab: (callback) => on<PanelTab>('panel:tab', callback),
+  onPanelBlur: (callback) => on<void>('panel:blur', callback),
   onSettingsChanged: (callback) => on<Settings>('settings:changed', callback),
   onReminderChanged: (callback) => on<ReminderStatus>('reminder:changed', callback),
   getAlarms: () => ipcRenderer.invoke('alarm:list') as Promise<Alarm[]>,
@@ -50,6 +51,9 @@ const api: EyeProtectApi = {
   onAlarmsChanged: (callback) => on<Alarm[]>('alarm:changed', callback),
   getTodos: () => ipcRenderer.invoke('todo:list') as Promise<TodoItem[]>,
   addTodo: (text: string) => ipcRenderer.invoke('todo:add', text) as Promise<TodoItem[]>,
+  toggleTodo: (id: string) => ipcRenderer.invoke('todo:toggle', id) as Promise<TodoItem[]>,
+  updateTodo: (id: string, text: string) =>
+    ipcRenderer.invoke('todo:update', id, text) as Promise<TodoItem[]>,
   removeTodo: (id: string) => ipcRenderer.invoke('todo:remove', id) as Promise<TodoItem[]>,
   onTodosChanged: (callback) => on<TodoItem[]>('todo:changed', callback)
 };
