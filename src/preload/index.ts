@@ -9,7 +9,8 @@ import type {
   ReminderStatus,
   RuntimeInfo,
   Settings,
-  TodoItem
+  TodoItem,
+  TodoPriority
 } from '../shared/types';
 
 interface AlarmInput {
@@ -55,6 +56,8 @@ const api: EyeProtectApi = {
   updateTodo: (id: string, text: string) =>
     ipcRenderer.invoke('todo:update', id, text) as Promise<TodoItem[]>,
   removeTodo: (id: string) => ipcRenderer.invoke('todo:remove', id) as Promise<TodoItem[]>,
+  setTodoPriority: (id: string, priority: TodoPriority) =>
+    ipcRenderer.invoke('todo:priority', id, priority) as Promise<TodoItem[]>,
   onTodosChanged: (callback) => on<TodoItem[]>('todo:changed', callback)
 };
 

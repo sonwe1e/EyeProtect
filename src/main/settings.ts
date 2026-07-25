@@ -15,6 +15,7 @@ import {
   DEFAULT_SETTINGS,
   PET_SKINS,
   SETTINGS_LIMITS,
+  TODO_PRIORITIES,
   TODO_TEXT_MAX,
   sanitizeAlarms,
   sanitizeTodos,
@@ -22,7 +23,8 @@ import {
   type PetPosition,
   type PetSkin,
   type Settings,
-  type TodoItem
+  type TodoItem,
+  type TodoPriority
 } from '../shared/types';
 
 type SettingsChangedPayload = {
@@ -160,7 +162,13 @@ export class SettingsStore extends EventEmitter {
       return this.get().todos;
     }
     const now = Date.now();
-    const todo: TodoItem = { id: randomUUID(), text, createdAt: now, completed: false };
+    const todo: TodoItem = {
+      id: randomUUID(),
+      text,
+      createdAt: now,
+      completed: false,
+      priority: 'normal'
+    };
     const previous = this.get();
     const next = sanitizeSettings({ ...previous, todos: [...previous.todos, todo] });
     this.settings = next;
@@ -218,6 +226,23 @@ export class SettingsStore extends EventEmitter {
     }
     const previous = this.get();
     const next = sanitizeSettings({ ...previous, todos: previous.todos.filter((todo) => todo.id !== id) });
+    this.settings = next;
+    this.write(next);
+    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
+    this.emit('todos-changed', this.get().todos);
+    return this.get().todos;
+  }
+
+  setTodoPriority(id: string, priority: TodoPriority): TodoItem[] {
+    if (typeof id !== 'string' || !id || !TODO_PRIORITIES.includes(priority)) {
+      return this.get().todos;
+    }
+    const previous = this.get();
+    if (!previous.todos.some((todo) => todo.id === id)) {
+      return previous.todos;
+    }
+    const todos = previous.todos.map((todo) => (todo.id === id ? { ...todo, priority } : todo));
+    const next = sanitizeSettings({ ...previous, todos });
     this.settings = next;
     this.write(next);
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);

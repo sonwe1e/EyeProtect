@@ -5,6 +5,7 @@ import {
   PET_SKINS,
   SETTINGS_LIMITS,
   TODO_TEXT_MAX,
+  nextTodoPriority,
   sortTodosForDisplay,
   type ActiveReminder,
   type Alarm,
@@ -15,7 +16,8 @@ import {
   type ReminderStatus,
   type RuntimeInfo,
   type Settings,
-  type TodoItem
+  type TodoItem,
+  type TodoPriority
 } from '../../shared/types';
 
 const DEFAULT_STATUS: ReminderStatus = {
@@ -41,6 +43,18 @@ const petSkinLabel: Record<PetSkin, string> = {
   eye: '揉眼',
   fu: '摸肚',
   sleep: '睡觉'
+};
+
+const PRIORITY_COLORS: Record<TodoPriority, string> = {
+  normal: '#8a9a8e',
+  important: '#e67e22',
+  urgent: '#c0392b'
+};
+
+const PRIORITY_LABELS: Record<TodoPriority, string> = {
+  normal: '普通',
+  important: '重要',
+  urgent: '紧急'
 };
 
 const reminderCopy: Record<ReminderKind, { title: string; detail: string; action: string }> = {
@@ -206,13 +220,7 @@ function PetView(): JSX.Element {
   return (
     <main className={shellClass} onContextMenu={handleContextMenu}>
       {active ? null : (
-        <>
-          <button className="pet-alarm" title="闹钟" onClick={handleOpenAlarms}>
-            <Clock3 size={18} />
-          </button>
-          <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openSettings()}>
-            <SettingsIcon size={18} />
-          </button>
+        <div className="pet-toolbar">
           <button
             className={`pet-todo-tab ${todos.length > 0 ? 'has-todos' : ''}`.trim()}
             title="待办"
@@ -222,7 +230,13 @@ function PetView(): JSX.Element {
             <span className="pet-todo-tab-label">待办</span>
             {todos.length > 0 ? <span className="todo-count">{todos.length}</span> : null}
           </button>
-        </>
+          <button className="pet-alarm" title="闹钟" onClick={handleOpenAlarms}>
+            <Clock3 size={18} />
+          </button>
+          <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openSettings()}>
+            <SettingsIcon size={18} />
+          </button>
+        </div>
       )}
 
       {active ? (
@@ -333,7 +347,7 @@ function BubbleView(): JSX.Element {
         <ul className="bubble-list">
           {preview.map((todo) => (
             <li key={todo.id} className={`bubble-item ${todo.completed ? 'is-done' : ''}`.trim()}>
-              <span className="bubble-dot" />
+              <span className="bubble-dot" style={{ background: PRIORITY_COLORS[todo.priority] }} />
               <span className="bubble-text">{todo.text}</span>
             </li>
           ))}
@@ -389,7 +403,7 @@ function ReminderArtwork({
 
 function PetCharacter({ skin, onSelect }: { skin: PetSkin; onSelect: (skin: PetSkin) => void }): JSX.Element {
   return (
-    <div className="pet-character" aria-label="EyeProtect 桌宠" title="按住拖动位置">
+    <div className={`pet-character skin-${skin}`} aria-label="EyeProtect 桌宠" title="按住拖动位置">
       <img src={petArtwork[skin]} alt="EyeProtect 桌宠" draggable={false} />
       <SkinPicker current={skin} onSelect={onSelect} />
     </div>
@@ -512,6 +526,9 @@ function PanelView(): JSX.Element {
   const handleRemoveTodo = useCallback((id: string) => {
     void window.eyeProtect.removeTodo(id);
   }, []);
+  const handleSetTodoPriority = useCallback((id: string, priority: TodoPriority) => {
+    void window.eyeProtect.setTodoPriority(id, priority);
+  }, []);
   const handleCancelAlarm = useCallback((id: string) => {
     void window.eyeProtect.cancelAlarm(id);
   }, []);
@@ -566,6 +583,7 @@ function PanelView(): JSX.Element {
             onToggle={handleToggleTodo}
             onUpdate={handleUpdateTodo}
             onRemove={handleRemoveTodo}
+            onPriorityChange={handleSetTodoPriority}
             onDirtyChange={handleDirtyChange}
           />
         ) : (
@@ -711,6 +729,7 @@ function TodoSection({
   onToggle,
   onUpdate,
   onRemove,
+  onPriorityChange,
   onDirtyChange
 }: {
   todos: TodoItem[];
@@ -718,6 +737,7 @@ function TodoSection({
   onToggle: (id: string) => void;
   onUpdate: (id: string, text: string) => void;
   onRemove: (id: string) => void;
+  onPriorityChange: (id: string, priority: TodoPriority) => void;
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
@@ -850,6 +870,14 @@ function TodoSection({
               <li key={todo.id} className={`todo-item ${todo.completed ? 'is-done' : ''}`.trim()}>
                 <button
                   type="button"
+                  className="todo-priority-dot"
+                  style={{ background: PRIORITY_COLORS[todo.priority] }}
+                  title={`优先级：${PRIORITY_LABELS[todo.priority]}（点击切换）`}
+                  aria-label={`优先级：${PRIORITY_LABELS[todo.priority]}`}
+                  onClick={() => onPriorityChange(todo.id, nextTodoPriority(todo.priority))}
+                />
+                <button
+                  type="button"
                   className="todo-toggle"
                   title={todo.completed ? '标记为未完成' : '标记为完成'}
                   aria-pressed={todo.completed}
@@ -877,7 +905,11 @@ function TodoSection({
                     onBlur={commitEdit}
                   />
                 ) : (
-                  <span className="todo-text" title="双击编辑" onDoubleClick={() => startEdit(todo)}>
+                  <span
+                    className="todo-text"
+                    title={`${todo.text}（双击编辑）`}
+                    onDoubleClick={() => startEdit(todo)}
+                  >
                     {todo.text}
                   </span>
                 )}

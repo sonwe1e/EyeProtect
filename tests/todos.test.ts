@@ -4,7 +4,13 @@ import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SettingsStore } from '../src/main/settings';
-import { TODO_TEXT_MAX, sanitizeTodos, sortTodosForDisplay, type TodoItem } from '../src/shared/types';
+import {
+  TODO_TEXT_MAX,
+  nextTodoPriority,
+  sanitizeTodos,
+  sortTodosForDisplay,
+  type TodoItem
+} from '../src/shared/types';
 
 const withTempStore = (fn: (store: SettingsStore) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-t-'));
@@ -69,17 +75,61 @@ test('sanitizeTodos keeps completed state and timestamp', () => {
   assert.equal(result[0].completedAt, 99);
 });
 
-test('sortTodosForDisplay keeps pending in insertion order and sinks completed by completedAt', () => {
+test('sanitizeTodos defaults missing priority to normal for legacy entries', () => {
+  const result = sanitizeTodos([{ id: 'a', text: 'legacy', createdAt: 1 }]);
+
+  assert.equal(result[0].priority, 'normal');
+});
+
+test('sanitizeTodos coerces invalid priority values to normal', () => {
+  const result = sanitizeTodos([
+    { id: 'a', text: 'x', createdAt: 1, priority: 'bogus' },
+    { id: 'b', text: 'y', createdAt: 2, priority: 42 }
+  ]);
+
+  assert.equal(result[0].priority, 'normal');
+  assert.equal(result[1].priority, 'normal');
+});
+
+test('sanitizeTodos preserves valid priority values', () => {
+  const result = sanitizeTodos([
+    { id: 'a', text: 'x', createdAt: 1, priority: 'urgent' },
+    { id: 'b', text: 'y', createdAt: 2, priority: 'important' }
+  ]);
+
+  assert.equal(result[0].priority, 'urgent');
+  assert.equal(result[1].priority, 'important');
+});
+
+test('sortTodosForDisplay keeps equal-priority pending in insertion order and sinks completed by completedAt', () => {
   const todos: TodoItem[] = [
-    { id: '1', text: '早完成的', createdAt: 1, completed: true, completedAt: 100 },
-    { id: '2', text: '未完成甲', createdAt: 2, completed: false },
-    { id: '3', text: '晚完成的', createdAt: 3, completed: true, completedAt: 300 },
-    { id: '4', text: '未完成乙', createdAt: 4, completed: false },
-    { id: '5', text: '无时间戳', createdAt: 5, completed: true }
+    { id: '1', text: '早完成的', createdAt: 1, completed: true, completedAt: 100, priority: 'normal' },
+    { id: '2', text: '未完成甲', createdAt: 2, completed: false, priority: 'normal' },
+    { id: '3', text: '晚完成的', createdAt: 3, completed: true, completedAt: 300, priority: 'normal' },
+    { id: '4', text: '未完成乙', createdAt: 4, completed: false, priority: 'normal' },
+    { id: '5', text: '无时间戳', createdAt: 5, completed: true, priority: 'normal' }
   ];
 
   const sorted = sortTodosForDisplay(todos);
   assert.deepEqual(sorted.map((todo) => todo.id), ['2', '4', '5', '1', '3']);
+});
+
+test('sortTodosForDisplay sorts pending by priority (urgent first), then createdAt', () => {
+  const todos: TodoItem[] = [
+    { id: '1', text: '普通-旧', createdAt: 1, completed: false, priority: 'normal' },
+    { id: '2', text: '紧急-新', createdAt: 10, completed: false, priority: 'urgent' },
+    { id: '3', text: '重要', createdAt: 5, completed: false, priority: 'important' },
+    { id: '4', text: '紧急-旧', createdAt: 3, completed: false, priority: 'urgent' }
+  ];
+
+  const sorted = sortTodosForDisplay(todos);
+  assert.deepEqual(sorted.map((todo) => todo.id), ['4', '2', '3', '1']);
+});
+
+test('nextTodoPriority cycles normal → important → urgent → normal', () => {
+  assert.equal(nextTodoPriority('normal'), 'important');
+  assert.equal(nextTodoPriority('important'), 'urgent');
+  assert.equal(nextTodoPriority('urgent'), 'normal');
 });
 
 test('addTodo and removeTodo emit todos-changed carrying the current list', () => {
@@ -93,6 +143,7 @@ test('addTodo and removeTodo emit todos-changed carrying the current list', () =
     assert.equal(events[0].length, 1);
     assert.equal(events[0][0].text, 'first');
     assert.equal(events[0][0].completed, false);
+    assert.equal(events[0][0].priority, 'normal', 'new todos default to normal priority');
 
     store.removeTodo(created[0].id);
     assert.equal(events.length, 2, 'removeTodo emits todos-changed once more');
@@ -159,6 +210,39 @@ test('updateTodo ignores empty text and unknown ids without emitting', () => {
 
     assert.equal(store.updateTodo(todo.id, '   ')[0].text, 'keep');
     assert.equal(store.updateTodo('nope', 'text').length, 1);
+    assert.equal(events.length, 0);
+  });
+});
+
+test('setTodoPriority updates the priority and emits todos-changed', () => {
+  withTempStore((store) => {
+    const events: TodoItem[][] = [];
+    store.on('todos-changed', (todos) => events.push(todos));
+
+    const [todo] = store.addTodo('prioritize me');
+    assert.equal(todo.priority, 'normal');
+
+    const updated = store.setTodoPriority(todo.id, 'urgent');
+    assert.equal(updated[0].priority, 'urgent');
+    assert.equal(events.length, 2, 'addTodo + setTodoPriority each emit once');
+    assert.deepEqual(events[1], updated);
+  });
+});
+
+test('setTodoPriority with an unknown id or invalid priority is a silent no-op', () => {
+  withTempStore((store) => {
+    store.addTodo('keep');
+    const events: TodoItem[][] = [];
+    store.on('todos-changed', (todos) => events.push(todos));
+
+    const afterUnknown = store.setTodoPriority('nope', 'urgent');
+    assert.equal(afterUnknown[0].priority, 'normal');
+
+    const afterInvalid = store.setTodoPriority(
+      afterUnknown[0].id,
+      'bogus' as unknown as Parameters<SettingsStore['setTodoPriority']>[1]
+    );
+    assert.equal(afterInvalid[0].priority, 'normal');
     assert.equal(events.length, 0);
   });
 });
