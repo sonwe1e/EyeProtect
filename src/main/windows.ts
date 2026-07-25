@@ -65,7 +65,14 @@ export class AppWindows {
 
     const settings = this.settingsStore.get();
     const size = this.getIdlePetSize(settings);
-    const bounds = this.getInitialPetBounds(size.width, size.height, settings, screen.getPrimaryDisplay().workArea);
+    // Clamp against the display nearest the saved position, not the primary
+    // display: users who park the pet on a secondary monitor expect it (and
+    // the todo bubble anchored to it) to restore there after a restart.
+    const savedPosition = settings.petPosition;
+    const display = savedPosition
+      ? screen.getDisplayNearestPoint(savedPosition)
+      : screen.getPrimaryDisplay();
+    const bounds = this.getInitialPetBounds(size.width, size.height, settings, display.workArea);
 
     this.petWindow = new BrowserWindow({
       ...bounds,
@@ -277,13 +284,28 @@ export class AppWindows {
       return;
     }
 
-    void this.ensureBubbleWindow().then(() => {
-      if (!this.bubbleWindow || this.bubbleWindow.isDestroyed()) {
-        return;
-      }
-      this.positionBubbleWindow();
-      this.bubbleWindow.showInactive();
-    });
+    void this.ensureBubbleWindow()
+      .then(() => {
+        if (!this.bubbleWindow || this.bubbleWindow.isDestroyed()) {
+          return;
+        }
+        this.positionBubbleWindow();
+        // show(), not showInactive(): the window is focusable:false so it
+        // cannot steal focus, and showInactive() on a transparent
+        // non-focusable window sometimes never paints on Windows (esp. at
+        // non-100% DPI scaling).
+        this.bubbleWindow.show();
+        this.bubbleWindow.webContents.invalidate();
+      })
+      .catch((error: unknown) => {
+        // Creation failed (renderer load error etc.) — drop the window so
+        // the next refreshBubble() retries instead of silently never showing.
+        console.error('[bubble] failed to create bubble window:', error);
+        if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
+          this.bubbleWindow.destroy();
+        }
+        this.bubbleWindow = null;
+      });
   }
 
   broadcastSettings(settings: Settings): void {

@@ -1,6 +1,16 @@
 export type ReminderKind = 'eye' | 'walk' | 'combined';
 export type SingleReminderKind = Exclude<ReminderKind, 'combined'>;
 export type ReminderAction = 'complete' | 'snooze' | 'skip';
+export type TodoPriority = 'normal' | 'important' | 'urgent';
+
+export const TODO_PRIORITIES: TodoPriority[] = ['normal', 'important', 'urgent'];
+
+/** Cycle helper for the priority dot: 普通 → 重要 → 紧急 → 普通. */
+export const nextTodoPriority = (current: TodoPriority): TodoPriority => {
+  const index = TODO_PRIORITIES.indexOf(current);
+  return TODO_PRIORITIES[(index + 1) % TODO_PRIORITIES.length];
+};
+
 export type PetSkin = 'stable' | 'eye' | 'fu' | 'sleep';
 
 export const PET_SKINS: PetSkin[] = ['stable', 'eye', 'fu', 'sleep'];
@@ -31,6 +41,8 @@ export interface TodoItem {
   completed: boolean;
   /** Epoch ms when the item was last marked completed; cleared on un-complete. */
   completedAt?: number;
+  /** Display priority; higher levels sort first. Defaults to 'normal'. */
+  priority: TodoPriority;
 }
 
 export interface Settings {
@@ -97,6 +109,7 @@ export interface EyeProtectApi {
   toggleTodo: (id: string) => Promise<TodoItem[]>;
   updateTodo: (id: string, text: string) => Promise<TodoItem[]>;
   removeTodo: (id: string) => Promise<TodoItem[]>;
+  setTodoPriority: (id: string, priority: TodoPriority) => Promise<TodoItem[]>;
   onTodosChanged: (callback: (todos: TodoItem[]) => void) => () => void;
 }
 
@@ -136,7 +149,9 @@ export const sanitizeTodo = (value: unknown): TodoItem | null => {
   const createdAt = typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now();
   const completed = typeof candidate.completed === 'boolean' ? candidate.completed : false;
   const completedAt = typeof candidate.completedAt === 'number' ? candidate.completedAt : undefined;
-  return { id: candidate.id, text: candidate.text, createdAt, completed, completedAt };
+  const priority: TodoPriority =
+    candidate.priority === 'important' || candidate.priority === 'urgent' ? candidate.priority : 'normal';
+  return { id: candidate.id, text: candidate.text, createdAt, completed, completedAt, priority };
 };
 
 export const sanitizeTodos = (value: unknown): TodoItem[] => {
@@ -146,10 +161,17 @@ export const sanitizeTodos = (value: unknown): TodoItem[] => {
   return value.map((entry) => sanitizeTodo(entry)).filter((entry): entry is TodoItem => Boolean(entry));
 };
 
-/** Display order: pending items first (insertion order), then completed sunk to
- * the bottom ordered by when they were completed. Storage stays append-only. */
+const PRIORITY_RANK: Record<TodoPriority, number> = { urgent: 0, important: 1, normal: 2 };
+
+/** Display order: pending items first (higher priority first, then insertion
+ * order), then completed sunk to the bottom ordered by when they were
+ * completed. Storage stays append-only. */
 export const sortTodosForDisplay = (todos: TodoItem[]): TodoItem[] => {
-  const pending = todos.filter((todo) => !todo.completed);
+  const pending = todos
+    .filter((todo) => !todo.completed)
+    .sort(
+      (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt - b.createdAt
+    );
   const done = todos
     .filter((todo) => todo.completed)
     .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));

@@ -34,6 +34,18 @@ button {
   cursor: pointer;
 }
 
+/* These windows are mouse-driven desktop widgets: suppress the default
+   Chromium focus ring on click, but keep a themed ring for keyboard nav. */
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible) {
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid rgb(33 122 112 / 50%);
+  outline-offset: 1px;
+}
+
 .pet-shell {
   position: relative;
   width: 100vw;
@@ -54,48 +66,60 @@ button {
   -webkit-app-region: no-drag;
 }
 
-.pet-gear {
+/* Idle pet toolbar: sized in vw because the idle window is exactly
+   160 × petScale px wide, so vw tracks the user's scale setting and the
+   buttons never overflow the window. Not rendered in alert mode. */
+.pet-toolbar {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 4.375vw;
+  right: 4.375vw;
   z-index: 5;
+  display: flex;
+  gap: 3.125vw;
+  -webkit-app-region: no-drag;
+}
+
+.pet-toolbar svg {
+  width: 56.25%;
+  height: 56.25%;
+}
+
+.pet-toolbar .pet-todo-tab svg {
+  width: 50%;
+  height: 50%;
+}
+
+.pet-gear {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 20vw;
+  height: 20vw;
   place-items: center;
   color: #274247;
   background: rgb(255 255 255 / 78%);
   border: 1px solid rgb(31 42 46 / 14%);
   border-radius: 8px;
   opacity: 0;
-  transition: opacity 140ms ease;
+  transition: opacity 140ms ease, transform 140ms ease;
 }
 
-.pet-shell:hover .pet-gear,
-.pet-shell.is-alert .pet-gear {
+.pet-shell:hover .pet-gear {
   opacity: 1;
 }
 
 .pet-alarm {
-  position: absolute;
-  top: 10px;
-  right: 52px;
-  z-index: 5;
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 20vw;
+  height: 20vw;
   place-items: center;
   color: #274247;
   background: rgb(255 255 255 / 78%);
   border: 1px solid rgb(31 42 46 / 14%);
   border-radius: 8px;
   opacity: 0;
-  transition: opacity 140ms ease;
-  -webkit-app-region: no-drag;
+  transition: opacity 140ms ease, transform 140ms ease;
 }
 
-.pet-shell:hover .pet-alarm,
-.pet-shell.is-alert .pet-alarm {
+.pet-shell:hover .pet-alarm {
   opacity: 1;
 }
 
@@ -121,6 +145,63 @@ button {
   user-select: none;
   pointer-events: none;
   -webkit-user-drag: none;
+  transform-origin: 50% 75%;
+  animation: pet-idle-sway 3.4s ease-in-out infinite;
+}
+
+.pet-character.skin-eye img {
+  animation-duration: 2.6s;
+}
+
+.pet-character.skin-fu img {
+  animation-name: pet-idle-wobble;
+  animation-duration: 3.2s;
+}
+
+.pet-character.skin-sleep img {
+  animation-name: pet-idle-breath;
+  animation-duration: 5s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-character img {
+    animation: none;
+  }
+}
+
+/* Rotation reads far better than translation at 160px — every skin gets a
+   visible motion signature, at its own pace. */
+@keyframes pet-idle-sway {
+  0%,
+  100% {
+    transform: translateY(1px) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(1.2deg);
+  }
+}
+
+@keyframes pet-idle-wobble {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-2px) rotate(-1.5deg);
+  }
+  75% {
+    transform: translateY(-2px) rotate(1.5deg);
+  }
+}
+
+@keyframes pet-idle-breath {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.035);
+  }
 }
 
 .skin-picker {
@@ -129,12 +210,12 @@ button {
   bottom: 2%;
   z-index: 4;
   display: flex;
-  gap: 6px;
-  padding: 5px 7px;
+  gap: 3.75vw;
+  padding: 3.125vw 4.375vw;
   background: rgb(255 255 255 / 88%);
   border: 1px solid rgb(31 42 46 / 14%);
   border-radius: 999px;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  box-shadow: 0 3.75vw 11.25vw rgb(0 0 0 / 18%);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 4px);
@@ -152,8 +233,8 @@ button {
 .skin-thumb {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 17.5vw;
+  height: 17.5vw;
   padding: 0;
   background: rgb(247 248 244 / 92%);
   border: 1px solid rgb(31 42 46 / 18%);
@@ -201,230 +282,6 @@ button {
   height: 100%;
   object-fit: contain;
   user-select: none;
-}
-
-.character {
-  position: relative;
-  display: block;
-  width: 148px;
-  height: 112px;
-  cursor: grab;
-  pointer-events: auto;
-}
-
-.rive-character canvas {
-  width: 100%;
-  height: 100%;
-}
-
-.css-character {
-  transform-origin: 50% 75%;
-  animation: frog-idle-bob 2.8s ease-in-out infinite;
-}
-
-.pet-aura {
-  position: absolute;
-  left: 50%;
-  bottom: 5%;
-  width: 78%;
-  height: 16%;
-  border-radius: 50%;
-  background: rgb(0 0 0 / 14%);
-  filter: blur(1px);
-  transform: translateX(-50%);
-  animation: frog-shadow 2.8s ease-in-out infinite;
-}
-
-.pet-body {
-  position: absolute;
-  top: 45%;
-  left: 50%;
-  z-index: 2;
-  width: 82%;
-  height: 56%;
-  border: max(4px, 0.035em) solid #10241f;
-  border-radius: 48% 50% 44% 46% / 56% 58% 38% 42%;
-  background:
-    radial-gradient(ellipse at 28% 24%, rgb(255 255 255 / 32%) 0 12%, transparent 13%),
-    radial-gradient(ellipse at 50% 86%, #c8f68e 0 33%, transparent 34%),
-    linear-gradient(180deg, #68d969 0%, #43bd55 62%, #2e9f49 100%);
-  box-shadow:
-    inset -9px -11px 0 rgb(20 91 52 / 24%),
-    inset 8px 8px 0 rgb(255 255 255 / 18%);
-  transform: translate(-50%, -50%);
-}
-
-.pet-highlight {
-  position: absolute;
-  top: 15%;
-  left: 20%;
-  width: 30%;
-  height: 13%;
-  background: rgb(255 255 255 / 22%);
-  border-radius: 50%;
-  transform: rotate(-10deg);
-}
-
-.pet-belly {
-  position: absolute;
-  left: 50%;
-  bottom: 3%;
-  width: 46%;
-  height: 43%;
-  background: #bff18b;
-  border: 3px solid rgb(16 36 31 / 70%);
-  border-radius: 50% 50% 42% 42%;
-  transform: translateX(-50%);
-}
-
-.pet-spot {
-  position: absolute;
-  width: 8%;
-  height: 9%;
-  background: #267b42;
-  border-radius: 50%;
-  opacity: 0.72;
-}
-
-.pet-spot-left {
-  top: 37%;
-  left: 19%;
-}
-
-.pet-spot-right {
-  top: 28%;
-  right: 21%;
-}
-
-.pet-cheek {
-  position: absolute;
-  top: 44%;
-  width: 12%;
-  height: 10%;
-  background: rgb(244 118 116 / 42%);
-  border-radius: 50%;
-}
-
-.pet-cheek-left {
-  left: 18%;
-}
-
-.pet-cheek-right {
-  right: 18%;
-}
-
-.pet-eye-stalk {
-  position: absolute;
-  top: 12%;
-  z-index: 3;
-  display: block;
-  width: 24%;
-  height: 48%;
-  transform-origin: 50% 100%;
-}
-
-.pet-eye {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 74%;
-  height: 58%;
-  background: #f5fff0;
-  border: max(4px, 0.035em) solid #10241f;
-  border-radius: 50%;
-  overflow: hidden;
-  transform: translateX(-50%);
-}
-
-.pet-eye-stalk::after {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  width: 30%;
-  height: 64%;
-  background: #43bd55;
-  border-right: max(3px, 0.025em) solid #10241f;
-  border-left: max(3px, 0.025em) solid #10241f;
-  content: "";
-  transform: translateX(-50%);
-}
-
-.pet-pupil {
-  position: absolute;
-  top: 24%;
-  left: 50%;
-  width: 28%;
-  height: 46%;
-  background: #10241f;
-  border-radius: 999px;
-  transform: translateX(-50%);
-}
-
-.pet-eye-stalk-left {
-  left: 22%;
-  --eye-angle: -8deg;
-  transform: rotate(-8deg);
-}
-
-.pet-eye-stalk-right {
-  right: 22%;
-  --eye-angle: 8deg;
-  transform: rotate(8deg);
-}
-
-.pet-mouth {
-  position: absolute;
-  left: 50%;
-  top: 53%;
-  width: 22%;
-  height: 12%;
-  border-bottom: max(3px, 0.025em) solid #10241f;
-  border-radius: 0 0 999px 999px;
-  transform: translateX(-50%);
-}
-
-.pet-leg,
-.pet-foot {
-  position: absolute;
-  display: block;
-  z-index: 1;
-  background: #35a84f;
-  border: max(4px, 0.035em) solid #10241f;
-}
-
-.pet-leg {
-  bottom: 13%;
-  width: 30%;
-  height: 20%;
-  border-radius: 999px;
-  transform-origin: 50% 0;
-}
-
-.pet-leg-left {
-  left: 8%;
-  transform: rotate(22deg);
-}
-
-.pet-leg-right {
-  right: 8%;
-  transform: rotate(-22deg);
-}
-
-.pet-foot {
-  bottom: 0;
-  width: 30%;
-  height: 14%;
-  border-radius: 999px 999px 46% 46%;
-}
-
-.pet-foot-left {
-  left: 5%;
-  transform: rotate(8deg);
-}
-
-.pet-foot-right {
-  right: 5%;
-  transform: rotate(-8deg);
 }
 
 .alert-panel {
@@ -707,28 +564,6 @@ button {
   padding-bottom: 4px;
 }
 
-@keyframes frog-idle-bob {
-  0%,
-  100% {
-    transform: translateY(3px) rotate(-1deg);
-  }
-  50% {
-    transform: translateY(-5px) rotate(1deg);
-  }
-}
-
-@keyframes frog-shadow {
-  0%,
-  100% {
-    transform: translateX(-50%) scaleX(0.92);
-    opacity: 0.64;
-  }
-  50% {
-    transform: translateX(-50%) scaleX(1.08);
-    opacity: 0.42;
-  }
-}
-
 @keyframes eyealarm-buzz {
   0% {
     transform: rotate(-14deg);
@@ -992,14 +827,16 @@ button {
   border-color: #217a70;
 }
 
+/* Badge inside .pet-todo-tab — vw so it scales with the idle window
+   (the panel/bubble badges use their own .panel-tab-count/.bubble-count). */
 .todo-count {
   display: grid;
   place-items: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: 10vw;
+  height: 10vw;
+  padding: 0 2.5vw;
   color: #ffffff;
-  font-size: 10px;
+  font-size: 6.25vw;
   font-weight: 700;
   background: #c0392b;
   border-radius: 999px;
@@ -1042,7 +879,7 @@ button {
   padding: 4px 6px;
   background: rgb(247 248 244 / 70%);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 11px;
   animation: todo-item-in 140ms ease;
 }
 
@@ -1074,9 +911,31 @@ button {
   background: rgb(33 122 112 / 10%);
 }
 
+.todo-toggle:active {
+  transform: scale(0.9);
+}
+
 .todo-item.is-done .todo-toggle {
   background: #217a70;
   border-color: #217a70;
+}
+
+/* Priority dot: click cycles 普通 → 重要 → 紧急; color set inline per level. */
+.todo-priority-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  background: #8a9a8e;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.todo-priority-dot:hover {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 10%);
 }
 
 .todo-text {
@@ -1093,7 +952,7 @@ button {
   min-width: 0;
   height: 22px;
   padding: 0 6px;
-  font-size: 12px;
+  font-size: 11px;
   background: #ffffff;
   border: 1px solid rgb(33 122 112 / 55%);
   border-radius: 5px;
@@ -1118,6 +977,10 @@ button {
   background: rgb(192 57 43 / 12%);
 }
 
+.todo-remove:active {
+  transform: scale(0.9);
+}
+
 .todo-remove-confirm {
   flex-shrink: 0;
   padding: 2px 7px;
@@ -1127,6 +990,14 @@ button {
   border: 0;
   border-radius: 5px;
   cursor: pointer;
+}
+
+.todo-remove-confirm:hover {
+  background: #a93226;
+}
+
+.todo-remove-confirm:active {
+  background: #922b21;
 }
 
 .todo-compose {
@@ -1151,6 +1022,13 @@ button {
   background: #ffffff;
   border: 1px solid rgb(31 42 46 / 16%);
   border-radius: 6px;
+}
+
+.todo-edit-input:focus,
+.todo-compose input:focus {
+  outline: none;
+  border-color: #217a70;
+  box-shadow: 0 0 0 2px rgb(33 122 112 / 20%);
 }
 
 .todo-compose button {
@@ -1184,23 +1062,21 @@ button {
   font-size: 10px;
 }
 
-/* Pet-window todo shortcut button (opens the dedicated panel window) */
+/* Pet-window todo shortcut button (opens the dedicated panel window).
+   Sits in .pet-toolbar; vw sizing keeps the whole row inside the idle
+   window even at petScale 0.7 and even with a two-digit count badge. */
 .pet-todo-tab {
-  position: absolute;
-  top: 10px;
-  right: 94px;
-  z-index: 5;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 10px;
+  gap: 2.5vw;
+  height: 20vw;
+  padding: 0 3.125vw;
   color: #274247;
   background: rgb(255 255 255 / 78%);
   border: 1px solid rgb(31 42 46 / 14%);
   border-radius: 8px;
   opacity: 0;
-  transition: opacity 140ms ease;
+  transition: opacity 140ms ease, transform 140ms ease;
   -webkit-app-region: no-drag;
 }
 
@@ -1213,7 +1089,14 @@ button {
 }
 
 .pet-todo-tab-label {
-  font-size: 12px;
+  font-size: 7.5vw;
+  white-space: nowrap;
+}
+
+.pet-gear:active,
+.pet-alarm:active,
+.pet-todo-tab:active {
+  transform: scale(0.92);
 }
 
 /* Dedicated alarms/todos panel window (#panel route) */
@@ -1336,6 +1219,9 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* No box-shadow: the bubble lives in a transparent frameless window, so any
+   shadow paints a dark halo directly onto the desktop. The stronger border
+   keeps edge definition instead. */
 .bubble-card {
   display: flex;
   flex-direction: column;
@@ -1343,9 +1229,8 @@ button {
   padding: 9px 11px;
   color: #1f2a2e;
   background: rgb(255 255 255 / 98%);
-  border: 1px solid rgb(31 42 46 / 12%);
+  border: 1px solid rgb(31 42 46 / 18%);
   border-radius: 12px;
-  box-shadow: 0 10px 28px rgb(0 0 0 / 26%);
 }
 
 .bubble-shell:hover .bubble-card {
@@ -1403,7 +1288,7 @@ button {
   flex-shrink: 0;
   width: 5px;
   height: 5px;
-  background: #217a70;
+  background: #8a9a8e;
   border-radius: 50%;
 }
 
@@ -1427,7 +1312,7 @@ button {
   margin-left: 22px;
   margin-top: -7px;
   background: rgb(255 255 255 / 98%);
-  border-right: 1px solid rgb(31 42 46 / 12%);
-  border-bottom: 1px solid rgb(31 42 46 / 12%);
+  border-right: 1px solid rgb(31 42 46 / 18%);
+  border-bottom: 1px solid rgb(31 42 46 / 18%);
   transform: rotate(45deg);
 }

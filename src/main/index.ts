@@ -147,6 +147,12 @@ app.whenReady().then(async () => {
     settingsStore.updateTodo(typeof id === 'string' ? id : '', typeof text === 'string' ? text : '')
   );
   ipcMain.handle('todo:remove', (_event, id: string) => settingsStore.removeTodo(id));
+  ipcMain.handle('todo:priority', (_event, id: unknown, priority: unknown) =>
+    settingsStore.setTodoPriority(
+      typeof id === 'string' ? id : '',
+      priority === 'important' || priority === 'urgent' || priority === 'normal' ? priority : 'normal'
+    )
+  );
 
   await windows.createPetWindow();
   createTray(windows, scheduler);
