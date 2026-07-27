@@ -9,9 +9,9 @@ EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、
 - `src/main/`：Electron 主进程代码，负责应用生命周期、托盘、窗口、IPC、提醒调度、设置读写和开机自启。
 - `src/preload/`：预加载脚本，通过 `contextBridge` 把安全 API 暴露给 React 渲染端。
 - `src/shared/`：主进程、preload、renderer 共用的类型、默认设置和设置范围。
-- `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 包含桌宠界面与设置界面，`styles.css` 包含布局、颜色、CSS 桌宠和动画。
-- `tests/`：Node 内置 test runner 测试，目前主要覆盖提醒调度逻辑。
-- `public/assets/`：静态资源。`tray-icon.png` 是托盘图标，`character.riv` 是可选 Rive 桌宠资源。
+- `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放待办、闹钟、提醒和桌宠组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌。
+- `tests/`：Node 内置 test runner 测试，覆盖提醒调度、运行状态恢复、系统生命周期、闹钟、设置事件和 IPC 页面白名单。
+- `public/assets/`：静态资源。`tray-icon.png` 是托盘图标，`pet/` 和 `reminders/` 分别保存桌宠与提醒图片。
 - `out/`、`release/`、`node_modules/`：构建产物、发行产物和依赖目录，通常不要手动修改。
 
 ## 功能修改位置速查
@@ -19,16 +19,16 @@ EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、
 | 要修改的功能 | 主要修改文件 | 注意事项 |
 | --- | --- | --- |
 | 护眼/走动提醒间隔、稍后、完成、跳过、暂停、合并提醒逻辑 | `src/main/reminders.ts` | 同步补充 `tests/reminders.test.ts`。重点覆盖真实提醒与测试提醒是否会重置日程。 |
-| 新增或调整设置项、默认值、取值范围 | `src/shared/types.ts`、`src/main/settings.ts`、`src/renderer/src/App.tsx` | 类型、清洗逻辑、UI 控件必须一起更新。 |
+| 新增或调整设置项、默认值、取值范围 | `src/shared/types.ts`、`src/main/settings.ts`、`src/renderer/src/views/SettingsView.tsx` | 类型、清洗逻辑、UI 控件必须一起更新。 |
 | 设置文件读取、写入、容错、保存目录 | `src/main/settings.ts` | 默认目录由 `getDataDir()` 决定；不要把本地 `data/settings.json` 提交为源码。 |
 | 开机自启 | `src/main/settings.ts` | 修改 `syncStartupShortcut()`；它只在 packaged 模式下写入 Windows Startup 快捷方式。 |
 | 系统托盘菜单、单实例锁、退出行为 | `src/main/index.ts` | 托盘菜单在 `createTray()` 中；IPC handler 也在这里注册。 |
-| 桌宠窗口、设置窗口、窗口尺寸、置顶层级、位置保存 | `src/main/windows.ts` | 提醒时窗口形态由 `applyReminderStatus()` 和 `getPetBounds()` 控制。 |
+| 桌宠、提醒、设置、面板、气泡和遮罩窗口 | `src/main/windows.ts` | 提醒窗口与桌宠窗口相互独立；修改显示器相对布局时同步覆盖窗口生命周期和 bounds 测试。 |
 | 主进程到渲染端的新能力/API | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | 先定义 `EyeProtectApi`，再在 preload 调用 IPC，最后在 main 注册 handler。三处通道名保持一致。 |
-| 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/App.tsx` | `PetView` 控制桌宠与提醒动作，`SettingsView` 控制设置页，`NumberField` 是数字输入控件。 |
-| 视觉样式、窗口布局、CSS 桌宠外观和动画 | `src/renderer/src/styles.css` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`。 |
-| Rive 桌宠状态机名称或加载逻辑 | `src/renderer/src/App.tsx`、`public/assets/character.riv` | 当前状态机名称约定为 `idle`、`eyeAlert`、`walkAlert`、`combinedAlert`、`success`。 |
-| 托盘图标或桌宠资源 | `public/assets/tray-icon.png`、`public/assets/character.riv` | 没有 `character.riv` 时会回退到 CSS 桌宠。 |
+| 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
+| 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。 |
+| 桌宠图片、皮肤选择和低频动作 | `src/renderer/src/features/pet/PetCharacter.tsx`、`public/assets/pet/` | 默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
+| 托盘图标、桌宠或提醒资源 | `public/assets/tray-icon.png`、`public/assets/pet/`、`public/assets/reminders/` | 资源必须继续包含在 portable 包中；修改后运行 `npm run package`。 |
 | 打包配置、产物名称、Windows portable 目标 | `package.json` | 修改 `build` 字段；默认输出目录是 `release/`。 |
 | electron-vite 入口、renderer public 目录 | `electron.vite.config.ts` | main、preload、renderer 的入口都在这里声明。 |
 

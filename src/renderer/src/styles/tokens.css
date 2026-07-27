@@ -1,0 +1,34 @@
+:root {
+  color: #1f2a2e;
+  font-family:
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  background: transparent;
+  letter-spacing: 0;
+
+  --color-text: #1f2a2e;
+  --color-text-muted: #66756d;
+  --color-accent: #217a70;
+  --color-priority-normal: #8a9a8e;
+  --color-priority-important: #e67e22;
+  --color-priority-urgent: #c0392b;
+  --surface-base: #fffdf7;
+  --surface-raised: #ffffff;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius-small: 8px;
+  --radius-medium: 14px;
+  --radius-large: 22px;
+  --shadow-floating: 0 12px 32px rgb(31 42 46 / 16%);
+  --motion-fast: 140ms;
+  --motion-standard: 220ms;
+  --motion-slow: 360ms;
+}

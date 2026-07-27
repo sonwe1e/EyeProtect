@@ -96,13 +96,12 @@ test('once and daily alarms both fire on the first trigger; daily stays armed', 
   assert.equal(firedDaily.length, 1);
 
   // The daily alarm re-arms for tomorrow (still present + enabled); the once
-  // alarm fired and is no longer armed. Cancel both so the suite exits cleanly.
+  // alarm fired and was removed from the list entirely.
   const remaining = clock.getAlarms();
   assert.ok(remaining.some((a) => a.id === dailyId && a.repeat === 'daily' && a.enabled));
+  assert.ok(!remaining.some((a) => a.repeat === 'once'), 'once alarm is removed after firing');
 
-  for (const alarm of remaining) {
-    clock.cancelAlarm(alarm.id);
-  }
+  clock.dispose();
 });
 
 test('sanitizeAlarm keeps a fully-populated valid alarm', () => {
@@ -166,7 +165,7 @@ test('persistAlarms writes alarms and a second SettingsStore instance reads them
   }
 });
 
-test('hydrate re-arms enabled alarms; restarting from the persisted list fires again', async () => {
+test('hydrate re-arms enabled alarms; once alarms do not survive a restart', async () => {
   // Fixed clock 120ms before a 10:31 trigger so the real setTimeout elapses quickly.
   const now = () => new Date(2026, 6, 8, 10, 30, 59, 880).getTime();
   const alarms: Alarm[] = [
@@ -175,25 +174,72 @@ test('hydrate re-arms enabled alarms; restarting from the persisted list fires a
   ];
 
   const clock = new AlarmClock(now);
-  clock.hydrate(alarms);
   const fired: string[] = [];
+  const persisted: Alarm[][] = [];
   clock.on('fired', (entry) => fired.push(entry.id));
+  clock.on('changed', (list) => persisted.push(list));
+  clock.hydrate(alarms);
 
   await new Promise((resolve) => setTimeout(resolve, 250));
 
   assert.deepEqual(fired, ['once-1'], 'only the enabled alarm should fire after hydrate');
-  clock.cancelAlarm('once-1');
 
-  // Simulate a restart: rebuild the clock from the SAME persisted alarm list.
+  // The once alarm fired, so it is removed from the list and the removal is
+  // announced via 'changed' — this is what a SettingsStore would persist.
+  assert.ok(!clock.getAlarms().some((a) => a.id === 'once-1'), 'once alarm is gone after firing');
+  assert.ok(persisted.length >= 1, 'firing a once alarm emits changed');
+  const stored = persisted[persisted.length - 1];
+  assert.ok(!stored.some((a) => a.id === 'once-1'), 'persisted list no longer contains the once alarm');
+
+  // Simulate a restart: rebuild the clock from what was persisted. The once
+  // alarm must NOT fire again; the disabled daily alarm stays inert.
   const restarted = new AlarmClock(now);
-  restarted.hydrate(alarms);
   const firedAfterRestart: string[] = [];
   restarted.on('fired', (entry) => firedAfterRestart.push(entry.id));
+  restarted.hydrate(stored);
 
   await new Promise((resolve) => setTimeout(resolve, 250));
 
-  assert.deepEqual(firedAfterRestart, ['once-1'], 'rehydrated alarm fires again after restart');
-  restarted.cancelAlarm('once-1');
+  assert.deepEqual(firedAfterRestart, [], 'restart does not re-fire a spent once alarm');
+  restarted.dispose();
+});
+
+test('hydrate twice does not double-fire an alarm', async () => {
+  const now = () => new Date(2026, 6, 8, 10, 30, 59, 880).getTime();
+  const alarms: Alarm[] = [
+    { id: 'daily-1', hour: 10, minute: 31, repeat: 'daily', enabled: true, createdAt: 100 }
+  ];
+
+  const clock = new AlarmClock(now);
+  const fired: string[] = [];
+  clock.on('fired', (entry) => fired.push(entry.id));
+
+  clock.hydrate(alarms);
+  clock.hydrate(alarms); // settings reload path: timers must be replaced, not stacked
+
+  // 200ms covers the single ~120ms fire but not the daily re-arm (which, under
+  // the fixed test clock, lands another 120ms after the first fire).
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  assert.deepEqual(fired, ['daily-1'], 'a re-hydrated alarm fires exactly once');
+  clock.dispose();
+});
+
+test('dispose cancels all pending timers', async () => {
+  const now = () => new Date(2026, 6, 8, 10, 30, 59, 880).getTime();
+  const clock = new AlarmClock(now);
+  const fired: string[] = [];
+  clock.on('fired', (entry) => fired.push(entry.id));
+
+  clock.hydrate([
+    { id: 'once-1', hour: 10, minute: 31, repeat: 'once', enabled: true, createdAt: 100 },
+    { id: 'daily-1', hour: 10, minute: 31, repeat: 'daily', enabled: true, createdAt: 101 }
+  ]);
+  clock.dispose();
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  assert.deepEqual(fired, [], 'nothing fires after dispose');
 });
 
 test('sanitizeAlarms keeps valid entries in order and drops malformed ones', () => {

@@ -38,6 +38,11 @@ export class AlarmClock extends EventEmitter {
   }
 
   hydrate(alarms: Alarm[]): void {
+    // Re-hydrating (e.g. settings reload) must not stack a second timer on an
+    // alarm that is already armed.
+    for (const id of [...this.timers.keys()]) {
+      this.clearTimer(id);
+    }
     const restored = alarms.map((alarm) => ({ ...alarm }));
     for (const alarm of restored) {
       if (alarm.enabled) {
@@ -46,6 +51,13 @@ export class AlarmClock extends EventEmitter {
       }
     }
     this.alarms = restored;
+  }
+
+  /** Cancels every pending timer. Call on app exit. */
+  dispose(): void {
+    for (const id of [...this.timers.keys()]) {
+      this.clearTimer(id);
+    }
   }
 
   setAlarm(input: AlarmInput): Alarm[] {
@@ -103,7 +115,14 @@ export class AlarmClock extends EventEmitter {
     if (alarm.repeat === 'daily' && alarm.enabled) {
       // Re-arm for the next day at the same wall-clock time.
       this.arm(alarm, nextFireAt(alarm.hour, alarm.minute, this.now()) - this.now());
+      return;
     }
+
+    // A once alarm must not survive its own firing: drop it from the list and
+    // emit 'changed' so the store persists the removal — otherwise a restart
+    // would rehydrate it and fire it again the next day.
+    this.alarms = this.alarms.filter((entry) => entry.id !== id);
+    this.emit('changed', this.getAlarms());
   }
 
   private clearTimer(id: string): void {

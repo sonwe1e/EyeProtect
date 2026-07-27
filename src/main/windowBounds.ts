@@ -12,7 +12,7 @@ export const ALERT_LAYOUT = {
   edgeGapMax: 64,
   horizontalPadding: 44,
   topPadding: 18,
-  panelReservedSpace: 220
+  panelReservedSpace: 320
 } as const;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));

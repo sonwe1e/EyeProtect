@@ -79,6 +79,23 @@ test('sanitizeTodos defaults missing priority to normal for legacy entries', () 
   const result = sanitizeTodos([{ id: 'a', text: 'legacy', createdAt: 1 }]);
 
   assert.equal(result[0].priority, 'normal');
+  assert.equal(result[0].context, 'desk');
+  assert.equal(result[0].remindOnBreak, false);
+});
+
+test('sanitizeTodos keeps a valid walk-break reminder and repairs its context', () => {
+  const result = sanitizeTodos([
+    {
+      id: 'a',
+      text: '接一杯水',
+      createdAt: 1,
+      context: 'desk',
+      remindOnBreak: true
+    }
+  ]);
+
+  assert.equal(result[0].context, 'away');
+  assert.equal(result[0].remindOnBreak, true);
 });
 
 test('sanitizeTodos coerces invalid priority values to normal', () => {
@@ -244,5 +261,22 @@ test('setTodoPriority with an unknown id or invalid priority is a silent no-op',
     );
     assert.equal(afterInvalid[0].priority, 'normal');
     assert.equal(events.length, 0);
+  });
+});
+
+test('setTodoBreakReminder marks an item as away and can clear it again', () => {
+  withTempStore((store) => {
+    const events: TodoItem[][] = [];
+    store.on('todos-changed', (todos) => events.push(todos));
+
+    const [todo] = store.addTodo('顺路拿快递');
+    const enabled = store.setTodoBreakReminder(todo.id, true);
+    assert.equal(enabled[0].context, 'away');
+    assert.equal(enabled[0].remindOnBreak, true);
+
+    const disabled = store.setTodoBreakReminder(todo.id, false);
+    assert.equal(disabled[0].context, 'desk');
+    assert.equal(disabled[0].remindOnBreak, false);
+    assert.equal(events.length, 3, 'add + enable + disable each emit once');
   });
 });

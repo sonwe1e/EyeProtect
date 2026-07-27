@@ -9,11 +9,12 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 import {
   DEFAULT_SETTINGS,
   PET_SKINS,
+  REMINDER_MODES,
   SETTINGS_LIMITS,
   TODO_PRIORITIES,
   TODO_TEXT_MAX,
@@ -22,6 +23,7 @@ import {
   type Alarm,
   type PetPosition,
   type PetSkin,
+  type ReminderMode,
   type Settings,
   type TodoItem,
   type TodoPriority
@@ -34,6 +36,47 @@ type SettingsChangedPayload = {
 
 const SETTINGS_FILE = 'settings.json';
 const STARTUP_SHORTCUT = 'EyeProtect.lnk';
+/**
+ * Bumped when the on-disk shape changes in an incompatible way. Sanitizing
+ * still repairs field-by-field; this is the coarse "unknown format" guard.
+ */
+const SETTINGS_SCHEMA_VERSION = 1;
+
+export interface RuntimePathInputs {
+  isPackaged: boolean;
+  execPath: string;
+  cwd: string;
+  portableExecutableDir?: string;
+  portableExecutableFile?: string;
+}
+
+const normalizeAbsolutePath = (value: string | undefined): string | null => {
+  const candidate = value?.trim();
+  return candidate && isAbsolute(candidate) ? candidate : null;
+};
+
+export const resolveAppBaseDir = ({
+  isPackaged,
+  execPath,
+  cwd,
+  portableExecutableDir
+}: RuntimePathInputs): string => {
+  if (!isPackaged) {
+    return cwd;
+  }
+  return normalizeAbsolutePath(portableExecutableDir) ?? dirname(execPath);
+};
+
+export const resolveLaunchExecutable = ({
+  isPackaged,
+  execPath,
+  portableExecutableFile
+}: RuntimePathInputs): string => {
+  if (!isPackaged) {
+    return execPath;
+  }
+  return normalizeAbsolutePath(portableExecutableFile) ?? execPath;
+};
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -57,6 +100,52 @@ const normalizePosition = (value: unknown): PetPosition | null => {
     x: Math.round(candidate.x as number),
     y: Math.round(candidate.y as number)
   };
+};
+
+export const sanitizePetPositionsByLayout = (
+  value: unknown
+): Record<string, PetPosition> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const entries: Array<[string, PetPosition]> = [];
+  for (const [rawKey, rawPosition] of Object.entries(value)) {
+    const key = rawKey.trim().slice(0, 240);
+    const position = normalizePosition(rawPosition);
+    if (key && position) {
+      entries.push([key, position]);
+    }
+  }
+  return Object.fromEntries(entries.slice(-20));
+};
+
+const normalizeMinuteOfDay = (value: unknown, fallback: number): number =>
+  Math.round(
+    clampNumber(
+      value,
+      fallback,
+      SETTINGS_LIMITS.minuteOfDay.min,
+      SETTINGS_LIMITS.minuteOfDay.max
+    )
+  );
+
+/** Store executable names only; paths are unnecessary and may contain private information. */
+export const sanitizeQuietAppWhitelist = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) =>
+      entry
+        .trim()
+        .replace(/^.*[\\/]/, '')
+        .replace(/\.exe$/i, '')
+        .toLocaleLowerCase()
+        .slice(0, 80)
+    )
+    .filter(Boolean);
+  return [...new Set(normalized)].slice(0, 20);
 };
 
 export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings => {
@@ -87,6 +176,17 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.snoozeMinutes.max
       )
     ),
+    reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
+      ? (input.reminderMode as ReminderMode)
+      : DEFAULT_SETTINGS.reminderMode,
+    preAlertSeconds: Math.round(
+      clampNumber(
+        input.preAlertSeconds,
+        DEFAULT_SETTINGS.preAlertSeconds,
+        SETTINGS_LIMITS.preAlertSeconds.min,
+        SETTINGS_LIMITS.preAlertSeconds.max
+      )
+    ),
     startWithWindows:
       typeof input.startWithWindows === 'boolean'
         ? input.startWithWindows
@@ -98,11 +198,43 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       SETTINGS_LIMITS.petScale.max
     ),
     petPosition: normalizePosition(input.petPosition),
+    petPositionsByLayout: sanitizePetPositionsByLayout(input.petPositionsByLayout),
     petSkin: PET_SKINS.includes(input.petSkin as PetSkin)
       ? (input.petSkin as PetSkin)
       : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
+    historyEnabled:
+      typeof input.historyEnabled === 'boolean'
+        ? input.historyEnabled
+        : DEFAULT_SETTINGS.historyEnabled,
+    historyRetentionDays:
+      input.historyRetentionDays === 90 ? 90 : DEFAULT_SETTINGS.historyRetentionDays,
+    adaptiveEnabled:
+      typeof input.adaptiveEnabled === 'boolean'
+        ? input.adaptiveEnabled
+        : DEFAULT_SETTINGS.adaptiveEnabled,
+    quietHoursEnabled:
+      typeof input.quietHoursEnabled === 'boolean'
+        ? input.quietHoursEnabled
+        : DEFAULT_SETTINGS.quietHoursEnabled,
+    quietHoursStartMinutes: normalizeMinuteOfDay(
+      input.quietHoursStartMinutes,
+      DEFAULT_SETTINGS.quietHoursStartMinutes
+    ),
+    quietHoursEndMinutes: normalizeMinuteOfDay(
+      input.quietHoursEndMinutes,
+      DEFAULT_SETTINGS.quietHoursEndMinutes
+    ),
+    foregroundDetectionEnabled:
+      typeof input.foregroundDetectionEnabled === 'boolean'
+        ? input.foregroundDetectionEnabled
+        : DEFAULT_SETTINGS.foregroundDetectionEnabled,
+    quietAppWhitelist: sanitizeQuietAppWhitelist(input.quietAppWhitelist),
+    hotkeysEnabled:
+      typeof input.hotkeysEnabled === 'boolean'
+        ? input.hotkeysEnabled
+        : DEFAULT_SETTINGS.hotkeysEnabled,
     alarms: sanitizeAlarms(input.alarms),
     todos: sanitizeTodos(input.todos)
   };
@@ -119,10 +251,26 @@ export const getDataDir = (): string => {
   // packaged-app path — never in tests, which set EYEPROTECT_DATA_DIR.
   const require = createRequire(import.meta.url);
   const { app } = require('electron');
-  const baseDir = app.isPackaged ? dirname(process.execPath) : process.cwd();
+  const baseDir = resolveAppBaseDir({
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    cwd: process.cwd(),
+    portableExecutableDir: env.PORTABLE_EXECUTABLE_DIR
+  });
   return join(baseDir, 'data');
 };
 
+/**
+ * Domain-split events:
+ * - 'changed'        — user preferences changed (settings:save). Subscribers
+ *                      decide per-field what to do (scheduler, startup
+ *                      shortcut, pet window). Todo/alarm mutations no longer
+ *                      fire this, so checking a todo can never re-sync the
+ *                      startup shortcut or resize the pet window.
+ * - 'todos-changed'  — todo list changed; only pet/bubble/panel care.
+ * Alarm persistence (persistAlarms) and pet-position saves are silent: the
+ * AlarmClock owns alarm notifications, and nobody needs position echoes.
+ */
 export class SettingsStore extends EventEmitter {
   private readonly dataDir: string;
   private readonly filePath: string;
@@ -143,6 +291,14 @@ export class SettingsStore extends EventEmitter {
     return {
       ...this.settings,
       petPosition: this.settings.petPosition ? { ...this.settings.petPosition } : null,
+      petPositionsByLayout: Object.fromEntries(
+        Object.entries(this.settings.petPositionsByLayout).map(([key, position]) => [
+          key,
+          { ...position }
+        ])
+      ),
+      quietAppWhitelist: [...this.settings.quietAppWhitelist],
+      alarms: this.settings.alarms.map((alarm) => ({ ...alarm })),
       todos: this.settings.todos.map((todo) => ({ ...todo }))
     };
   }
@@ -156,26 +312,36 @@ export class SettingsStore extends EventEmitter {
     return this.get();
   }
 
+  /** Pet drag persistence: rewrite the file, notify nobody. */
+  savePetPosition(position: PetPosition | null, layoutKey?: string): void {
+    const positions = {
+      ...this.settings.petPositionsByLayout,
+      ...(position && layoutKey ? { [layoutKey.slice(0, 240)]: position } : {})
+    };
+    const next = sanitizeSettings({
+      ...this.get(),
+      petPosition: position,
+      petPositionsByLayout: Object.fromEntries(Object.entries(positions).slice(-20))
+    });
+    this.settings = next;
+    this.write(next);
+  }
+
   addTodo(rawText: string): TodoItem[] {
     const text = typeof rawText === 'string' ? rawText.trim().slice(0, TODO_TEXT_MAX) : '';
     if (!text) {
       return this.get().todos;
     }
-    const now = Date.now();
     const todo: TodoItem = {
       id: randomUUID(),
       text,
-      createdAt: now,
+      createdAt: Date.now(),
       completed: false,
-      priority: 'normal'
+      priority: 'normal',
+      context: 'desk',
+      remindOnBreak: false
     };
-    const previous = this.get();
-    const next = sanitizeSettings({ ...previous, todos: [...previous.todos, todo] });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos([...this.get().todos, todo]);
   }
 
   toggleTodo(id: string): TodoItem[] {
@@ -194,12 +360,7 @@ export class SettingsStore extends EventEmitter {
         ? { ...todo, completed: false, completedAt: undefined }
         : { ...todo, completed: true, completedAt: Date.now() };
     });
-    const next = sanitizeSettings({ ...previous, todos });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(todos);
   }
 
   updateTodo(id: string, rawText: string): TodoItem[] {
@@ -211,13 +372,7 @@ export class SettingsStore extends EventEmitter {
     if (!previous.todos.some((todo) => todo.id === id)) {
       return previous.todos;
     }
-    const todos = previous.todos.map((todo) => (todo.id === id ? { ...todo, text } : todo));
-    const next = sanitizeSettings({ ...previous, todos });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(previous.todos.map((todo) => (todo.id === id ? { ...todo, text } : todo)));
   }
 
   removeTodo(id: string): TodoItem[] {
@@ -225,12 +380,7 @@ export class SettingsStore extends EventEmitter {
       return this.get().todos;
     }
     const previous = this.get();
-    const next = sanitizeSettings({ ...previous, todos: previous.todos.filter((todo) => todo.id !== id) });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(previous.todos.filter((todo) => todo.id !== id));
   }
 
   setTodoPriority(id: string, priority: TodoPriority): TodoItem[] {
@@ -241,44 +391,90 @@ export class SettingsStore extends EventEmitter {
     if (!previous.todos.some((todo) => todo.id === id)) {
       return previous.todos;
     }
-    const todos = previous.todos.map((todo) => (todo.id === id ? { ...todo, priority } : todo));
-    const next = sanitizeSettings({ ...previous, todos });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(previous.todos.map((todo) => (todo.id === id ? { ...todo, priority } : todo)));
   }
 
-  persistAlarms(alarms: Alarm[]): void {
+  setTodoBreakReminder(id: string, enabled: boolean): TodoItem[] {
+    if (typeof id !== 'string' || !id || typeof enabled !== 'boolean') {
+      return this.get().todos;
+    }
     const previous = this.get();
-    const next = sanitizeSettings({ ...previous, alarms });
+    if (!previous.todos.some((todo) => todo.id === id)) {
+      return previous.todos;
+    }
+    return this.commitTodos(
+      previous.todos.map((todo) =>
+        todo.id === id
+          ? {
+              ...todo,
+              context: enabled ? 'away' : 'desk',
+              remindOnBreak: enabled
+            }
+          : todo
+      )
+    );
+  }
+
+  clearCompletedTodos(): TodoItem[] {
+    const previous = this.get();
+    const todos = previous.todos.filter((todo) => !todo.completed);
+    if (todos.length === previous.todos.length) {
+      return previous.todos;
+    }
+    return this.commitTodos(todos);
+  }
+
+  /**
+   * AlarmClock is the source of truth and announces changes itself; this only
+   * mirrors its list to disk — no 'changed' cascade.
+   */
+  persistAlarms(alarms: Alarm[]): void {
+    const next = sanitizeSettings({ ...this.get(), alarms });
     this.settings = next;
     this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
   }
 
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {
     this.on('changed', callback);
   }
 
+  private commitTodos(todos: TodoItem[]): TodoItem[] {
+    const next = sanitizeSettings({ ...this.get(), todos });
+    this.settings = next;
+    this.write(next);
+    const result = this.get().todos;
+    this.emit('todos-changed', result);
+    return result;
+  }
+
   private read(): Settings {
     if (!existsSync(this.filePath)) {
-      return DEFAULT_SETTINGS;
+      return sanitizeSettings({});
     }
 
     try {
       const raw = readFileSync(this.filePath, 'utf8');
       return sanitizeSettings(JSON.parse(raw));
     } catch {
-      return DEFAULT_SETTINGS;
+      // Unreadable config: keep the broken file as evidence, start clean.
+      this.quarantine();
+      return sanitizeSettings({});
+    }
+  }
+
+  private quarantine(): void {
+    try {
+      renameSync(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
+    } catch {
+      // Best effort; read() already falls back to defaults.
     }
   }
 
   private write(settings: Settings): void {
     mkdirSync(this.dataDir, { recursive: true });
     const tempPath = `${this.filePath}.tmp`;
-    writeFileSync(tempPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+    const payload = { version: SETTINGS_SCHEMA_VERSION, ...settings };
+    writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     renameSync(tempPath, this.filePath);
   }
 }
@@ -293,6 +489,12 @@ export const syncStartupShortcut = (settings: Settings): void => {
     return;
   }
 
+  const launchExecutable = resolveLaunchExecutable({
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    cwd: process.cwd(),
+    portableExecutableFile: env.PORTABLE_EXECUTABLE_FILE
+  });
   const startupDir = env.APPDATA
     ? join(env.APPDATA, 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
     : join(app.getPath('appData'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup');
@@ -306,8 +508,8 @@ export const syncStartupShortcut = (settings: Settings): void => {
   }
 
   shell.writeShortcutLink(shortcutPath, 'create', {
-    target: process.execPath,
-    cwd: dirname(process.execPath),
+    target: launchExecutable,
+    cwd: dirname(launchExecutable),
     description: 'EyeProtect'
   });
 };
