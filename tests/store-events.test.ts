@@ -1,0 +1,193 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { SettingsStore } from '../src/main/settings';
+import { ALARM_LABEL_MAX, TODO_TEXT_MAX, sanitizeAlarm, sanitizeTodo } from '../src/shared/types';
+
+const withTempStore = (fn: (store: SettingsStore, dir: string) => void): void => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-e-'));
+  const original = process.env.EYEPROTECT_DATA_DIR;
+  process.env.EYEPROTECT_DATA_DIR = dir;
+  try {
+    fn(new SettingsStore(), dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (original === undefined) {
+      delete process.env.EYEPROTECT_DATA_DIR;
+    } else {
+      process.env.EYEPROTECT_DATA_DIR = original;
+    }
+  }
+};
+
+test('todo mutations emit only todos-changed, never the settings cascade', () => {
+  withTempStore((store) => {
+    let settingsEvents = 0;
+    let todoEvents = 0;
+    store.onChanged(() => {
+      settingsEvents += 1;
+    });
+    store.on('todos-changed', () => {
+      todoEvents += 1;
+    });
+
+    const [todo] = store.addTodo('first');
+    store.toggleTodo(todo.id);
+    store.updateTodo(todo.id, 'edited');
+    store.setTodoPriority(todo.id, 'urgent');
+    store.removeTodo(todo.id);
+
+    assert.equal(settingsEvents, 0, 'no settings cascade for todo work');
+    assert.equal(todoEvents, 5, 'each mutation announces itself once');
+  });
+});
+
+test('save emits the settings cascade exactly once, with previous values', () => {
+  withTempStore((store) => {
+    const payloads: Array<{ settings: { eyeIntervalMinutes: number }; previous: { eyeIntervalMinutes: number } }> = [];
+    store.onChanged((payload) => payloads.push(payload));
+
+    const next = store.save({ eyeIntervalMinutes: 30 });
+
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].previous.eyeIntervalMinutes, 20);
+    assert.equal(payloads[0].settings.eyeIntervalMinutes, 30);
+    assert.equal(next.eyeIntervalMinutes, 30);
+  });
+});
+
+test('savePetPosition persists without emitting anything', () => {
+  withTempStore((store, dir) => {
+    let events = 0;
+    store.onChanged(() => {
+      events += 1;
+    });
+    store.on('todos-changed', () => {
+      events += 1;
+    });
+
+    store.savePetPosition({ x: 12, y: 34 });
+
+    assert.equal(events, 0, 'dragging the pet broadcasts nothing');
+    assert.deepEqual(store.get().petPosition, { x: 12, y: 34 });
+
+    // A fresh store sees the persisted position.
+    const reopened = new SettingsStore();
+    assert.deepEqual(reopened.get().petPosition, { x: 12, y: 34 });
+    assert.ok(existsSync(join(dir, 'settings.json')));
+  });
+});
+
+test('persistAlarms writes without triggering the settings cascade', () => {
+  withTempStore((store) => {
+    let settingsEvents = 0;
+    store.onChanged(() => {
+      settingsEvents += 1;
+    });
+
+    store.persistAlarms([
+      { id: 'a1', hour: 7, minute: 30, repeat: 'daily', enabled: true, createdAt: 1 }
+    ]);
+
+    assert.equal(settingsEvents, 0, 'alarm persistence is silent');
+    assert.equal(new SettingsStore().get().alarms.length, 1, 'alarms still reach disk');
+  });
+});
+
+test('get() deep-copies alarms, todos and position so callers cannot mutate the store', () => {
+  withTempStore((store) => {
+    store.persistAlarms([
+      { id: 'a1', hour: 7, minute: 30, label: 'wake', repeat: 'daily', enabled: true, createdAt: 1 }
+    ]);
+    const [todo] = store.addTodo('untouched');
+    store.savePetPosition({ x: 1, y: 2 });
+
+    const copy = store.get();
+    copy.alarms[0].hour = 23;
+    copy.alarms.push({ id: 'x', hour: 1, minute: 1, repeat: 'once', enabled: true, createdAt: 2 });
+    copy.todos[0].text = 'hacked';
+    copy.todos.push(todo);
+    if (copy.petPosition) {
+      copy.petPosition.x = 999;
+    }
+
+    const fresh = store.get();
+    assert.equal(fresh.alarms.length, 1);
+    assert.equal(fresh.alarms[0].hour, 7);
+    assert.equal(fresh.todos.length, 1);
+    assert.equal(fresh.todos[0].text, 'untouched');
+    assert.deepEqual(fresh.petPosition, { x: 1, y: 2 });
+  });
+});
+
+test('clearCompletedTodos removes only completed items and emits once', () => {
+  withTempStore((store) => {
+    const [a] = store.addTodo('keep');
+    const [, b] = store.addTodo('done'); // addTodo returns the whole list
+    store.toggleTodo(b.id);
+
+    let events = 0;
+    store.on('todos-changed', () => {
+      events += 1;
+    });
+
+    const remaining = store.clearCompletedTodos();
+    assert.deepEqual(remaining.map((todo) => todo.id), [a.id]);
+    assert.equal(events, 1);
+
+    // Nothing completed left: silent no-op.
+    assert.equal(store.clearCompletedTodos().length, 1);
+    assert.equal(events, 1);
+  });
+});
+
+test('a corrupt settings.json is quarantined instead of silently lost', () => {
+  withTempStore((_store, dir) => {
+    writeFileSync(join(dir, 'settings.json'), '{ broken json', 'utf8');
+
+    const store = new SettingsStore();
+    assert.equal(store.get().eyeIntervalMinutes, 20, 'falls back to defaults');
+
+    const backups = readdirSync(dir).filter((name) => name.startsWith('settings.json.corrupt-'));
+    assert.equal(backups.length, 1, 'the broken file is preserved as evidence');
+    assert.equal(existsSync(join(dir, 'settings.json')), false);
+  });
+});
+
+test('settings are written with a schema version stamp', () => {
+  withTempStore((store, dir) => {
+    store.save({ snoozeMinutes: 9 });
+    const raw = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
+    assert.equal(raw.version, 1);
+    assert.equal(raw.snoozeMinutes, 9);
+  });
+});
+
+test('sanitizeTodo trims, caps and drops whitespace-only text', () => {
+  assert.equal(sanitizeTodo({ id: 'a', text: '   ', createdAt: 1 }), null);
+  assert.equal(sanitizeTodo({ id: 'a', text: '  喝水  ', createdAt: 1 })?.text, '喝水');
+  assert.equal(
+    sanitizeTodo({ id: 'a', text: 'z'.repeat(TODO_TEXT_MAX + 40), createdAt: 1 })?.text.length,
+    TODO_TEXT_MAX
+  );
+  assert.ok(
+    Number.isFinite(sanitizeTodo({ id: 'a', text: 'x', createdAt: Number.NaN })?.createdAt),
+    'non-finite timestamps fall back to now'
+  );
+});
+
+test('sanitizeAlarm caps and trims labels, rejects non-finite timestamps', () => {
+  const alarm = sanitizeAlarm({
+    id: 'a1',
+    hour: 7,
+    minute: 0,
+    label: `  ${'x'.repeat(ALARM_LABEL_MAX + 10)}  `,
+    repeat: 'once',
+    enabled: true,
+    createdAt: Number.POSITIVE_INFINITY
+  });
+  assert.equal(alarm?.label?.length, ALARM_LABEL_MAX);
+  assert.ok(Number.isFinite(alarm?.createdAt));
+});

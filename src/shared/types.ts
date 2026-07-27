@@ -15,6 +15,13 @@ export type PetSkin = 'stable' | 'eye' | 'fu' | 'sleep';
 
 export const PET_SKINS: PetSkin[] = ['stable', 'eye', 'fu', 'sleep'];
 
+/**
+ * Enforcement style of a reminder. The scheduler currently always emits
+ * 'focused' (dim + wait before complete); the other modes are reserved for
+ * the settings-preset work described in USERPLAN §6.
+ */
+export type ReminderMode = 'gentle' | 'guided' | 'focused';
+
 export type AlarmRepeat = 'once' | 'daily';
 
 export type PanelTab = 'alarms' | 'todos';
@@ -63,6 +70,18 @@ export interface ActiveReminder {
   kind: ReminderKind;
   kinds: SingleReminderKind[];
   startedAt: number;
+  /**
+   * Epoch ms before which 'complete' is rejected by the main process. The
+   * renderer only displays the countdown; it cannot grant itself early
+   * completion (reload or duplicate IPC cannot bypass the rule).
+   */
+  unlockAt: number;
+  /**
+   * Epoch ms before which another 'snooze' is rejected. The first snooze of a
+   * cycle is immediate; later snoozes have to wait out the rest countdown.
+   */
+  snoozeAllowedAt: number;
+  mode: ReminderMode;
   /** How many times this reminder cycle has been snoozed; resets on complete/skip. */
   snoozeCount: number;
 }
@@ -77,7 +96,6 @@ export interface ReminderStatus {
 export interface RuntimeInfo {
   appVersion: string;
   isPackaged: boolean;
-  riveAvailable: boolean;
   dataDir: string;
 }
 
@@ -110,7 +128,12 @@ export interface EyeProtectApi {
   updateTodo: (id: string, text: string) => Promise<TodoItem[]>;
   removeTodo: (id: string) => Promise<TodoItem[]>;
   setTodoPriority: (id: string, priority: TodoPriority) => Promise<TodoItem[]>;
+  clearCompletedTodos: () => Promise<TodoItem[]>;
   onTodosChanged: (callback: (todos: TodoItem[]) => void) => () => void;
+  /** Continue a paused countdown from now (no-op when not paused). */
+  resume: () => Promise<ReminderStatus>;
+  /** Discard pause/progress and start both cycles over. */
+  restartCycle: () => Promise<ReminderStatus>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -134,6 +157,7 @@ export const SETTINGS_LIMITS = {
 } as const;
 
 export const TODO_TEXT_MAX = 60;
+export const ALARM_LABEL_MAX = 20;
 
 export const sanitizeTodo = (value: unknown): TodoItem | null => {
   if (!value || typeof value !== 'object') {
@@ -146,12 +170,22 @@ export const sanitizeTodo = (value: unknown): TodoItem | null => {
   if (typeof candidate.text !== 'string') {
     return null;
   }
-  const createdAt = typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now();
+  const text = candidate.text.trim().slice(0, TODO_TEXT_MAX);
+  if (!text) {
+    return null;
+  }
+  const createdAt =
+    typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt)
+      ? candidate.createdAt
+      : Date.now();
   const completed = typeof candidate.completed === 'boolean' ? candidate.completed : false;
-  const completedAt = typeof candidate.completedAt === 'number' ? candidate.completedAt : undefined;
+  const completedAt =
+    typeof candidate.completedAt === 'number' && Number.isFinite(candidate.completedAt)
+      ? candidate.completedAt
+      : undefined;
   const priority: TodoPriority =
     candidate.priority === 'important' || candidate.priority === 'urgent' ? candidate.priority : 'normal';
-  return { id: candidate.id, text: candidate.text, createdAt, completed, completedAt, priority };
+  return { id: candidate.id, text, createdAt, completed, completedAt, priority };
 };
 
 export const sanitizeTodos = (value: unknown): TodoItem[] => {
@@ -201,12 +235,19 @@ export const sanitizeAlarm = (value: unknown): Alarm | null => {
   if (typeof candidate.enabled !== 'boolean') {
     return null;
   }
-  const createdAt = typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now();
+  const label =
+    typeof candidate.label === 'string'
+      ? candidate.label.trim().slice(0, ALARM_LABEL_MAX) || undefined
+      : undefined;
+  const createdAt =
+    typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt)
+      ? candidate.createdAt
+      : Date.now();
   return {
     id: candidate.id,
     hour: candidate.hour,
     minute: candidate.minute,
-    label: candidate.label,
+    label,
     repeat: candidate.repeat,
     enabled: candidate.enabled,
     createdAt

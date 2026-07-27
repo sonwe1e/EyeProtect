@@ -34,6 +34,11 @@ type SettingsChangedPayload = {
 
 const SETTINGS_FILE = 'settings.json';
 const STARTUP_SHORTCUT = 'EyeProtect.lnk';
+/**
+ * Bumped when the on-disk shape changes in an incompatible way. Sanitizing
+ * still repairs field-by-field; this is the coarse "unknown format" guard.
+ */
+const SETTINGS_SCHEMA_VERSION = 1;
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -123,6 +128,17 @@ export const getDataDir = (): string => {
   return join(baseDir, 'data');
 };
 
+/**
+ * Domain-split events:
+ * - 'changed'        — user preferences changed (settings:save). Subscribers
+ *                      decide per-field what to do (scheduler, startup
+ *                      shortcut, pet window). Todo/alarm mutations no longer
+ *                      fire this, so checking a todo can never re-sync the
+ *                      startup shortcut or resize the pet window.
+ * - 'todos-changed'  — todo list changed; only pet/bubble/panel care.
+ * Alarm persistence (persistAlarms) and pet-position saves are silent: the
+ * AlarmClock owns alarm notifications, and nobody needs position echoes.
+ */
 export class SettingsStore extends EventEmitter {
   private readonly dataDir: string;
   private readonly filePath: string;
@@ -143,6 +159,7 @@ export class SettingsStore extends EventEmitter {
     return {
       ...this.settings,
       petPosition: this.settings.petPosition ? { ...this.settings.petPosition } : null,
+      alarms: this.settings.alarms.map((alarm) => ({ ...alarm })),
       todos: this.settings.todos.map((todo) => ({ ...todo }))
     };
   }
@@ -156,26 +173,26 @@ export class SettingsStore extends EventEmitter {
     return this.get();
   }
 
+  /** Pet drag persistence: rewrite the file, notify nobody. */
+  savePetPosition(position: PetPosition | null): void {
+    const next = sanitizeSettings({ ...this.get(), petPosition: position });
+    this.settings = next;
+    this.write(next);
+  }
+
   addTodo(rawText: string): TodoItem[] {
     const text = typeof rawText === 'string' ? rawText.trim().slice(0, TODO_TEXT_MAX) : '';
     if (!text) {
       return this.get().todos;
     }
-    const now = Date.now();
     const todo: TodoItem = {
       id: randomUUID(),
       text,
-      createdAt: now,
+      createdAt: Date.now(),
       completed: false,
       priority: 'normal'
     };
-    const previous = this.get();
-    const next = sanitizeSettings({ ...previous, todos: [...previous.todos, todo] });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos([...this.get().todos, todo]);
   }
 
   toggleTodo(id: string): TodoItem[] {
@@ -194,12 +211,7 @@ export class SettingsStore extends EventEmitter {
         ? { ...todo, completed: false, completedAt: undefined }
         : { ...todo, completed: true, completedAt: Date.now() };
     });
-    const next = sanitizeSettings({ ...previous, todos });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(todos);
   }
 
   updateTodo(id: string, rawText: string): TodoItem[] {
@@ -211,13 +223,7 @@ export class SettingsStore extends EventEmitter {
     if (!previous.todos.some((todo) => todo.id === id)) {
       return previous.todos;
     }
-    const todos = previous.todos.map((todo) => (todo.id === id ? { ...todo, text } : todo));
-    const next = sanitizeSettings({ ...previous, todos });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(previous.todos.map((todo) => (todo.id === id ? { ...todo, text } : todo)));
   }
 
   removeTodo(id: string): TodoItem[] {
@@ -225,12 +231,7 @@ export class SettingsStore extends EventEmitter {
       return this.get().todos;
     }
     const previous = this.get();
-    const next = sanitizeSettings({ ...previous, todos: previous.todos.filter((todo) => todo.id !== id) });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(previous.todos.filter((todo) => todo.id !== id));
   }
 
   setTodoPriority(id: string, priority: TodoPriority): TodoItem[] {
@@ -241,44 +242,69 @@ export class SettingsStore extends EventEmitter {
     if (!previous.todos.some((todo) => todo.id === id)) {
       return previous.todos;
     }
-    const todos = previous.todos.map((todo) => (todo.id === id ? { ...todo, priority } : todo));
-    const next = sanitizeSettings({ ...previous, todos });
-    this.settings = next;
-    this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
-    this.emit('todos-changed', this.get().todos);
-    return this.get().todos;
+    return this.commitTodos(previous.todos.map((todo) => (todo.id === id ? { ...todo, priority } : todo)));
   }
 
-  persistAlarms(alarms: Alarm[]): void {
+  clearCompletedTodos(): TodoItem[] {
     const previous = this.get();
-    const next = sanitizeSettings({ ...previous, alarms });
+    const todos = previous.todos.filter((todo) => !todo.completed);
+    if (todos.length === previous.todos.length) {
+      return previous.todos;
+    }
+    return this.commitTodos(todos);
+  }
+
+  /**
+   * AlarmClock is the source of truth and announces changes itself; this only
+   * mirrors its list to disk — no 'changed' cascade.
+   */
+  persistAlarms(alarms: Alarm[]): void {
+    const next = sanitizeSettings({ ...this.get(), alarms });
     this.settings = next;
     this.write(next);
-    this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
   }
 
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {
     this.on('changed', callback);
   }
 
+  private commitTodos(todos: TodoItem[]): TodoItem[] {
+    const next = sanitizeSettings({ ...this.get(), todos });
+    this.settings = next;
+    this.write(next);
+    const result = this.get().todos;
+    this.emit('todos-changed', result);
+    return result;
+  }
+
   private read(): Settings {
     if (!existsSync(this.filePath)) {
-      return DEFAULT_SETTINGS;
+      return sanitizeSettings({});
     }
 
     try {
       const raw = readFileSync(this.filePath, 'utf8');
       return sanitizeSettings(JSON.parse(raw));
     } catch {
-      return DEFAULT_SETTINGS;
+      // Unreadable config: keep the broken file as evidence, start clean.
+      this.quarantine();
+      return sanitizeSettings({});
+    }
+  }
+
+  private quarantine(): void {
+    try {
+      renameSync(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
+    } catch {
+      // Best effort; read() already falls back to defaults.
     }
   }
 
   private write(settings: Settings): void {
     mkdirSync(this.dataDir, { recursive: true });
     const tempPath = `${this.filePath}.tmp`;
-    writeFileSync(tempPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+    const payload = { version: SETTINGS_SCHEMA_VERSION, ...settings };
+    writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     renameSync(tempPath, this.filePath);
   }
 }

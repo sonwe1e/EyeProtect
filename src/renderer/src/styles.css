@@ -1,51 +1,3 @@
-:root {
-  color: #1f2a2e;
-  font-family:
-    "Microsoft YaHei UI",
-    "Microsoft YaHei",
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  background: transparent;
-  letter-spacing: 0;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-width: 100vw;
-  min-height: 100vh;
-  overflow: hidden;
-  background: transparent;
-}
-
-button,
-input {
-  font: inherit;
-}
-
-button {
-  border: 0;
-  cursor: pointer;
-}
-
-/* These windows are mouse-driven desktop widgets: suppress the default
-   Chromium focus ring on click, but keep a themed ring for keyboard nav. */
-button:focus:not(:focus-visible),
-input:focus:not(:focus-visible) {
-  outline: none;
-}
-
-button:focus-visible {
-  outline: 2px solid rgb(33 122 112 / 50%);
-  outline-offset: 1px;
-}
-
 .pet-shell {
   position: relative;
   width: 100vw;
@@ -55,6 +7,19 @@ button:focus-visible {
 }
 
 .pet-shell.is-alert {
+  --alert-x-pad: clamp(16px, 3vw, 22px);
+  --alert-top-pad: clamp(12px, 2.5vh, 18px);
+  --alert-panel-space: clamp(190px, 30vh, 220px);
+}
+
+/* Reminder alerts render in their own window; same layout variables as the
+   legacy in-pet alert mode. */
+.alert-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
   --alert-x-pad: clamp(16px, 3vw, 22px);
   --alert-top-pad: clamp(12px, 2.5vh, 18px);
   --alert-panel-space: clamp(190px, 30vh, 220px);
@@ -146,19 +111,22 @@ button:focus-visible {
   pointer-events: none;
   -webkit-user-drag: none;
   transform-origin: 50% 75%;
-  animation: pet-idle-sway 3.4s ease-in-out infinite;
 }
 
-.pet-character.skin-eye img {
+.pet-character.is-animating img {
+  animation: pet-idle-sway 3.4s ease-in-out 1;
+}
+
+.pet-character.is-animating.skin-eye img {
   animation-duration: 2.6s;
 }
 
-.pet-character.skin-fu img {
+.pet-character.is-animating.skin-fu img {
   animation-name: pet-idle-wobble;
   animation-duration: 3.2s;
 }
 
-.pet-character.skin-sleep img {
+.pet-character.is-animating.skin-sleep img {
   animation-name: pet-idle-breath;
   animation-duration: 5s;
 }
@@ -920,7 +888,23 @@ button:focus-visible {
   border-color: #217a70;
 }
 
-/* Priority dot: click cycles 普通 → 重要 → 紧急; color set inline per level. */
+/* Priority is semantic markup; colors stay in the design layer instead of
+   being duplicated as inline renderer styles. */
+.todo-priority-dot[data-priority='normal'],
+.bubble-dot[data-priority='normal'] {
+  background: var(--color-priority-normal);
+}
+
+.todo-priority-dot[data-priority='important'],
+.bubble-dot[data-priority='important'] {
+  background: var(--color-priority-important);
+}
+
+.todo-priority-dot[data-priority='urgent'],
+.bubble-dot[data-priority='urgent'] {
+  background: var(--color-priority-urgent);
+}
+
 .todo-priority-dot {
   flex-shrink: 0;
   width: 10px;
@@ -998,6 +982,27 @@ button:focus-visible {
 
 .todo-remove-confirm:active {
   background: #922b21;
+}
+
+.todo-clear-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 0;
+}
+
+.todo-clear-done {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #7c8a8d;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.todo-clear-done:hover {
+  background: rgb(31 42 46 / 6%);
+  color: #526166;
 }
 
 .todo-compose {
@@ -1304,6 +1309,18 @@ button:focus-visible {
   padding-left: 11px;
   color: #7c8a8d;
   font-size: 11px;
+}
+
+.bubble-all-done .bubble-title {
+  color: #3f7d58;
+}
+
+.bubble-done-note {
+  margin: 6px 0 2px;
+  padding-left: 11px;
+  color: #7c8a8d;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .bubble-tail {

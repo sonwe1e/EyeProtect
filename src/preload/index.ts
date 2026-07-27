@@ -36,6 +36,8 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('reminder:action', action, reminderId) as Promise<ReminderStatus>,
   testReminder: (kind: ReminderKind) => ipcRenderer.invoke('reminder:test', kind) as Promise<ReminderStatus>,
   pause: (minutes: number) => ipcRenderer.invoke('reminder:pause', minutes) as Promise<ReminderStatus>,
+  resume: () => ipcRenderer.invoke('reminder:resume') as Promise<ReminderStatus>,
+  restartCycle: () => ipcRenderer.invoke('reminder:restart') as Promise<ReminderStatus>,
   openSettings: () => ipcRenderer.invoke('window:settings:open') as Promise<void>,
   closeSettings: () => ipcRenderer.invoke('window:settings:close') as Promise<void>,
   openPanel: (tab: PanelTab) => ipcRenderer.invoke('window:panel:open', tab) as Promise<void>,
@@ -58,6 +60,7 @@ const api: EyeProtectApi = {
   removeTodo: (id: string) => ipcRenderer.invoke('todo:remove', id) as Promise<TodoItem[]>,
   setTodoPriority: (id: string, priority: TodoPriority) =>
     ipcRenderer.invoke('todo:priority', id, priority) as Promise<TodoItem[]>,
+  clearCompletedTodos: () => ipcRenderer.invoke('todo:clear-completed') as Promise<TodoItem[]>,
   onTodosChanged: (callback) => on<TodoItem[]>('todo:changed', callback)
 };
 

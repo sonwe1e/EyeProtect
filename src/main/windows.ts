@@ -1,5 +1,4 @@
 import { app, BrowserWindow, screen } from 'electron';
-import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Alarm, PanelTab, ReminderStatus, RuntimeInfo, Settings, TodoItem } from '../shared/types';
@@ -11,12 +10,18 @@ const moduleDir = dirname(fileURLToPath(import.meta.url));
 const IDLE_SIZE = 160;
 const PANEL_SIZE = { width: 344, height: 496 } as const;
 const BUBBLE_SIZE = { width: 220, height: 150 } as const;
+/** How long the bubble stays up showing "all done" after the last pending todo is completed. */
+const ALL_DONE_DISPLAY_MS = 2_500;
+/** A hidden bubble is destroyed after this cooldown instead of lingering as an idle WebContents. */
+const BUBBLE_DESTROY_DELAY_MS = 30_000;
+/** Coalesce bursts of display-added/removed/metrics events into one relayout. */
+const DISPLAY_CHANGE_DEBOUNCE_MS = 250;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
 const loadRenderer = async (
   window: BrowserWindow,
-  view: 'pet' | 'settings' | 'panel' | 'bubble'
+  view: 'pet' | 'settings' | 'panel' | 'bubble' | 'alert'
 ): Promise<void> => {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
@@ -29,34 +34,52 @@ const loadRenderer = async (
   await window.loadFile(join(moduleDir, '../renderer/index.html'), { hash: view });
 };
 
-const getCharacterAssetPath = (): string => {
-  if (process.env.ELECTRON_RENDERER_URL) {
-    return join(process.cwd(), 'public/assets/character.riv');
-  }
-  return join(moduleDir, '../renderer/assets/character.riv');
-};
-
 export const getRuntimeInfo = (settingsStore: SettingsStore): RuntimeInfo => ({
-  appVersion: process.env.npm_package_version ?? '0.2.0',
+  // app.getVersion() reads package.json inside the packaged app too, unlike
+  // npm_package_version which only exists under npm scripts.
+  appVersion: app.getVersion(),
   isPackaged: app.isPackaged,
-  riveAvailable: existsSync(getCharacterAssetPath()),
   dataDir: settingsStore.getDataDir()
 });
 
+/**
+ * Window lifecycle, split by role:
+ * - PetWindow: the only long-lived window; always 160px-scale, never resized
+ *   for reminders.
+ * - AlertWindow: created when a reminder fires (own renderer, own image
+ *   cache), destroyed the moment the reminder ends — reminder artwork memory
+ *   does not accumulate in the long-lived pet process.
+ * - BubbleWindow: created on demand, destroyed after a hide cooldown or
+ *   immediately once there are no pending todos.
+ * - PanelWindow / SettingsWindow: on demand, closed → destroyed as before.
+ * - Dim overlays: exist only while an alert is on screen.
+ */
 export class AppWindows {
   private petWindow: BrowserWindow | null = null;
   private settingsWindow: BrowserWindow | null = null;
   private panelWindow: BrowserWindow | null = null;
   private panelTab: PanelTab = 'todos';
   private bubbleWindow: BrowserWindow | null = null;
+  private bubbleLoading: Promise<void> | null = null;
+  private bubbleShouldShow = false;
+  private bubbleDestroyTimer: NodeJS.Timeout | null = null;
+  private allDoneTimer: NodeJS.Timeout | null = null;
+  private alertWindow: BrowserWindow | null = null;
+  private alertLoading: Promise<void> | null = null;
   private dimWindows: BrowserWindow[] = [];
   private savePositionTimer: NodeJS.Timeout | null = null;
+  private displayChangeTimer: NodeJS.Timeout | null = null;
   private applyingBounds = false;
 
   constructor(
     private readonly settingsStore: SettingsStore,
     private readonly scheduler: ReminderScheduler
-  ) {}
+  ) {
+    const onDisplaysChanged = (): void => this.handleDisplaysChangedSoon();
+    screen.on('display-added', onDisplaysChanged);
+    screen.on('display-removed', onDisplaysChanged);
+    screen.on('display-metrics-changed', onDisplaysChanged);
+  }
 
   async createPetWindow(): Promise<void> {
     if (this.petWindow && !this.petWindow.isDestroyed()) {
@@ -91,7 +114,7 @@ export class AppWindows {
         preload: join(moduleDir, '../preload/index.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false
+        sandbox: true
       }
     });
 
@@ -110,7 +133,6 @@ export class AppWindows {
 
     await loadRenderer(this.petWindow, 'pet');
     this.petWindow.showInactive();
-    this.applyReminderStatus(this.scheduler.getStatus());
     this.refreshBubble();
   }
 
@@ -135,7 +157,7 @@ export class AppWindows {
         preload: join(moduleDir, '../preload/index.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false
+        sandbox: true
       }
     });
 
@@ -160,9 +182,7 @@ export class AppWindows {
   async openPanel(tab: PanelTab): Promise<void> {
     this.panelTab = tab;
     // The panel supersedes the bubble while open; it returns when the panel closes.
-    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
-      this.bubbleWindow.hide();
-    }
+    this.hideBubble();
     if (this.panelWindow && !this.panelWindow.isDestroyed()) {
       this.positionPanelWindow();
       this.panelWindow.show();
@@ -188,7 +208,7 @@ export class AppWindows {
         preload: join(moduleDir, '../preload/index.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false
+        sandbox: true
       }
     });
 
@@ -230,62 +250,75 @@ export class AppWindows {
 
   // The pet window is only 160px with overflow:hidden, so the todo bubble lives
   // in its own frameless, non-focusable window anchored to the pet's top-left.
-  // It shows only when there are todos and no reminder is active.
-  private async ensureBubbleWindow(): Promise<void> {
+  // It shows only when there are pending todos and no reminder is active.
+  private ensureBubbleWindow(): Promise<void> {
     if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
-      return;
+      return Promise.resolve();
+    }
+    if (this.bubbleLoading) {
+      // Concurrent refreshBubble() calls must not create two windows.
+      return this.bubbleLoading;
     }
 
-    this.bubbleWindow = new BrowserWindow({
-      ...this.getBubbleBounds(),
-      frame: false,
-      transparent: true,
-      resizable: false,
-      movable: false,
-      focusable: false,
-      minimizable: false,
-      maximizable: false,
-      skipTaskbar: true,
-      hasShadow: false,
-      alwaysOnTop: true,
-      show: false,
-      backgroundColor: '#00000000',
-      webPreferences: {
-        preload: join(moduleDir, '../preload/index.mjs'),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false
+    this.bubbleLoading = (async () => {
+      const window = new BrowserWindow({
+        ...this.getBubbleBounds(),
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        focusable: false,
+        minimizable: false,
+        maximizable: false,
+        skipTaskbar: true,
+        hasShadow: false,
+        alwaysOnTop: true,
+        show: false,
+        backgroundColor: '#00000000',
+        webPreferences: {
+          preload: join(moduleDir, '../preload/index.mjs'),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true
+        }
+      });
+
+      this.bubbleWindow = window;
+      window.setAlwaysOnTop(true, 'floating');
+      window.setIgnoreMouseEvents(false);
+      window.on('closed', () => {
+        if (this.bubbleWindow === window) {
+          this.bubbleWindow = null;
+        }
+      });
+
+      try {
+        await loadRenderer(window, 'bubble');
+      } catch (error) {
+        // Creation failed (renderer load error etc.) — drop the window so the
+        // next refreshBubble() retries instead of silently never showing.
+        console.error('[bubble] failed to create bubble window:', error);
+        if (!window.isDestroyed()) {
+          window.destroy();
+        }
+        this.bubbleWindow = null;
+        throw error;
       }
+    })().finally(() => {
+      this.bubbleLoading = null;
     });
 
-    this.bubbleWindow.setAlwaysOnTop(true, 'floating');
-    this.bubbleWindow.setIgnoreMouseEvents(false);
-    this.bubbleWindow.on('closed', () => {
-      this.bubbleWindow = null;
-    });
-
-    await loadRenderer(this.bubbleWindow, 'bubble');
+    return this.bubbleLoading;
   }
 
-  refreshBubble(): void {
-    const status = this.scheduler.getStatus();
-    const active = Boolean(status.activeReminder);
-    const todos = this.settingsStore.get().todos;
-    const panelOpen = Boolean(
-      this.panelWindow && !this.panelWindow.isDestroyed() && this.panelWindow.isVisible()
-    );
-    const shouldShow =
-      !active && !panelOpen && todos.length > 0 && Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
-
-    if (!shouldShow) {
-      if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
-        this.bubbleWindow.hide();
-      }
-      return;
-    }
-
+  private showBubble(): void {
+    this.bubbleShouldShow = true;
+    this.cancelBubbleTimers();
     void this.ensureBubbleWindow()
       .then(() => {
+        if (!this.bubbleShouldShow) {
+          return; // state changed while the renderer was loading
+        }
         if (!this.bubbleWindow || this.bubbleWindow.isDestroyed()) {
           return;
         }
@@ -297,68 +330,248 @@ export class AppWindows {
         this.bubbleWindow.show();
         this.bubbleWindow.webContents.invalidate();
       })
-      .catch((error: unknown) => {
-        // Creation failed (renderer load error etc.) — drop the window so
-        // the next refreshBubble() retries instead of silently never showing.
-        console.error('[bubble] failed to create bubble window:', error);
-        if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
-          this.bubbleWindow.destroy();
-        }
-        this.bubbleWindow = null;
+      .catch(() => {
+        // Logged where the error occurs; nothing to do here.
       });
   }
 
-  broadcastSettings(settings: Settings): void {
-    this.sendAll('settings:changed', settings);
+  private hideBubble(): void {
+    this.bubbleShouldShow = false;
+    this.cancelBubbleTimers();
+    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
+      this.bubbleWindow.hide();
+    }
+    // A hidden bubble should not keep a WebContents alive indefinitely.
+    this.scheduleBubbleDestroy(BUBBLE_DESTROY_DELAY_MS);
   }
 
-  broadcastReminderStatus(status: ReminderStatus): void {
-    this.sendAll('reminder:changed', status);
-    this.applyReminderStatus(status);
+  private destroyBubble(): void {
+    this.bubbleShouldShow = false;
+    this.cancelBubbleTimers();
+    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
+      this.bubbleWindow.destroy();
+    }
+    this.bubbleWindow = null;
   }
 
-  broadcastAlarms(alarms: Alarm[]): void {
-    this.sendAll('alarm:changed', alarms);
+  private scheduleBubbleDestroy(delayMs: number): void {
+    if (this.bubbleDestroyTimer) {
+      return;
+    }
+    this.bubbleDestroyTimer = setTimeout(() => {
+      this.bubbleDestroyTimer = null;
+      if (!this.bubbleShouldShow) {
+        this.destroyBubble();
+      }
+    }, delayMs);
   }
 
-  broadcastAlarmFired(alarm: Alarm): void {
-    this.sendAll('alarm:fired', alarm);
+  private cancelBubbleTimers(): void {
+    if (this.allDoneTimer) {
+      clearTimeout(this.allDoneTimer);
+      this.allDoneTimer = null;
+    }
+    if (this.bubbleDestroyTimer) {
+      clearTimeout(this.bubbleDestroyTimer);
+      this.bubbleDestroyTimer = null;
+    }
   }
 
-  broadcastTodos(todos: TodoItem[]): void {
-    this.sendAll('todo:changed', todos);
-    this.refreshBubble();
-  }
+  refreshBubble(): void {
+    const status = this.scheduler.getStatus();
+    const active = Boolean(status.activeReminder);
+    const todos = this.settingsStore.get().todos;
+    const pending = todos.filter((todo) => !todo.completed).length;
+    const panelOpen = Boolean(
+      this.panelWindow && !this.panelWindow.isDestroyed() && this.panelWindow.isVisible()
+    );
+    const petAlive = Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
 
-  applySettings(settings: Settings): void {
-    this.applyReminderStatus(this.scheduler.getStatus(), settings);
-  }
-
-  private applyReminderStatus(status: ReminderStatus, settings = this.settingsStore.get()): void {
-    if (!this.petWindow || this.petWindow.isDestroyed()) {
+    if (active || panelOpen || !petAlive) {
+      this.hideBubble();
       return;
     }
 
-    const current = this.petWindow.getBounds();
-    const display = screen.getDisplayMatching(current);
-    const bounds = this.getPetBounds(status, settings, display.workArea);
-    const active = Boolean(status.activeReminder);
-
-    this.applyingBounds = true;
-    this.petWindow.setBounds(bounds, true);
-    this.applyingBounds = false;
-    this.petWindow.setAlwaysOnTop(true, active ? 'screen-saver' : 'floating');
-
-    this.updateDimWindows(active, settings);
-
-    if (active) {
-      this.petWindow.showInactive();
-      this.petWindow.flashFrame(true);
-    } else {
-      this.petWindow.flashFrame(false);
+    if (pending > 0) {
+      this.showBubble();
+      return;
     }
 
+    if (todos.length === 0) {
+      // Nothing left at all: no reason to keep the window around.
+      this.destroyBubble();
+      return;
+    }
+
+    // No pending items but completed ones exist: if the bubble was visible,
+    // let it flash "all done" briefly, then destroy it.
+    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed() && this.bubbleWindow.isVisible()) {
+      if (!this.allDoneTimer) {
+        this.allDoneTimer = setTimeout(() => {
+          this.allDoneTimer = null;
+          this.destroyBubble();
+        }, ALL_DONE_DISPLAY_MS);
+      }
+      return;
+    }
+    this.destroyBubble();
+  }
+
+  /** Preferences matter to the settings window and the pet's skin/size. */
+  broadcastSettings(settings: Settings): void {
+    this.sendTo([this.settingsWindow, this.petWindow], 'settings:changed', settings);
+  }
+
+  broadcastReminderStatus(status: ReminderStatus): void {
+    // Pet no longer renders reminders: the alert window and the settings
+    // status strip are the consumers.
+    this.sendTo([this.alertWindow, this.settingsWindow], 'reminder:changed', status);
+    this.applyReminderStatus(status);
+  }
+
+  /** Only the panel lists alarms; pet merely reacts to alarm:fired. */
+  broadcastAlarms(alarms: Alarm[]): void {
+    this.sendTo([this.panelWindow], 'alarm:changed', alarms);
+  }
+
+  broadcastAlarmFired(alarm: Alarm): void {
+    this.sendTo([this.petWindow], 'alarm:fired', alarm);
+  }
+
+  broadcastTodos(todos: TodoItem[]): void {
+    this.sendTo([this.petWindow, this.bubbleWindow, this.panelWindow], 'todo:changed', todos);
     this.refreshBubble();
+  }
+
+  /** Pet scale/skin/dim changes: recompute pet bounds, nothing else. */
+  applyPetSettings(settings: Settings): void {
+    this.applyReminderStatus(this.scheduler.getStatus(), settings);
+  }
+
+  /**
+   * Reminder lifecycle for windows: while active, the pet yields the screen
+   * (hidden) and a dedicated AlertWindow plus dim overlays take over; when
+   * the reminder ends, the alert and overlays are destroyed and the pet
+   * returns at its idle size.
+   */
+  private applyReminderStatus(status: ReminderStatus, settings = this.settingsStore.get()): void {
+    if (status.activeReminder) {
+      if (this.petWindow && !this.petWindow.isDestroyed() && this.petWindow.isVisible()) {
+        this.petWindow.hide();
+      }
+      this.closePanel();
+      this.destroyBubble();
+      this.updateDimWindows(true, settings);
+      void this.ensureAlertWindow();
+      return;
+    }
+
+    this.destroyAlertWindow();
+    this.updateDimWindows(false, settings);
+
+    if (this.petWindow && !this.petWindow.isDestroyed()) {
+      const display = screen.getDisplayMatching(this.petWindow.getBounds());
+      const size = this.getIdlePetSize(settings);
+      this.applyingBounds = true;
+      this.petWindow.setBounds(
+        this.getInitialPetBounds(size.width, size.height, settings, display.workArea),
+        true
+      );
+      this.applyingBounds = false;
+      this.petWindow.setAlwaysOnTop(true, 'floating');
+      this.petWindow.showInactive();
+      this.petWindow.flashFrame(false);
+    }
+    this.refreshBubble();
+  }
+
+  private ensureAlertWindow(): Promise<void> {
+    if (this.alertWindow && !this.alertWindow.isDestroyed()) {
+      this.positionAlertWindow();
+      return Promise.resolve();
+    }
+    if (this.alertLoading) {
+      return this.alertLoading;
+    }
+
+    this.alertLoading = (async () => {
+      const window = new BrowserWindow({
+        ...this.getAlertBoundsForPetDisplay(),
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        minimizable: false,
+        maximizable: false,
+        skipTaskbar: true,
+        hasShadow: false,
+        alwaysOnTop: true,
+        show: false,
+        backgroundColor: '#00000000',
+        webPreferences: {
+          preload: join(moduleDir, '../preload/index.mjs'),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true
+        }
+      });
+
+      // Above the dim masks ('floating'), same level the pet card used before.
+      window.setAlwaysOnTop(true, 'screen-saver');
+      window.on('closed', () => {
+        if (this.alertWindow === window) {
+          this.alertWindow = null;
+        }
+      });
+
+      try {
+        await loadRenderer(window, 'alert');
+      } catch (error) {
+        console.error('[alert] failed to create alert window:', error);
+        if (!window.isDestroyed()) {
+          window.destroy();
+        }
+        return;
+      }
+
+      if (!this.scheduler.getStatus().activeReminder) {
+        // Reminder ended while the renderer was loading: discard silently.
+        if (!window.isDestroyed()) {
+          window.destroy();
+        }
+        return;
+      }
+
+      this.alertWindow = window;
+      window.show();
+      window.flashFrame(true);
+    })().finally(() => {
+      this.alertLoading = null;
+    });
+
+    return this.alertLoading;
+  }
+
+  private destroyAlertWindow(): void {
+    if (this.alertWindow && !this.alertWindow.isDestroyed()) {
+      this.alertWindow.destroy();
+    }
+    this.alertWindow = null;
+  }
+
+  private positionAlertWindow(): void {
+    if (this.alertWindow && !this.alertWindow.isDestroyed()) {
+      this.alertWindow.setBounds(this.getAlertBoundsForPetDisplay());
+    }
+  }
+
+  /** Center the alert on the display the pet lives on. */
+  private getAlertBoundsForPetDisplay(): Electron.Rectangle {
+    const anchor =
+      this.petWindow && !this.petWindow.isDestroyed()
+        ? this.petWindow.getBounds()
+        : { x: 0, y: 0, width: 0, height: 0 };
+    return getAlertBounds(screen.getDisplayMatching(anchor).workArea);
   }
 
   private updateDimWindows(active: boolean, settings: Settings): void {
@@ -398,7 +611,7 @@ export class AppWindows {
         }
       });
 
-      // Mask sits on the 'floating' band while the pet reminder card runs on
+      // Mask sits on the 'floating' band while the alert card runs on
       // 'screen-saver', so the card is always above regardless of show order.
       mask.setAlwaysOnTop(true, 'floating');
       mask.setSkipTaskbar(true);
@@ -416,16 +629,6 @@ export class AppWindows {
       }
     }
     this.dimWindows = [];
-  }
-
-  private getPetBounds(status: ReminderStatus, settings: Settings, workArea: Electron.Rectangle): Electron.Rectangle {
-    const active = status.activeReminder;
-    if (!active) {
-      const size = this.getIdlePetSize(settings);
-      return this.getInitialPetBounds(size.width, size.height, settings, workArea);
-    }
-
-    return getAlertBounds(workArea);
   }
 
   private getIdlePetSize(settings: Settings): { width: number; height: number } {
@@ -509,6 +712,46 @@ export class AppWindows {
     this.bubbleWindow.setBounds(this.getBubbleBounds());
   }
 
+  private handleDisplaysChangedSoon(): void {
+    if (this.displayChangeTimer) {
+      return;
+    }
+    this.displayChangeTimer = setTimeout(() => {
+      this.displayChangeTimer = null;
+      this.handleDisplaysChanged();
+    }, DISPLAY_CHANGE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Monitors plugged/unplugged/rescaled/DPI-changed: keep every window inside
+   * a real work area and rebuild the dim overlays to match the new set of
+   * displays.
+   */
+  private handleDisplaysChanged(): void {
+    if (this.petWindow && !this.petWindow.isDestroyed()) {
+      const bounds = this.petWindow.getBounds();
+      const workArea = screen.getDisplayMatching(bounds).workArea;
+      const x = clamp(bounds.x, workArea.x, workArea.x + workArea.width - bounds.width);
+      const y = clamp(bounds.y, workArea.y, workArea.y + workArea.height - bounds.height);
+      if (x !== bounds.x || y !== bounds.y) {
+        this.applyingBounds = true;
+        this.petWindow.setBounds({ ...bounds, x, y });
+        this.applyingBounds = false;
+      }
+    }
+
+    if (this.alertWindow && !this.alertWindow.isDestroyed()) {
+      this.positionAlertWindow();
+      // Display count may have changed: rebuild the masks.
+      const settings = this.settingsStore.get();
+      this.destroyDimWindows();
+      this.updateDimWindows(true, settings);
+    }
+
+    this.positionBubbleWindow();
+    this.positionPanelWindow();
+  }
+
   private persistPetPositionSoon(): void {
     if (this.applyingBounds || this.scheduler.getStatus().activeReminder) {
       return;
@@ -523,13 +766,14 @@ export class AppWindows {
         return;
       }
       const { x, y } = this.petWindow.getBounds();
-      this.settingsStore.save({ petPosition: { x, y } });
+      // Silent write: dragging the pet must not broadcast settings anywhere.
+      this.settingsStore.savePetPosition({ x, y });
     }, 400);
   }
 
-  private sendAll(channel: string, payload: unknown): void {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
+  private sendTo(targets: Array<BrowserWindow | null>, channel: string, payload: unknown): void {
+    for (const window of targets) {
+      if (window && !window.isDestroyed()) {
         window.webContents.send(channel, payload);
       }
     }
