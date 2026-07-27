@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Check, Plus, Trash2 } from 'lucide-react';
+import { Check, Footprints, Plus, Trash2 } from 'lucide-react';
 import {
   TODO_TEXT_MAX,
   nextTodoPriority,
@@ -19,20 +19,24 @@ const PRIORITY_LABELS: Record<TodoPriority, string> = {
 };
 
 export function TodoSection({
+  quickAddToken,
   todos,
   onAdd,
   onToggle,
   onUpdate,
   onRemove,
   onPriorityChange,
+  onBreakReminderChange,
   onDirtyChange
 }: {
+  quickAddToken: number;
   todos: TodoItem[];
   onAdd: (text: string) => void;
   onToggle: (id: string) => void;
   onUpdate: (id: string, text: string) => void;
   onRemove: (id: string) => void;
   onPriorityChange: (id: string, priority: TodoPriority) => void;
+  onBreakReminderChange: (id: string, enabled: boolean) => void;
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
@@ -41,6 +45,7 @@ export function TodoSection({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composeInputRef = useRef<HTMLInputElement>(null);
   const shouldScrollRef = useRef(false);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -71,6 +76,12 @@ export function TodoSection({
       shouldScrollRef.current = false;
     }
   }, [sorted.length]);
+
+  useEffect(() => {
+    if (quickAddToken > 0) {
+      composeInputRef.current?.focus();
+    }
+  }, [quickAddToken]);
 
   const showHint = useCallback((message: string) => {
     setHint(message);
@@ -209,6 +220,26 @@ export function TodoSection({
                     {todo.text}
                   </span>
                 )}
+                <button
+                  type="button"
+                  className={`todo-break-toggle ${todo.remindOnBreak ? 'is-active' : ''}`.trim()}
+                  title={
+                    todo.remindOnBreak
+                      ? '已设为下次走动时提醒'
+                      : '下次走动时提醒我'
+                  }
+                  aria-label={
+                    todo.remindOnBreak
+                      ? `取消走动提醒「${todo.text}」`
+                      : `下次走动时提醒「${todo.text}」`
+                  }
+                  aria-pressed={todo.remindOnBreak}
+                  disabled={todo.completed}
+                  onClick={() => onBreakReminderChange(todo.id, !todo.remindOnBreak)}
+                >
+                  <Footprints size={13} />
+                  <span>{todo.remindOnBreak ? '走动时' : '顺路'}</span>
+                </button>
                 {confirmingId === todo.id ? (
                   <button
                     type="button"
@@ -248,6 +279,7 @@ export function TodoSection({
         {hint ? <span className="todo-hint">{hint}</span> : null}
         <div className="todo-compose-row">
           <input
+            ref={composeInputRef}
             type="text"
             placeholder="添加待办..."
             value={draft}

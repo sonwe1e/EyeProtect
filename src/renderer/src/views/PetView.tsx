@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
-import { Clock3, ListChecks, Settings as SettingsIcon, X } from 'lucide-react';
-import type { Alarm, PetSkin } from '../../../shared/types';
+import { Clock3, Heart, ListChecks, Settings as SettingsIcon, X } from 'lucide-react';
+import type { Alarm, PetMood, PetSkin } from '../../../shared/types';
 import { PetCharacter } from '../features/pet/PetCharacter';
+import { useCareStatus } from '../hooks/useCareStatus';
+import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 import { useTodos } from '../hooks/useTodos';
 
 export default function PetView(): JSX.Element {
   const { settings } = useSettings();
+  const reminderStatus = useReminderStatus();
+  const care = useCareStatus();
   const todos = useTodos();
   const [firingAlarms, setFiringAlarms] = useState<Alarm[]>([]);
 
@@ -23,8 +27,13 @@ export default function PetView(): JSX.Element {
     if ((event.target as HTMLElement).closest('button')) {
       return;
     }
+    const active = reminderStatus.activeReminder;
+    if (active?.mode === 'gentle') {
+      void window.eyeProtect.reminderAction('complete', active.id);
+      return;
+    }
     void window.eyeProtect.openSettings();
-  }, []);
+  }, [reminderStatus.activeReminder]);
   const handleContextMenu = useCallback((event: MouseEvent) => {
     event.preventDefault();
     void window.eyeProtect.openPanel('alarms');
@@ -40,6 +49,15 @@ export default function PetView(): JSX.Element {
 
   const pendingCount = useMemo(() => todos.filter((todo) => !todo.completed).length, [todos]);
   const isFiring = firingAlarms.length > 0;
+  const mood: PetMood = reminderStatus.preAlert ? 'anticipating' : care.mood;
+  const displaySkin: PetSkin =
+    mood === 'sleeping'
+      ? 'sleep'
+      : mood === 'tired' || mood === 'anticipating'
+        ? 'eye'
+        : mood === 'happy'
+          ? 'fu'
+          : settings.petSkin;
 
   return (
     <main className={`pet-shell ${isFiring ? 'alarms-active' : ''}`.trim()} onContextMenu={handleContextMenu}>
@@ -63,11 +81,29 @@ export default function PetView(): JSX.Element {
 
       <div className="character-stage">
         <PetCharacter
-          skin={settings.petSkin}
+          skin={displaySkin}
+          selectedSkin={settings.petSkin}
+          mood={mood}
+          accessory={care.accessory}
           onSelect={handleSkinSelect}
           onDoubleClick={handlePetDoubleClick}
+          doubleClickHint={
+            reminderStatus.activeReminder?.mode === 'gentle'
+              ? '双击完成当前休息'
+              : '双击打开设置'
+          }
         />
       </div>
+
+      <button
+        type="button"
+        className="pet-care-badge"
+        title={`${care.message} · 点击查看本周趋势`}
+        onClick={() => void window.eyeProtect.openSettings()}
+      >
+        <Heart size={12} />
+        <span>{care.score}</span>
+      </button>
 
       {isFiring ? (
         <button

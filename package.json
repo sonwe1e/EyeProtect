@@ -1,6 +1,6 @@
 {
   "name": "eye-protect-pet",
-  "version": "0.5.1",
+  "version": "1.0.0",
   "description": "Portable Windows desktop pet reminders for eye rest and walking breaks.",
   "main": "out/main/index.js",
   "author": "EyeProtect",
@@ -12,6 +12,7 @@
     "build": "electron-vite build && npm run verify:build",
     "verify:build": "node scripts/verify-build-contract.mjs",
     "smoke:running": "node scripts/smoke-running-app.mjs",
+    "smoke:experience": "node scripts/smoke-reminder-experience.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "start": "electron-vite preview",

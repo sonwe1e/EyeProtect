@@ -1,16 +1,31 @@
 import { app, BrowserWindow, screen } from 'electron';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Alarm, PanelTab, ReminderStatus, RuntimeInfo, Settings, TodoItem } from '../shared/types';
+import type {
+  Alarm,
+  CareStatus,
+  HotkeyStatus,
+  PanelTab,
+  ReminderStatus,
+  RuntimeInfo,
+  Settings,
+  TodoItem,
+  WeeklyReport
+} from '../shared/types';
 import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
+import { getDisplayLayoutKey } from './displayLayout';
 import { getAlertBounds } from './windowBounds';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(moduleDir, '../preload/index.cjs');
 const IDLE_SIZE = 160;
 const PANEL_SIZE = { width: 344, height: 496 } as const;
-const BUBBLE_SIZE = { width: 220, height: 150 } as const;
+const TODO_BUBBLE_SIZE = { width: 220, height: 150 } as const;
+const PRE_ALERT_BUBBLE_SIZE = { width: 300, height: 172 } as const;
+const GENTLE_BUBBLE_SIZE = { width: 300, height: 224 } as const;
+const GENTLE_COMBINED_BUBBLE_SIZE = { width: 320, height: 292 } as const;
 /** How long the bubble stays up showing "all done" after the last pending todo is completed. */
 const ALL_DONE_DISPLAY_MS = 2_500;
 /** A hidden bubble is destroyed after this cooldown instead of lingering as an idle WebContents. */
@@ -35,10 +50,27 @@ const loadRenderer = async (
   await window.loadFile(join(moduleDir, '../renderer/index.html'), { hash: view });
 };
 
+const getAppVersion = (): string => {
+  if (app.isPackaged) {
+    return app.getVersion();
+  }
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), 'package.json'), 'utf8')
+    ) as { version?: unknown };
+    return typeof manifest.version === 'string' && manifest.version
+      ? manifest.version
+      : app.getVersion();
+  } catch {
+    return app.getVersion();
+  }
+};
+
 export const getRuntimeInfo = (settingsStore: SettingsStore): RuntimeInfo => ({
-  // app.getVersion() reads package.json inside the packaged app too, unlike
-  // npm_package_version which only exists under npm scripts.
-  appVersion: app.getVersion(),
+  // Packaged builds use Electron's app metadata. Direct development/preview
+  // launches otherwise report Electron's own version, so read the project
+  // manifest there and keep app.getVersion() as a safe fallback.
+  appVersion: getAppVersion(),
   isPackaged: app.isPackaged,
   dataDir: settingsStore.getDataDir()
 });
@@ -57,9 +89,11 @@ export const getRuntimeInfo = (settingsStore: SettingsStore): RuntimeInfo => ({
  */
 export class AppWindows {
   private petWindow: BrowserWindow | null = null;
+  private petTemporarilyHidden = false;
   private settingsWindow: BrowserWindow | null = null;
   private panelWindow: BrowserWindow | null = null;
   private panelTab: PanelTab = 'todos';
+  private quickAddPending = false;
   private bubbleWindow: BrowserWindow | null = null;
   private bubbleLoading: Promise<void> | null = null;
   private bubbleShouldShow = false;
@@ -92,7 +126,7 @@ export class AppWindows {
     // Clamp against the display nearest the saved position, not the primary
     // display: users who park the pet on a secondary monitor expect it (and
     // the todo bubble anchored to it) to restore there after a restart.
-    const savedPosition = settings.petPosition;
+    const savedPosition = this.getSavedPetPosition(settings);
     const display = savedPosition
       ? screen.getDisplayNearestPoint(savedPosition)
       : screen.getPrimaryDisplay();
@@ -135,6 +169,19 @@ export class AppWindows {
     await loadRenderer(this.petWindow, 'pet');
     this.petWindow.showInactive();
     this.refreshBubble();
+  }
+
+  togglePetVisibility(): boolean {
+    this.petTemporarilyHidden = !this.petTemporarilyHidden;
+    if (this.petTemporarilyHidden) {
+      if (this.petWindow && !this.petWindow.isDestroyed()) {
+        this.petWindow.hide();
+      }
+      this.destroyBubble();
+    } else {
+      this.applyReminderStatus(this.scheduler.getStatus());
+    }
+    return this.petTemporarilyHidden;
   }
 
   async showSettingsWindow(): Promise<void> {
@@ -241,6 +288,25 @@ export class AppWindows {
     this.panelWindow.webContents.send('panel:tab', tab);
     this.panelWindow.show();
     this.panelWindow.focus();
+  }
+
+  async openQuickTodo(): Promise<void> {
+    const panelAlreadyOpen = Boolean(
+      this.panelWindow && !this.panelWindow.isDestroyed()
+    );
+    this.quickAddPending = true;
+    await this.openPanel('todos');
+    if (panelAlreadyOpen && this.panelWindow && !this.panelWindow.isDestroyed()) {
+      this.quickAddPending = false;
+      this.panelWindow.webContents.send('panel:quick-add');
+      this.panelWindow.focus();
+    }
+  }
+
+  consumeQuickAddRequest(): boolean {
+    const pending = this.quickAddPending;
+    this.quickAddPending = false;
+    return pending;
   }
 
   closePanel(): void {
@@ -380,13 +446,25 @@ export class AppWindows {
 
   refreshBubble(): void {
     const status = this.scheduler.getStatus();
-    const active = Boolean(status.activeReminder);
+    const active = status.activeReminder;
     const todos = this.settingsStore.get().todos;
     const pending = todos.filter((todo) => !todo.completed).length;
     const panelOpen = Boolean(
       this.panelWindow && !this.panelWindow.isDestroyed() && this.panelWindow.isVisible()
     );
     const petAlive = Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
+
+    // Gentle reminders and soft pre-alerts use the bubble as their surface
+    // and take precedence over the todo preview.
+    const reminderBubble = Boolean(active && active.mode === 'gentle') || Boolean(status.preAlert);
+    if (reminderBubble) {
+      if (!petAlive || panelOpen) {
+        this.hideBubble();
+        return;
+      }
+      this.showBubble();
+      return;
+    }
 
     if (active || panelOpen || !petAlive) {
       this.hideBubble();
@@ -424,9 +502,13 @@ export class AppWindows {
   }
 
   broadcastReminderStatus(status: ReminderStatus): void {
-    // Pet no longer renders reminders: the alert window and the settings
-    // status strip are the consumers.
-    this.sendTo([this.alertWindow, this.settingsWindow], 'reminder:changed', status);
+    // The pet only needs reminder status for its first-class double-click
+    // shortcut in gentle mode; alert/settings/bubble render the visible state.
+    this.sendTo(
+      [this.petWindow, this.alertWindow, this.settingsWindow, this.bubbleWindow],
+      'reminder:changed',
+      status
+    );
     this.applyReminderStatus(status);
   }
 
@@ -444,25 +526,47 @@ export class AppWindows {
     this.refreshBubble();
   }
 
+  broadcastHistory(report: WeeklyReport, care: CareStatus): void {
+    this.sendTo([this.settingsWindow], 'history:changed', report);
+    this.sendTo([this.petWindow, this.settingsWindow], 'care:changed', care);
+  }
+
+  broadcastHotkeyStatus(status: HotkeyStatus): void {
+    this.sendTo([this.settingsWindow], 'hotkeys:changed', status);
+  }
+
   /** Pet scale/skin/dim changes: recompute pet bounds, nothing else. */
   applyPetSettings(settings: Settings): void {
     this.applyReminderStatus(this.scheduler.getStatus(), settings);
   }
 
   /**
-   * Reminder lifecycle for windows: while active, the pet yields the screen
-   * (hidden) and a dedicated AlertWindow plus dim overlays take over; when
-   * the reminder ends, the alert and overlays are destroyed and the pet
+   * Reminder lifecycle for windows, by mode:
+   * - gentle: the reminder lives in the bubble next to the pet — no alert
+   *   window, no dimming, pet stays on screen as the bubble's anchor.
+   * - guided/focused: the pet yields the screen (hidden) and a dedicated
+   *   AlertWindow takes over; dim overlays exist only for focused mode.
+   * When the reminder ends, alert and overlays are destroyed and the pet
    * returns at its idle size.
    */
   private applyReminderStatus(status: ReminderStatus, settings = this.settingsStore.get()): void {
-    if (status.activeReminder) {
+    const active = status.activeReminder;
+    if (active) {
+      this.closePanel();
+      if (active.mode === 'gentle') {
+        if (this.petWindow && !this.petWindow.isDestroyed()) {
+          this.petWindow.showInactive();
+        }
+        this.destroyAlertWindow();
+        this.updateDimWindows(false, settings);
+        this.refreshBubble();
+        return;
+      }
       if (this.petWindow && !this.petWindow.isDestroyed() && this.petWindow.isVisible()) {
         this.petWindow.hide();
       }
-      this.closePanel();
       this.destroyBubble();
-      this.updateDimWindows(true, settings);
+      this.updateDimWindows(active.mode === 'focused', settings);
       void this.ensureAlertWindow();
       return;
     }
@@ -480,10 +584,18 @@ export class AppWindows {
       );
       this.applyingBounds = false;
       this.petWindow.setAlwaysOnTop(true, 'floating');
-      this.petWindow.showInactive();
+      if (!this.petTemporarilyHidden || status.preAlert) {
+        this.petWindow.showInactive();
+      } else {
+        this.petWindow.hide();
+      }
       this.petWindow.flashFrame(false);
     }
-    this.refreshBubble();
+    if (!this.petTemporarilyHidden || status.preAlert) {
+      this.refreshBubble();
+    } else {
+      this.destroyBubble();
+    }
   }
 
   private ensureAlertWindow(): Promise<void> {
@@ -643,7 +755,7 @@ export class AppWindows {
     settings: Settings,
     workArea: Electron.Rectangle
   ): Electron.Rectangle {
-    const saved = settings.petPosition;
+    const saved = this.getSavedPetPosition(settings);
     return {
       x: saved ? clamp(saved.x, workArea.x, workArea.x + workArea.width - width) : workArea.x + workArea.width - width - 24,
       y: saved ? clamp(saved.y, workArea.y, workArea.y + workArea.height - height) : workArea.y + workArea.height - height - 24,
@@ -683,8 +795,9 @@ export class AppWindows {
   }
 
   private getBubbleBounds(): Electron.Rectangle {
-    const width = BUBBLE_SIZE.width;
-    const height = BUBBLE_SIZE.height;
+    const size = this.getBubbleSize();
+    const width = size.width;
+    const height = size.height;
     const anchor =
       this.petWindow && !this.petWindow.isDestroyed()
         ? this.petWindow.getBounds()
@@ -704,6 +817,20 @@ export class AppWindows {
     const x = clamp(anchor.x, workArea.x, workArea.x + workArea.width - width);
 
     return { x, y, width, height };
+  }
+
+  private getBubbleSize(): { width: number; height: number } {
+    const status = this.scheduler.getStatus();
+    if (status.preAlert) {
+      return PRE_ALERT_BUBBLE_SIZE;
+    }
+    const active = status.activeReminder;
+    if (active?.mode === 'gentle') {
+      return active.kind === 'combined' || Boolean(active.breakTodo)
+        ? GENTLE_COMBINED_BUBBLE_SIZE
+        : GENTLE_BUBBLE_SIZE;
+    }
+    return TODO_BUBBLE_SIZE;
   }
 
   private positionBubbleWindow(): void {
@@ -731,22 +858,42 @@ export class AppWindows {
   private handleDisplaysChanged(): void {
     if (this.petWindow && !this.petWindow.isDestroyed()) {
       const bounds = this.petWindow.getBounds();
-      const workArea = screen.getDisplayMatching(bounds).workArea;
-      const x = clamp(bounds.x, workArea.x, workArea.x + workArea.width - bounds.width);
-      const y = clamp(bounds.y, workArea.y, workArea.y + workArea.height - bounds.height);
+      const settings = this.settingsStore.get();
+      const saved = this.getSavedPetPosition(settings, false);
+      const targetBounds = saved ? { ...bounds, x: saved.x, y: saved.y } : bounds;
+      const display = saved
+        ? screen.getDisplayNearestPoint(saved)
+        : screen.getDisplayMatching(bounds);
+      const workArea = display.workArea;
+      const x = clamp(
+        targetBounds.x,
+        workArea.x,
+        workArea.x + workArea.width - bounds.width
+      );
+      const y = clamp(
+        targetBounds.y,
+        workArea.y,
+        workArea.y + workArea.height - bounds.height
+      );
       if (x !== bounds.x || y !== bounds.y) {
         this.applyingBounds = true;
         this.petWindow.setBounds({ ...bounds, x, y });
         this.applyingBounds = false;
       }
+      this.settingsStore.savePetPosition(
+        { x, y },
+        this.getCurrentDisplayLayoutKey()
+      );
     }
 
     if (this.alertWindow && !this.alertWindow.isDestroyed()) {
       this.positionAlertWindow();
-      // Display count may have changed: rebuild the masks.
+      // Display count may have changed: rebuild the masks (focused mode only;
+      // a guided alert runs without dimming).
       const settings = this.settingsStore.get();
       this.destroyDimWindows();
-      this.updateDimWindows(true, settings);
+      const active = this.scheduler.getStatus().activeReminder;
+      this.updateDimWindows(active?.mode === 'focused', settings);
     }
 
     this.positionBubbleWindow();
@@ -768,8 +915,25 @@ export class AppWindows {
       }
       const { x, y } = this.petWindow.getBounds();
       // Silent write: dragging the pet must not broadcast settings anywhere.
-      this.settingsStore.savePetPosition({ x, y });
+      this.settingsStore.savePetPosition(
+        { x, y },
+        this.getCurrentDisplayLayoutKey()
+      );
     }, 400);
+  }
+
+  private getCurrentDisplayLayoutKey(): string {
+    return getDisplayLayoutKey(screen.getAllDisplays());
+  }
+
+  private getSavedPetPosition(
+    settings: Settings,
+    fallBackToLegacy: boolean = true
+  ): { x: number; y: number } | null {
+    return (
+      settings.petPositionsByLayout[this.getCurrentDisplayLayoutKey()] ??
+      (fallBackToLegacy ? settings.petPosition : null)
+    );
   }
 
   private sendTo(targets: Array<BrowserWindow | null>, channel: string, payload: unknown): void {

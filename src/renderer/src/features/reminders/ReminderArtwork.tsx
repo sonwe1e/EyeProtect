@@ -32,9 +32,11 @@ const artworkFor = (kind: ReminderKind): string[] => {
 
 export function ReminderArtwork({
   active,
+  canComplete,
   onDoubleClick
 }: {
   active: ActiveReminder;
+  canComplete: boolean;
   onDoubleClick: () => void;
 }): JSX.Element {
   const images = useMemo(() => artworkFor(active.kind), [active.kind]);
@@ -45,15 +47,43 @@ export function ReminderArtwork({
     if (images.length <= 1) {
       return;
     }
-    const timer = window.setInterval(() => {
-      setIndex((current) => (current + 1) % images.length);
-    }, ARTWORK_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let timer: number | null = null;
+
+    const stop = (): void => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+    const sync = (): void => {
+      stop();
+      if (document.hidden || reducedMotion.matches) {
+        setIndex(0);
+        return;
+      }
+      timer = window.setInterval(() => {
+        setIndex((current) => (current + 1) % images.length);
+      }, ARTWORK_INTERVAL_MS);
+    };
+
+    document.addEventListener('visibilitychange', sync);
+    reducedMotion.addEventListener('change', sync);
+    sync();
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', sync);
+      reducedMotion.removeEventListener('change', sync);
+    };
   }, [images]);
 
   const src = images[index] ?? images[0];
   return (
-    <div className="reminder-artwork" title="双击完成提醒" onDoubleClick={onDoubleClick}>
+    <div
+      className="reminder-artwork"
+      title={canComplete ? '双击完成提醒' : '倒计时结束后可双击完成'}
+      onDoubleClick={onDoubleClick}
+    >
       <img src={src} alt={active.kind === 'walk' ? '走动提醒插画' : '护眼提醒插画'} draggable={false} />
     </div>
   );

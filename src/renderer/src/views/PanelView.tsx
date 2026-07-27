@@ -13,6 +13,7 @@ export default function PanelView(): JSX.Element {
   const alarms = useAlarms();
   const todos = useTodos();
   const [nudge, setNudge] = useState(false);
+  const [quickAddToken, setQuickAddToken] = useState(0);
   const dirtyRef = useRef(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -28,6 +29,19 @@ export default function PanelView(): JSX.Element {
       mounted = false;
       offTab();
     };
+  }, []);
+
+  useEffect(
+    () => window.eyeProtect.onQuickAddTodo(() => setQuickAddToken((value) => value + 1)),
+    []
+  );
+
+  useEffect(() => {
+    void window.eyeProtect.consumeQuickAddTodo().then((pending) => {
+      if (pending) {
+        setQuickAddToken((value) => value + 1);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -78,6 +92,9 @@ export default function PanelView(): JSX.Element {
   const handleSetTodoPriority = useCallback((id: string, priority: TodoPriority) => {
     void window.eyeProtect.setTodoPriority(id, priority);
   }, []);
+  const handleSetTodoBreakReminder = useCallback((id: string, enabled: boolean) => {
+    void window.eyeProtect.setTodoBreakReminder(id, enabled);
+  }, []);
   const handleCancelAlarm = useCallback((id: string) => {
     void window.eyeProtect.cancelAlarm(id);
   }, []);
@@ -127,12 +144,14 @@ export default function PanelView(): JSX.Element {
       <div className="panel-body">
         {tab === 'todos' ? (
           <TodoSection
+            quickAddToken={quickAddToken}
             todos={todos}
             onAdd={handleAddTodo}
             onToggle={handleToggleTodo}
             onUpdate={handleUpdateTodo}
             onRemove={handleRemoveTodo}
             onPriorityChange={handleSetTodoPriority}
+            onBreakReminderChange={handleSetTodoBreakReminder}
             onDirtyChange={handleDirtyChange}
           />
         ) : (

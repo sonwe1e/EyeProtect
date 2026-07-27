@@ -1,5 +1,11 @@
 import { useEffect, useState, type MouseEvent } from 'react';
-import { PET_SKINS, type PetSkin } from '../../../../shared/types';
+import { Coffee, Glasses, Leaf } from 'lucide-react';
+import {
+  PET_SKINS,
+  type PetAccessory,
+  type PetMood,
+  type PetSkin
+} from '../../../../shared/types';
 
 const IDLE_ACTION_INTERVAL_MS = 45_000;
 const IDLE_ACTION_MAX_MS = 5_200;
@@ -20,12 +26,20 @@ const petSkinLabel: Record<PetSkin, string> = {
 
 export function PetCharacter({
   skin,
+  selectedSkin,
+  mood,
+  accessory,
   onSelect,
-  onDoubleClick
+  onDoubleClick,
+  doubleClickHint
 }: {
   skin: PetSkin;
+  selectedSkin: PetSkin;
+  mood: PetMood;
+  accessory: PetAccessory;
   onSelect: (skin: PetSkin) => void;
   onDoubleClick: (event: MouseEvent<HTMLDivElement>) => void;
+  doubleClickHint: string;
 }): JSX.Element {
   const [isAnimating, setIsAnimating] = useState(false);
 
@@ -74,14 +88,32 @@ export function PetCharacter({
 
   return (
     <div
-      className={`pet-character skin-${skin} ${isAnimating ? 'is-animating' : ''}`.trim()}
+      className={`pet-character skin-${skin} mood-${mood} ${isAnimating ? 'is-animating' : ''}`.trim()}
       aria-label="EyeProtect 桌宠"
-      title="按住拖动位置，双击打开设置"
+      title={`按住拖动位置，${doubleClickHint}`}
       onDoubleClick={onDoubleClick}
     >
       <img src={petArtwork[skin]} alt="EyeProtect 桌宠" draggable={false} />
-      <SkinPicker current={skin} onSelect={onSelect} />
+      <PetAccessoryMark accessory={accessory} />
+      <SkinPicker current={selectedSkin} onSelect={onSelect} />
     </div>
+  );
+}
+
+function PetAccessoryMark({ accessory }: { accessory: PetAccessory }): JSX.Element | null {
+  if (accessory === 'none') {
+    return null;
+  }
+  return (
+    <span className="pet-accessory" data-accessory={accessory} aria-hidden="true">
+      {accessory === 'cup' ? (
+        <Coffee />
+      ) : accessory === 'glasses' ? (
+        <Glasses />
+      ) : (
+        <Leaf />
+      )}
+    </span>
   );
 }
 

@@ -5,7 +5,9 @@ const createDefaultStatus = (): ReminderStatus => ({
   nextEyeAt: Date.now() + DEFAULT_SETTINGS.eyeIntervalMinutes * 60_000,
   nextWalkAt: Date.now() + DEFAULT_SETTINGS.walkIntervalMinutes * 60_000,
   pausedUntil: null,
-  activeReminder: null
+  activeReminder: null,
+  preAlert: null,
+  contextDeferral: null
 });
 
 export const useReminderStatus = (): ReminderStatus => {

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { SettingsStore } from '../src/main/settings';
+import { sanitizeSettings, SettingsStore } from '../src/main/settings';
 import { ALARM_LABEL_MAX, TODO_TEXT_MAX, sanitizeAlarm, sanitizeTodo } from '../src/shared/types';
 
 const withTempStore = (fn: (store: SettingsStore, dir: string) => void): void => {
@@ -68,14 +68,16 @@ test('savePetPosition persists without emitting anything', () => {
       events += 1;
     });
 
-    store.savePetPosition({ x: 12, y: 34 });
+    store.savePetPosition({ x: 12, y: 34 }, 'layout-a');
 
     assert.equal(events, 0, 'dragging the pet broadcasts nothing');
     assert.deepEqual(store.get().petPosition, { x: 12, y: 34 });
+    assert.deepEqual(store.get().petPositionsByLayout['layout-a'], { x: 12, y: 34 });
 
     // A fresh store sees the persisted position.
     const reopened = new SettingsStore();
     assert.deepEqual(reopened.get().petPosition, { x: 12, y: 34 });
+    assert.deepEqual(reopened.get().petPositionsByLayout['layout-a'], { x: 12, y: 34 });
     assert.ok(existsSync(join(dir, 'settings.json')));
   });
 });
@@ -112,6 +114,7 @@ test('get() deep-copies alarms, todos and position so callers cannot mutate the 
     if (copy.petPosition) {
       copy.petPosition.x = 999;
     }
+    copy.petPositionsByLayout.fake = { x: 10, y: 20 };
 
     const fresh = store.get();
     assert.equal(fresh.alarms.length, 1);
@@ -119,6 +122,7 @@ test('get() deep-copies alarms, todos and position so callers cannot mutate the 
     assert.equal(fresh.todos.length, 1);
     assert.equal(fresh.todos[0].text, 'untouched');
     assert.deepEqual(fresh.petPosition, { x: 1, y: 2 });
+    assert.equal(fresh.petPositionsByLayout.fake, undefined);
   });
 });
 
@@ -163,6 +167,49 @@ test('settings are written with a schema version stamp', () => {
     assert.equal(raw.version, 1);
     assert.equal(raw.snoozeMinutes, 9);
   });
+});
+
+test('history preferences use privacy-safe defaults and only accept supported retention', () => {
+  assert.equal(sanitizeSettings({}).historyEnabled, true);
+  assert.equal(sanitizeSettings({}).historyRetentionDays, 30);
+  assert.equal(sanitizeSettings({ historyEnabled: false }).historyEnabled, false);
+  assert.equal(sanitizeSettings({ historyRetentionDays: 90 }).historyRetentionDays, 90);
+  assert.equal(
+    sanitizeSettings({ historyRetentionDays: 365 as 30 }).historyRetentionDays,
+    30
+  );
+});
+
+test('scene and adaptive preferences sanitize times and executable names without paths', () => {
+  const defaults = sanitizeSettings({});
+  assert.equal(defaults.adaptiveEnabled, false);
+  assert.equal(defaults.quietHoursEnabled, false);
+  assert.equal(defaults.quietHoursStartMinutes, 22 * 60);
+  assert.equal(defaults.quietHoursEndMinutes, 8 * 60);
+  assert.equal(defaults.foregroundDetectionEnabled, false);
+  assert.deepEqual(defaults.quietAppWhitelist, []);
+  assert.equal(defaults.hotkeysEnabled, true);
+
+  const sanitized = sanitizeSettings({
+    adaptiveEnabled: true,
+    quietHoursEnabled: true,
+    quietHoursStartMinutes: -50,
+    quietHoursEndMinutes: 4_000,
+    foregroundDetectionEnabled: true,
+    hotkeysEnabled: false,
+    quietAppWhitelist: [
+      ' C:\\Program Files\\Microsoft Office\\POWERPNT.EXE ',
+      'powerpnt',
+      ' Zoom.exe ',
+      '',
+      42 as unknown as string
+    ]
+  });
+  assert.equal(sanitized.adaptiveEnabled, true);
+  assert.equal(sanitized.quietHoursStartMinutes, 0);
+  assert.equal(sanitized.quietHoursEndMinutes, 24 * 60 - 1);
+  assert.deepEqual(sanitized.quietAppWhitelist, ['powerpnt', 'zoom']);
+  assert.equal(sanitized.hotkeysEnabled, false);
 });
 
 test('sanitizeTodo trims, caps and drops whitespace-only text', () => {

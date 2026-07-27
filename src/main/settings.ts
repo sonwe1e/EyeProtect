@@ -14,6 +14,7 @@ import { env } from 'node:process';
 import {
   DEFAULT_SETTINGS,
   PET_SKINS,
+  REMINDER_MODES,
   SETTINGS_LIMITS,
   TODO_PRIORITIES,
   TODO_TEXT_MAX,
@@ -22,6 +23,7 @@ import {
   type Alarm,
   type PetPosition,
   type PetSkin,
+  type ReminderMode,
   type Settings,
   type TodoItem,
   type TodoPriority
@@ -100,6 +102,52 @@ const normalizePosition = (value: unknown): PetPosition | null => {
   };
 };
 
+export const sanitizePetPositionsByLayout = (
+  value: unknown
+): Record<string, PetPosition> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const entries: Array<[string, PetPosition]> = [];
+  for (const [rawKey, rawPosition] of Object.entries(value)) {
+    const key = rawKey.trim().slice(0, 240);
+    const position = normalizePosition(rawPosition);
+    if (key && position) {
+      entries.push([key, position]);
+    }
+  }
+  return Object.fromEntries(entries.slice(-20));
+};
+
+const normalizeMinuteOfDay = (value: unknown, fallback: number): number =>
+  Math.round(
+    clampNumber(
+      value,
+      fallback,
+      SETTINGS_LIMITS.minuteOfDay.min,
+      SETTINGS_LIMITS.minuteOfDay.max
+    )
+  );
+
+/** Store executable names only; paths are unnecessary and may contain private information. */
+export const sanitizeQuietAppWhitelist = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) =>
+      entry
+        .trim()
+        .replace(/^.*[\\/]/, '')
+        .replace(/\.exe$/i, '')
+        .toLocaleLowerCase()
+        .slice(0, 80)
+    )
+    .filter(Boolean);
+  return [...new Set(normalized)].slice(0, 20);
+};
+
 export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings => {
   const input = value && typeof value === 'object' ? (value as Partial<Settings>) : {};
 
@@ -128,6 +176,17 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.snoozeMinutes.max
       )
     ),
+    reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
+      ? (input.reminderMode as ReminderMode)
+      : DEFAULT_SETTINGS.reminderMode,
+    preAlertSeconds: Math.round(
+      clampNumber(
+        input.preAlertSeconds,
+        DEFAULT_SETTINGS.preAlertSeconds,
+        SETTINGS_LIMITS.preAlertSeconds.min,
+        SETTINGS_LIMITS.preAlertSeconds.max
+      )
+    ),
     startWithWindows:
       typeof input.startWithWindows === 'boolean'
         ? input.startWithWindows
@@ -139,11 +198,43 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       SETTINGS_LIMITS.petScale.max
     ),
     petPosition: normalizePosition(input.petPosition),
+    petPositionsByLayout: sanitizePetPositionsByLayout(input.petPositionsByLayout),
     petSkin: PET_SKINS.includes(input.petSkin as PetSkin)
       ? (input.petSkin as PetSkin)
       : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
+    historyEnabled:
+      typeof input.historyEnabled === 'boolean'
+        ? input.historyEnabled
+        : DEFAULT_SETTINGS.historyEnabled,
+    historyRetentionDays:
+      input.historyRetentionDays === 90 ? 90 : DEFAULT_SETTINGS.historyRetentionDays,
+    adaptiveEnabled:
+      typeof input.adaptiveEnabled === 'boolean'
+        ? input.adaptiveEnabled
+        : DEFAULT_SETTINGS.adaptiveEnabled,
+    quietHoursEnabled:
+      typeof input.quietHoursEnabled === 'boolean'
+        ? input.quietHoursEnabled
+        : DEFAULT_SETTINGS.quietHoursEnabled,
+    quietHoursStartMinutes: normalizeMinuteOfDay(
+      input.quietHoursStartMinutes,
+      DEFAULT_SETTINGS.quietHoursStartMinutes
+    ),
+    quietHoursEndMinutes: normalizeMinuteOfDay(
+      input.quietHoursEndMinutes,
+      DEFAULT_SETTINGS.quietHoursEndMinutes
+    ),
+    foregroundDetectionEnabled:
+      typeof input.foregroundDetectionEnabled === 'boolean'
+        ? input.foregroundDetectionEnabled
+        : DEFAULT_SETTINGS.foregroundDetectionEnabled,
+    quietAppWhitelist: sanitizeQuietAppWhitelist(input.quietAppWhitelist),
+    hotkeysEnabled:
+      typeof input.hotkeysEnabled === 'boolean'
+        ? input.hotkeysEnabled
+        : DEFAULT_SETTINGS.hotkeysEnabled,
     alarms: sanitizeAlarms(input.alarms),
     todos: sanitizeTodos(input.todos)
   };
@@ -200,6 +291,13 @@ export class SettingsStore extends EventEmitter {
     return {
       ...this.settings,
       petPosition: this.settings.petPosition ? { ...this.settings.petPosition } : null,
+      petPositionsByLayout: Object.fromEntries(
+        Object.entries(this.settings.petPositionsByLayout).map(([key, position]) => [
+          key,
+          { ...position }
+        ])
+      ),
+      quietAppWhitelist: [...this.settings.quietAppWhitelist],
       alarms: this.settings.alarms.map((alarm) => ({ ...alarm })),
       todos: this.settings.todos.map((todo) => ({ ...todo }))
     };
@@ -215,8 +313,16 @@ export class SettingsStore extends EventEmitter {
   }
 
   /** Pet drag persistence: rewrite the file, notify nobody. */
-  savePetPosition(position: PetPosition | null): void {
-    const next = sanitizeSettings({ ...this.get(), petPosition: position });
+  savePetPosition(position: PetPosition | null, layoutKey?: string): void {
+    const positions = {
+      ...this.settings.petPositionsByLayout,
+      ...(position && layoutKey ? { [layoutKey.slice(0, 240)]: position } : {})
+    };
+    const next = sanitizeSettings({
+      ...this.get(),
+      petPosition: position,
+      petPositionsByLayout: Object.fromEntries(Object.entries(positions).slice(-20))
+    });
     this.settings = next;
     this.write(next);
   }
@@ -231,7 +337,9 @@ export class SettingsStore extends EventEmitter {
       text,
       createdAt: Date.now(),
       completed: false,
-      priority: 'normal'
+      priority: 'normal',
+      context: 'desk',
+      remindOnBreak: false
     };
     return this.commitTodos([...this.get().todos, todo]);
   }
@@ -284,6 +392,27 @@ export class SettingsStore extends EventEmitter {
       return previous.todos;
     }
     return this.commitTodos(previous.todos.map((todo) => (todo.id === id ? { ...todo, priority } : todo)));
+  }
+
+  setTodoBreakReminder(id: string, enabled: boolean): TodoItem[] {
+    if (typeof id !== 'string' || !id || typeof enabled !== 'boolean') {
+      return this.get().todos;
+    }
+    const previous = this.get();
+    if (!previous.todos.some((todo) => todo.id === id)) {
+      return previous.todos;
+    }
+    return this.commitTodos(
+      previous.todos.map((todo) =>
+        todo.id === id
+          ? {
+              ...todo,
+              context: enabled ? 'away' : 'desk',
+              remindOnBreak: enabled
+            }
+          : todo
+      )
+    );
   }
 
   clearCompletedTodos(): TodoItem[] {

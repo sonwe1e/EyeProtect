@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ReminderScheduler } from '../src/main/reminders';
-import type { Settings } from '../src/shared/types';
+import type { ReminderEvent, Settings } from '../src/shared/types';
 
 const MINUTE = 60_000;
 const T0 = new Date(2026, 6, 8, 10, 0, 0, 0).getTime();
@@ -10,11 +10,23 @@ const baseSettings: Settings = {
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  reminderMode: 'focused',
+  preAlertSeconds: 0,
   startWithWindows: false,
   petScale: 1,
   petPosition: null,
+  petPositionsByLayout: {},
   petSkin: 'stable',
   dimDesktop: true,
+  historyEnabled: true,
+  historyRetentionDays: 30,
+  adaptiveEnabled: false,
+  quietHoursEnabled: false,
+  quietHoursStartMinutes: 22 * 60,
+  quietHoursEndMinutes: 8 * 60,
+  foregroundDetectionEnabled: false,
+  quietAppWhitelist: [],
+  hotkeysEnabled: true,
   alarms: [],
   todos: []
 };
@@ -120,6 +132,16 @@ test('scheduler emits changed status for test reminder', () => {
 
   assert.equal(seen.length, 1);
   assert.equal(seen[0].activeReminder?.kind, 'walk');
+});
+
+test('test buttons cannot replace a reminder already in progress', () => {
+  const { clock, scheduler } = makeScheduler();
+  clock.advance(20 * MINUTE);
+  const real = scheduler.tick().activeReminder;
+
+  const afterTestClick = scheduler.triggerTest('walk');
+  assert.equal(afterTestClick.activeReminder?.id, real?.id);
+  assert.equal(afterTestClick.activeReminder?.kind, 'eye');
 });
 
 test('eye and walk due together fire as one combined reminder', () => {
@@ -268,4 +290,320 @@ test('pause resets the snooze count', () => {
   clock.set(paused.nextEyeAt + 1_000);
   const afterPause = scheduler.tick();
   assert.equal(afterPause.activeReminder?.snoozeCount, 0);
+});
+
+test('gentle and guided modes unlock immediately; focused keeps the wait', () => {
+  const focused = makeScheduler(makeSettings({ reminderMode: 'focused' }));
+  focused.clock.advance(20 * MINUTE);
+  const fActive = focused.scheduler.tick().activeReminder;
+  assert.equal(fActive?.mode, 'focused');
+  assert.equal(fActive?.unlockAt, fActive?.startedAt + 30_000);
+  assert.equal(
+    focused.scheduler.handleAction('complete', fActive.id).activeReminder?.id,
+    fActive?.id,
+    'early complete still refused in focused mode'
+  );
+
+  for (const reminderMode of ['gentle', 'guided'] as const) {
+    const { clock, scheduler } = makeScheduler(makeSettings({ reminderMode }));
+    clock.advance(20 * MINUTE);
+    const active = scheduler.tick().activeReminder;
+    assert.equal(active?.mode, reminderMode);
+    assert.equal(active?.unlockAt, active?.startedAt, `${reminderMode} has no enforced wait`);
+    assert.equal(
+      scheduler.handleAction('complete', active.id).activeReminder,
+      null,
+      `${reminderMode} complete is immediate`
+    );
+  }
+});
+
+test('absorbing a kind adds no wait outside focused mode, but adds an activity', () => {
+  const { clock, scheduler } = makeScheduler(
+    makeSettings({ reminderMode: 'guided', walkIntervalMinutes: 22 })
+  );
+  clock.advance(20 * MINUTE);
+  const eye = scheduler.tick().activeReminder;
+  assert.equal(eye?.kind, 'eye');
+  assert.equal(eye?.activityIds.length, 1);
+
+  clock.advance(1.5 * MINUTE);
+  const combined = scheduler.tick().activeReminder;
+  assert.equal(combined?.kind, 'combined');
+  assert.equal(combined?.unlockAt, combined?.startedAt, 'guided stays unlocked after absorb');
+  assert.equal(combined?.activityIds.length, 2, 'one activity per absorbed kind');
+  assert.ok(combined?.activityIds.some((id) => id.startsWith('eye')));
+  assert.ok(combined?.activityIds.some((id) => id.startsWith('walk')));
+});
+
+test('pre-alert appears ahead of the deadline and expires into the reminder', () => {
+  const { clock, scheduler } = makeScheduler(makeSettings({ preAlertSeconds: 30 }));
+  const before = scheduler.tick();
+  assert.equal(before.preAlert, null, 'too early for the pre-alert');
+
+  clock.advance(20 * MINUTE - 30_000);
+  const pre = scheduler.tick();
+  assert.equal(pre.preAlert?.kind, 'eye');
+  assert.equal(pre.preAlert?.firesAt, T0 + 20 * MINUTE);
+  assert.equal(pre.activeReminder, null);
+
+  clock.advance(30_000 + 1);
+  const fired = scheduler.tick();
+  assert.equal(fired.preAlert, null);
+  assert.equal(fired.activeReminder?.kind, 'eye');
+});
+
+test('pre-alert start opens a real reminder right away', () => {
+  const { clock, scheduler } = makeScheduler(makeSettings({ preAlertSeconds: 30 }));
+  clock.advance(20 * MINUTE - 30_000);
+  scheduler.tick();
+
+  const started = scheduler.handlePreAlertAction('start');
+  assert.equal(started.preAlert, null);
+  assert.equal(started.activeReminder?.kind, 'eye');
+
+  // A real (non-test) reminder: completing reschedules the cycle.
+  clock.advance(31_000);
+  const done = scheduler.handleAction('complete', started.activeReminder.id);
+  assert.equal(done.nextEyeAt, clock.now() + 20 * MINUTE);
+});
+
+test('pre-alert snooze defers only that kind by two minutes', () => {
+  const { clock, scheduler } = makeScheduler(makeSettings({ preAlertSeconds: 30 }));
+  clock.advance(20 * MINUTE - 30_000);
+  scheduler.tick();
+
+  const snoozed = scheduler.handlePreAlertAction('snooze');
+  assert.equal(snoozed.preAlert, null);
+  assert.equal(snoozed.nextEyeAt, clock.now() + 2 * MINUTE);
+  assert.equal(snoozed.nextWalkAt, T0 + 60 * MINUTE, 'walk deadline untouched');
+});
+
+test('pre-alert dismissed does not reappear for the same deadline', () => {
+  const { clock, scheduler } = makeScheduler(makeSettings({ preAlertSeconds: 30 }));
+  clock.advance(20 * MINUTE - 30_000);
+  scheduler.tick();
+
+  const dismissed = scheduler.handlePreAlertAction('dismiss');
+  assert.equal(dismissed.preAlert, null);
+
+  clock.advance(10_000);
+  assert.equal(scheduler.tick().preAlert, null, 'no repeat within the same cycle');
+
+  clock.advance(20_000 + 1);
+  assert.equal(scheduler.tick().activeReminder?.kind, 'eye', 'reminder still fires on schedule');
+});
+
+test('pre-alerts stay off when preAlertSeconds is 0', () => {
+  const { clock, scheduler } = makeScheduler(); // preAlertSeconds: 0
+  clock.advance(20 * MINUTE - 30_000);
+  const status = scheduler.tick();
+  assert.equal(status.preAlert, null);
+  assert.equal(status.activeReminder, null);
+});
+
+test('pause clears a pending pre-alert', () => {
+  const { clock, scheduler } = makeScheduler(makeSettings({ preAlertSeconds: 30 }));
+  clock.advance(20 * MINUTE - 30_000);
+  scheduler.tick();
+
+  const paused = scheduler.pause(60);
+  assert.equal(paused.preAlert, null);
+});
+
+test('activities are picked per kind and avoid immediate repeats', () => {
+  const { clock, scheduler } = makeScheduler();
+  clock.advance(20 * MINUTE);
+  const first = scheduler.tick().activeReminder;
+  assert.equal(first?.activityIds.length, 1);
+  assert.ok(first?.activityIds[0].startsWith('eye'));
+
+  scheduler.handleAction('skip', first.id);
+  clock.advance(20 * MINUTE + 1_000);
+  const second = scheduler.tick().activeReminder;
+  assert.notEqual(second?.activityIds[0], first?.activityIds[0], 'no back-to-back repeat');
+});
+
+test('walk reminders snapshot the highest-priority pending away todo', () => {
+  const todos = [
+    {
+      id: 'desk',
+      text: '继续写代码',
+      createdAt: 1,
+      completed: false,
+      priority: 'urgent' as const,
+      context: 'desk' as const,
+      remindOnBreak: false
+    },
+    {
+      id: 'water',
+      text: '接一杯水',
+      createdAt: 2,
+      completed: false,
+      priority: 'normal' as const,
+      context: 'away' as const,
+      remindOnBreak: true
+    },
+    {
+      id: 'parcel',
+      text: '拿快递',
+      createdAt: 3,
+      completed: false,
+      priority: 'important' as const,
+      context: 'away' as const,
+      remindOnBreak: true
+    }
+  ];
+  const { scheduler } = makeScheduler(makeSettings({ todos }));
+
+  assert.equal(scheduler.triggerTest('eye').activeReminder?.breakTodo, null);
+  scheduler.handleAction('skip', scheduler.getStatus().activeReminder?.id ?? '');
+
+  const active = scheduler.triggerTest('walk').activeReminder;
+  assert.deepEqual(active?.breakTodo, { id: 'parcel', text: '拿快递' });
+
+  if (active?.breakTodo) {
+    active.breakTodo.text = 'mutated outside';
+  }
+  assert.equal(
+    scheduler.getStatus().activeReminder?.breakTodo?.text,
+    '拿快递',
+    'status snapshots cannot mutate scheduler state'
+  );
+});
+
+test('todo updates affect the next walk reminder without moving deadlines', () => {
+  const { scheduler } = makeScheduler();
+  const before = scheduler.getStatus();
+  scheduler.updateTodos([
+    {
+      id: 'water',
+      text: '接水',
+      createdAt: 1,
+      completed: false,
+      priority: 'normal',
+      context: 'away',
+      remindOnBreak: true
+    }
+  ]);
+
+  const afterUpdate = scheduler.getStatus();
+  assert.equal(afterUpdate.nextEyeAt, before.nextEyeAt);
+  assert.equal(afterUpdate.nextWalkAt, before.nextWalkAt);
+  assert.deepEqual(scheduler.triggerTest('walk').activeReminder?.breakTodo, {
+    id: 'water',
+    text: '接水'
+  });
+});
+
+test('real actions emit one history event with schedule context; tests emit none', () => {
+  const clock = makeClock();
+  const events: ReminderEvent[] = [];
+  const scheduler = new ReminderScheduler(makeSettings(), {
+    now: clock.now,
+    onEvent: (entry) => events.push(entry)
+  });
+
+  scheduler.triggerTest('eye');
+  clock.advance(31_000);
+  scheduler.handleAction('complete', scheduler.getStatus().activeReminder?.id ?? '');
+  assert.equal(events.length, 0, 'test reminders are excluded from personal history');
+
+  clock.set(T0 + 20 * MINUTE);
+  const real = scheduler.tick().activeReminder;
+  clock.advance(31_000);
+  scheduler.handleAction('complete', real?.id ?? '');
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].action, 'complete');
+  assert.equal(events[0].kind, 'eye');
+  assert.equal(events[0].scheduledAt, T0 + 20 * MINUTE);
+  assert.equal(events[0].shownAt, T0 + 20 * MINUTE);
+});
+
+test('a long system absence records one natural break event', () => {
+  const clock = makeClock();
+  const events: ReminderEvent[] = [];
+  const scheduler = new ReminderScheduler(makeSettings(), {
+    now: clock.now,
+    onEvent: (entry) => events.push(entry)
+  });
+
+  scheduler.handleSystemResume(20 * 60);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].action, 'natural-break');
+  assert.equal(events[0].kind, 'eye');
+});
+
+test('ten minutes away restarts both cycles as a natural break', () => {
+  const { clock, scheduler } = makeScheduler();
+  clock.advance(5 * MINUTE);
+  const status = scheduler.handleSystemResume(10 * 60);
+  assert.equal(status.nextEyeAt, clock.now() + 20 * MINUTE);
+  assert.equal(status.nextWalkAt, clock.now() + 60 * MINUTE);
+});
+
+test('effective adaptive intervals stay separate from base settings and restore immediately', () => {
+  const clock = makeClock();
+  const adaptive = makeSettings({ adaptiveEnabled: true });
+  const scheduler = new ReminderScheduler(adaptive, {
+    now: clock.now,
+    getEffectiveIntervals: (current) =>
+      current.adaptiveEnabled
+        ? { eyeMinutes: 24, walkMinutes: 72 }
+        : {
+            eyeMinutes: current.eyeIntervalMinutes,
+            walkMinutes: current.walkIntervalMinutes
+          },
+    getEffectiveMode: (current) => (current.adaptiveEnabled ? 'gentle' : current.reminderMode)
+  });
+
+  assert.equal(scheduler.getStatus().nextEyeAt, T0 + 24 * MINUTE);
+  assert.equal(scheduler.getStatus().nextWalkAt, T0 + 72 * MINUTE);
+  assert.equal(scheduler.triggerNow().activeReminder?.mode, 'gentle');
+  scheduler.handleAction('skip', scheduler.getStatus().activeReminder?.id ?? '');
+
+  const restored = makeSettings({ adaptiveEnabled: false });
+  const status = scheduler.updateSettings(restored, adaptive);
+  assert.equal(status.nextEyeAt, T0 + 20 * MINUTE);
+  assert.equal(status.nextWalkAt, T0 + 60 * MINUTE);
+});
+
+test('scene-aware gate defers at most three times, explains each delay, then shows', async () => {
+  const clock = makeClock();
+  let checks = 0;
+  const scheduler = new ReminderScheduler(makeSettings(), {
+    now: clock.now,
+    beforeReminder: async () => {
+      checks += 1;
+      return {
+        action: 'defer',
+        deferMinutes: 5,
+        reason: 'powerpnt 正在全屏显示',
+        foregroundApp: 'powerpnt'
+      };
+    }
+  });
+  const flush = async (): Promise<void> => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  clock.advance(20 * MINUTE);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    assert.equal(scheduler.tick().activeReminder, null, 'async check does not flash a reminder first');
+    await flush();
+    const status = scheduler.getStatus();
+    assert.equal(status.activeReminder, null);
+    assert.equal(status.contextDeferral?.consecutiveCount, attempt);
+    assert.equal(status.contextDeferral?.foregroundApp, 'powerpnt');
+    assert.equal(status.nextEyeAt, clock.now() + 5 * MINUTE);
+    clock.advance(5 * MINUTE);
+  }
+
+  scheduler.tick();
+  await flush();
+  const shown = scheduler.getStatus();
+  assert.equal(checks, 4);
+  assert.equal(shown.contextDeferral, null);
+  assert.equal(shown.activeReminder?.kind, 'eye');
 });
