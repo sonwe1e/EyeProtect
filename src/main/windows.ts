@@ -7,6 +7,7 @@ import type { SettingsStore } from './settings';
 import { getAlertBounds } from './windowBounds';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
+const preloadPath = join(moduleDir, '../preload/index.cjs');
 const IDLE_SIZE = 160;
 const PANEL_SIZE = { width: 344, height: 496 } as const;
 const BUBBLE_SIZE = { width: 220, height: 150 } as const;
@@ -111,7 +112,7 @@ export class AppWindows {
       show: false,
       backgroundColor: '#00000000',
       webPreferences: {
-        preload: join(moduleDir, '../preload/index.mjs'),
+        preload: preloadPath,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true
@@ -154,7 +155,7 @@ export class AppWindows {
       backgroundColor: '#f7f2e8',
       show: false,
       webPreferences: {
-        preload: join(moduleDir, '../preload/index.mjs'),
+        preload: preloadPath,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true
@@ -205,7 +206,7 @@ export class AppWindows {
       show: false,
       backgroundColor: '#00000000',
       webPreferences: {
-        preload: join(moduleDir, '../preload/index.mjs'),
+        preload: preloadPath,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true
@@ -276,7 +277,7 @@ export class AppWindows {
         show: false,
         backgroundColor: '#00000000',
         webPreferences: {
-          preload: join(moduleDir, '../preload/index.mjs'),
+          preload: preloadPath,
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true
@@ -509,7 +510,7 @@ export class AppWindows {
         show: false,
         backgroundColor: '#00000000',
         webPreferences: {
-          preload: join(moduleDir, '../preload/index.mjs'),
+          preload: preloadPath,
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true
