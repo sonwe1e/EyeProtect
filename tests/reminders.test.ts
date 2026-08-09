@@ -56,10 +56,10 @@ const makeScheduler = (settings: Settings = makeSettings()) => {
   return { clock, scheduler };
 };
 
-const makeTask = (id: string, title: string, priority: Task['priority'], context: Task['context'], sortOrder: number): Task => ({
+const makeTask = (id: string, title: string, priority: Task['priority'], context: Task['context'], sortOrder: number, remindOnBreak = false): Task => ({
   id, title, notes: null, status: 'inbox', priority, projectId: null, parentId: null,
   tags: [], plannedAt: null, dueAt: null, reminderAt: null, recurrence: null,
-  context, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
+  context, remindOnBreak, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
   updatedAt: sortOrder + 1, completedAt: null
 });
 
@@ -489,8 +489,8 @@ test('walk reminders snapshot the highest-priority pending away task', () => {
   const { scheduler } = makeScheduler();
   scheduler.updateTasks([
     makeTask('desk', '继续写代码', 'urgent', 'desk', 0),
-    makeTask('water', '接一杯水', 'normal', 'away', 1),
-    makeTask('parcel', '拿快递', 'important', 'away', 2)
+    makeTask('water', '接一杯水', 'normal', 'away', 1, true),
+    makeTask('parcel', '拿快递', 'important', 'away', 2, true)
   ]);
 
   assert.equal(scheduler.triggerTest('eye').activeReminder?.breakTask, null);
@@ -509,10 +509,16 @@ test('walk reminders snapshot the highest-priority pending away task', () => {
   );
 });
 
+test('away context alone does not opt a task into walk suggestions', () => {
+  const { scheduler } = makeScheduler();
+  scheduler.updateTasks([makeTask('private', '外出办理私事', 'urgent', 'away', 0)]);
+  assert.equal(scheduler.triggerTest('walk').activeReminder?.breakTask, null);
+});
+
 test('task updates affect the next walk reminder without moving deadlines', () => {
   const { scheduler } = makeScheduler();
   const before = scheduler.getStatus();
-  scheduler.updateTasks([makeTask('water', '接水', 'normal', 'away', 0)]);
+  scheduler.updateTasks([makeTask('water', '接水', 'normal', 'away', 0, true)]);
 
   const afterUpdate = scheduler.getStatus();
   assert.equal(afterUpdate.nextEyeAt, before.nextEyeAt);

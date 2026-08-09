@@ -13,12 +13,13 @@
     "verify:build": "node scripts/verify-build-contract.mjs",
     "smoke:running": "node scripts/smoke-running-app.mjs",
     "smoke:experience": "node scripts/smoke-reminder-experience.mjs",
+    "smoke:emergency": "node scripts/smoke-emergency-reminder.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "start": "electron-vite preview",
-    "package": "npm run build && electron-builder --win nsis portable --x64",
-    "package:nsis": "npm run build && electron-builder --win nsis --x64",
-    "package:portable": "npm run build && electron-builder --win portable --x64"
+    "package": "npm run build && electron-builder --win nsis portable --x64 --publish never",
+    "package:nsis": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:portable": "npm run build && electron-builder --win portable --x64 --publish never"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

@@ -96,6 +96,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const [notes, setNotes] = useState(task.notes ?? '');
   const [priority, setPriority] = useState<TodoPriority>(task.priority);
   const [context, setContext] = useState<TaskContext>(task.context);
+  const [remindOnBreak, setRemindOnBreak] = useState(task.remindOnBreak);
   const [projectId, setProjectId] = useState<string | null>(task.projectId);
   const [plannedAt, setPlannedAt] = useState(toLocalInputValue(task.plannedAt ?? Date.now()));
   const [dueAt, setDueAt] = useState(toLocalInputValue(task.dueAt ?? Date.now()));
@@ -121,6 +122,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     setNotes(task.notes ?? '');
     setPriority(task.priority);
     setContext(task.context);
+    setRemindOnBreak(task.remindOnBreak);
     setProjectId(task.projectId);
     setPlannedAt(toLocalInputValue(task.plannedAt ?? Date.now()));
     setDueAt(toLocalInputValue(task.dueAt ?? Date.now()));
@@ -156,6 +158,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
         notes: notes.trim() || null,
         priority,
         context,
+        remindOnBreak: context !== 'desk' && remindOnBreak,
         projectId,
         parentId,
         estimateMinutes: estimateMinutes ? Number(estimateMinutes) : null,
@@ -179,7 +182,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
       input.reminderAt = hasReminder ? new Date(reminderAt).getTime() : null;
       void window.eyeProtect.updateTask(task.id, input).then(() => onUpdated?.());
     },
-    [title, notes, priority, context, projectId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, recurrenceType, recurrenceInterval, recurrenceWeekdays, monthlyDay, afterDays, status, task, onUpdated]
+    [title, notes, priority, context, remindOnBreak, projectId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, recurrenceType, recurrenceInterval, recurrenceWeekdays, monthlyDay, afterDays, status, task, onUpdated]
   );
 
   const handleDelete = useCallback(() => {
@@ -246,12 +249,25 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
               key={key}
               type="button"
               className={context === key ? 'is-active' : ''}
-              onClick={() => setContext(key)}
+              onClick={() => {
+                setContext(key);
+                if (key === 'desk') setRemindOnBreak(false);
+              }}
             >
               {CONTEXT_LABELS[key]}
             </button>
           ))}
         </div>
+      </label>
+
+      <label className="task-break-option detail-break-option">
+        <input
+          type="checkbox"
+          checked={remindOnBreak}
+          disabled={context === 'desk'}
+          onChange={(event) => setRemindOnBreak(event.currentTarget.checked)}
+        />
+        <span>在走动休息时提醒我顺手完成</span>
       </label>
 
       <label className="detail-field">

@@ -5,7 +5,8 @@ import type { PersistedScheduledEvent } from '../shared/types';
 
 export interface TaskSchedulerOptions {
   persist?: (events: PersistedScheduledEvent[]) => void;
-  acknowledge?: (task: Task) => void;
+  isConsumed?: (task: Task) => boolean;
+  acknowledge?: (task: Task, fireAt: number) => void;
 }
 
 /**
@@ -24,7 +25,8 @@ export class TaskScheduler extends EventEmitter {
   private sequence = 0;
   private readonly consumed = new Map<string, number>();
   private readonly persist: (events: PersistedScheduledEvent[]) => void;
-  private readonly acknowledge: (task: Task) => void;
+  private readonly isConsumed: (task: Task) => boolean;
+  private readonly acknowledge: (task: Task, fireAt: number) => void;
   private readonly onWake: (owner: string, events: ScheduledEvent[]) => void;
 
   constructor(kernel: SchedulerKernel, getTasks: () => Task[], now: () => number = Date.now, options: TaskSchedulerOptions = {}) {
@@ -33,6 +35,7 @@ export class TaskScheduler extends EventEmitter {
     this.getTasks = getTasks;
     this.now = now;
     this.persist = options.persist ?? (() => undefined);
+    this.isConsumed = options.isConsumed ?? (() => false);
     this.acknowledge = options.acknowledge ?? (() => undefined);
     this.onWake = (owner, events) => {
       if (owner !== 'task') {
@@ -66,7 +69,11 @@ export class TaskScheduler extends EventEmitter {
         revision: ++this.sequence
       });
     }
-    const pending = events.filter((event) => this.consumed.get(event.id) !== event.fireAt);
+    const tasks = new Map(this.getTasks().map((task) => [task.id, task]));
+    const pending = events.filter((event) => {
+      const task = tasks.get(event.id.replace('task-reminder-', ''));
+      return this.consumed.get(event.id) !== event.fireAt && !(task && this.isConsumed(task));
+    });
     this.persist(pending.map((event) => ({ ...event, owner: 'task', payloadRef: event.id.replace('task-reminder-', '') })));
     const nearest = pending.sort((a, b) => a.fireAt - b.fireAt)[0];
     this.kernel.set('task', nearest ? [nearest] : []);
@@ -104,7 +111,9 @@ export class TaskScheduler extends EventEmitter {
         task.status !== 'done' &&
         task.status !== 'archived' &&
         typeof task.reminderAt === 'number' &&
-        task.reminderAt <= latestFireAt
+        task.reminderAt <= latestFireAt &&
+        this.consumed.get(`task-reminder-${task.id}`) !== task.reminderAt &&
+        !this.isConsumed(task)
     );
     if (due.length > 0) {
       for (const task of due) {
@@ -112,10 +121,10 @@ export class TaskScheduler extends EventEmitter {
           this.consumed.set(`task-reminder-${task.id}`, task.reminderAt);
         }
       }
-      this.emit('task-reminder', due);
       for (const task of due) {
-        this.acknowledge(task);
+        this.acknowledge(task, task.reminderAt!);
       }
+      this.emit('task-reminder', due);
     }
     this.arm(now);
   }

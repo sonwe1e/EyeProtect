@@ -40,6 +40,7 @@ const sampleTask = (over: Partial<Task> = {}): Task =>
     reminderAt: null,
     recurrence: null,
     context: 'desk',
+    remindOnBreak: false,
     estimateMinutes: null,
     sortOrder: 0,
     createdAt: NOW,
@@ -471,6 +472,30 @@ test('active task state is exclusive and survives reopening the database', () =>
   });
 });
 
+test('break opt-in and reminder consumption persist without being reset by unrelated edits', () => {
+  withTempStore((store, dir) => {
+    const created = store.createTask({
+      title: '顺路接水',
+      context: 'away',
+      remindOnBreak: true,
+      reminderAt: NOW + 60_000
+    }, NOW);
+    store.consumeTaskReminder(created.id, created.reminderAt!, NOW + 60_000);
+    store.updateTask(created.id, { title: '顺路接两杯水' }, NOW + 70_000);
+    assert.equal(store.getTask(created.id)?.remindOnBreak, true);
+    assert.equal(store.isTaskReminderConsumed(created.id, created.reminderAt!), true);
+
+    const nextFire = NOW + 120_000;
+    store.updateTask(created.id, { reminderAt: nextFire }, NOW + 80_000);
+    assert.equal(store.isTaskReminderConsumed(created.id, nextFire), false, 'a changed time creates a fresh occurrence');
+
+    store.close();
+    const reopened = new TaskStore(dir);
+    assert.equal(reopened.getTask(created.id)?.remindOnBreak, true);
+    assert.equal(reopened.isTaskReminderConsumed(created.id, nextFire), false);
+  });
+});
+
 test('task and project parent updates reject hierarchy cycles', () => {
   withTempStore((store) => {
     const parent = store.createTask({ title: '父任务' }, NOW);
@@ -502,6 +527,7 @@ const migrateShape = (todo: TodoItem): Task => ({
   reminderAt: null,
   recurrence: null,
   context: todo.remindOnBreak || todo.context === 'away' ? 'away' : 'desk',
+  remindOnBreak: todo.remindOnBreak === true,
   estimateMinutes: null,
   sortOrder: 0,
   createdAt: todo.createdAt,

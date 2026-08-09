@@ -80,7 +80,7 @@ const setup = await evaluate(pet, `(async () => {
   for (const task of await window.eyeProtect.getTasks()) await window.eyeProtect.deleteTask(task.id);
   let tasks = await window.eyeProtect.createTask({ title: '修改论文', context: 'desk', plannedAt: Date.now() });
   const desk = tasks.find((task) => task.title === '修改论文');
-  tasks = await window.eyeProtect.createTask({ title: '去打印室打印材料', context: 'away', priority: 'urgent', plannedAt: Date.now() });
+  tasks = await window.eyeProtect.createTask({ title: '去打印室打印材料', context: 'away', remindOnBreak: true, priority: 'urgent', plannedAt: Date.now() });
   if (desk) await window.eyeProtect.setActiveTask(desk.id);
   await window.eyeProtect.saveSettings({ reminderMode: 'guided' });
   await window.eyeProtect.testReminder('combined');

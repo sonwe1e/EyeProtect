@@ -341,9 +341,9 @@ app.whenReady().then(async () => {
   const taskService = new TaskService(taskStore);
   const taskScheduler = new TaskScheduler(kernel, () => taskService.getTasks(), Date.now, {
     persist: (events) => taskStore.replaceScheduledEvents('task', events),
-    acknowledge: (task) => {
-      taskService.updateTask(task.id, { reminderAt: null });
-    }
+    isConsumed: (task) =>
+      task.reminderAt !== null && taskStore.isTaskReminderConsumed(task.id, task.reminderAt),
+    acknowledge: (task, fireAt) => taskStore.consumeTaskReminder(task.id, fireAt)
   });
   // Migration happens before any scheduler is armed so imported task and alarm
   // deadlines are visible during the first startup reconciliation.
@@ -353,12 +353,16 @@ app.whenReady().then(async () => {
   const standaloneReminders = new StandaloneReminderService(taskStore, kernel);
   taskScheduler.arm();
   standaloneReminders.arm();
-  const windows = new AppWindows(settingsStore, scheduler);
+  const windows = new AppWindows(settingsStore, scheduler, () => taskService.getTasks());
   // Fallback chain for reminder visibility (USERPLAN §四.B): if the primary
   // AlertWindow renderer crashes, the emergency surface takes over so a reminder
   // is never silently dropped while the main process is alive.
   const reminderSurface = new ReminderSurfaceManager(
-    (active) => windows.showReminderOnPrimary(active),
+    (active) =>
+      process.env.EYEPROTECT_SMOKE === '1' &&
+      process.argv.includes('--eyeprotect-smoke-emergency')
+        ? Promise.resolve(false)
+        : windows.showReminderOnPrimary(active),
     (action, reminderId) => scheduler.handleAction(action, reminderId),
     () => windows.showWorkbenchWindow('today'),
     (event, data) => reminderTrace.append({ t: Date.now(), src: 'surface', event, data })
@@ -583,9 +587,26 @@ app.whenReady().then(async () => {
   // survives renderer reloads and application restarts.
   taskScheduler.on('task-reminder', (due: Task[]) => {
     scheduler.queueTaskReminders(due, windows, () =>
-      taskService.getTasks().filter((task) => task.context === 'away' || task.context === 'any')
+      taskService.getTasks().filter((task) =>
+        task.remindOnBreak && (task.context === 'away' || task.context === 'any')
+      )
     );
   });
+
+  const publishApplicationState = (): void => {
+    const tasks = taskService.getTasks();
+    scheduler.updateTasks(tasks);
+    taskScheduler.arm();
+    standaloneReminders.arm();
+    windows.broadcastSettings(settingsStore.get());
+    windows.broadcastReminderStatus(scheduler.getStatus());
+    windows.broadcastTasks(tasks);
+    windows.broadcastProjects(taskService.getProjects());
+    windows.broadcastActiveTask(taskService.getActiveTaskId());
+    windows.broadcastStandaloneReminders(standaloneReminders.list());
+    windows.broadcastHotkeyStatus(hotkeyStatus);
+    broadcastHistory();
+  };
 
   // Every handler is sender-verified (handleIpc) and coerces its arguments:
   // renderers are trusted code, but IPC payloads are still an external input.
@@ -666,7 +687,8 @@ app.whenReady().then(async () => {
         tasks: taskService.getTasks(),
         projects: taskService.getProjects(),
         standaloneReminders: standaloneReminders.list(),
-        activeTaskId: taskService.getActiveTaskId()
+        activeTaskId: taskService.getActiveTaskId(),
+        taskReminderOccurrences: taskStore.getTaskReminderOccurrences()
       }),
       'utf8'
     );
@@ -704,14 +726,10 @@ app.whenReady().then(async () => {
       historyStore.replaceEvents(backup.reminderHistory, next);
       taskStore.replaceProjects(backup.projects);
       taskStore.replaceAll(backup.tasks);
+      taskStore.replaceTaskReminderOccurrences(backup.taskReminderOccurrences);
       taskStore.replaceStandaloneReminders(backup.standaloneReminders);
       taskStore.setActiveTaskId(backup.activeTaskId);
-      scheduler.updateTasks(taskStore.getTasks());
-      windows.broadcastTasks(taskStore.getTasks());
-      windows.broadcastProjects(taskStore.getProjects());
-      windows.broadcastActiveTask(taskStore.getActiveTaskId());
-      taskScheduler.arm();
-      standaloneReminders.arm();
+      publishApplicationState();
       return { success: true, message: '备份已导入，设置已经生效' };
     } catch (error) {
       const message = error instanceof Error ? error.message : '无法读取备份文件';
@@ -743,9 +761,7 @@ app.whenReady().then(async () => {
     taskStore.replaceProjects([]);
     taskStore.replaceStandaloneReminders([]);
     taskStore.setActiveTaskId(null);
-    scheduler.updateTasks([]);
-    taskScheduler.arm();
-    standaloneReminders.arm();
+    publishApplicationState();
     return { success: true, message: '已恢复默认设置' };
   });
   handleIpc('data:open-directory', async () => {
@@ -800,6 +816,8 @@ app.whenReady().then(async () => {
         candidate.context === 'desk' || candidate.context === 'away' || candidate.context === 'any'
           ? candidate.context
           : undefined,
+      remindOnBreak:
+        typeof candidate.remindOnBreak === 'boolean' ? candidate.remindOnBreak : undefined,
       estimateMinutes:
         candidate.estimateMinutes === null || (typeof candidate.estimateMinutes === 'number' && Number.isFinite(candidate.estimateMinutes))
           ? candidate.estimateMinutes
@@ -813,6 +831,14 @@ app.whenReady().then(async () => {
     }
     const candidate = value as Partial<TaskUpdateInput>;
     const input = asTaskInput(value) as TaskUpdateInput;
+    if (typeof candidate.title !== 'string') {
+      delete input.title;
+    }
+    for (const key of Object.keys(input) as Array<keyof TaskUpdateInput>) {
+      if (input[key] === undefined) {
+        delete input[key];
+      }
+    }
     if (
       candidate.status === 'inbox' || candidate.status === 'active' ||
       candidate.status === 'done' || candidate.status === 'archived'

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SchedulerKernel } from '../src/main/scheduling/kernel';
 import { TaskScheduler } from '../src/main/taskScheduler';
+import { TaskService } from '../src/main/taskService';
+import { TaskStore } from '../src/main/taskStore';
 import type { ScheduledEvent } from '../src/main/scheduling/kernel';
 import type { Task } from '../src/shared/types';
 
@@ -38,6 +43,7 @@ const task = (over: Partial<Task>): Task =>
     reminderAt: null,
     recurrence: null,
     context: 'desk',
+    remindOnBreak: false,
     estimateMinutes: null,
     sortOrder: 0,
     createdAt: NOW,
@@ -201,4 +207,63 @@ test('dispose unsubscribes from the kernel and clears deadlines', () => {
   assert.equal(fired, false, 'disposed scheduler ignores post-dispose wakes');
 
   kernel.stop();
+});
+
+test('fired occurrence stays consumed across restart and recurrence keeps its configured time', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-task-occurrence-'));
+  const clock = makeClock();
+  try {
+    const store = new TaskStore(dir);
+    const service = new TaskService(store);
+    const reminderAt = NOW + 60_000;
+    const [created] = service.createTask({
+      title: '每日九点',
+      reminderAt,
+      recurrence: { type: 'daily', interval: 1 }
+    }, NOW);
+    const makeScheduler = (kernel: SchedulerKernel): TaskScheduler => new TaskScheduler(
+      kernel,
+      () => service.getTasks(),
+      clock.now,
+      {
+        isConsumed: (entry) =>
+          entry.reminderAt !== null && store.isTaskReminderConsumed(entry.id, entry.reminderAt),
+        acknowledge: (entry, fireAt) => store.consumeTaskReminder(entry.id, fireAt)
+      }
+    );
+
+    const firstKernel = new SchedulerKernel({
+      clock: { now: clock.now, monotonic: clock.monotonic },
+      watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+    });
+    firstKernel.start();
+    const first = makeScheduler(firstKernel);
+    first.arm();
+    clock.set(reminderAt);
+    firstKernel.reconcile();
+    assert.equal(service.getTask(created.id)?.reminderAt, reminderAt, 'firing preserves task configuration');
+    assert.equal(store.isTaskReminderConsumed(created.id, reminderAt), true);
+    first.dispose();
+    firstKernel.stop();
+
+    const restartedKernel = new SchedulerKernel({
+      clock: { now: clock.now, monotonic: clock.monotonic },
+      watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+    });
+    restartedKernel.start();
+    const restarted = makeScheduler(restartedKernel);
+    restarted.arm();
+    assert.equal(restartedKernel.peek().filter((event) => event.owner === 'task').length, 0);
+
+    const completedAt = reminderAt + 3 * 60 * 60_000;
+    const tasks = service.setTaskStatus(created.id, 'done', completedAt);
+    const next = tasks.find((entry) => entry.id !== created.id)!;
+    assert.equal(next.reminderAt, reminderAt + DAY, 'next reminder keeps the original wall-clock anchor');
+
+    restarted.dispose();
+    restartedKernel.stop();
+  } finally {
+    TaskStore.closeAllForDirectory(dir);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, Bell, CalendarRange, CheckCircle2, Inbox, Settings2, Sun } from 'lucide-react';
 import {
   matchesTaskView,
+  matchesProjectView,
   sortTasksForView,
   type Project,
   type Task,
@@ -67,8 +68,10 @@ export default function WorkbenchView(): JSX.Element {
   ])) as Partial<Record<TaskView, number>>, [tasks, now]);
 
   const filteredTasks = useMemo(() => {
-    const scoped = selectedProjectId ? tasks.filter((task) => task.projectId === selectedProjectId) : tasks;
-    return sortTasksForView(scoped.filter((task) => matchesTaskView(task, selectedView, now)), now);
+    const scoped = selectedProjectId
+      ? tasks.filter((task) => matchesProjectView(task, selectedProjectId))
+      : tasks.filter((task) => matchesTaskView(task, selectedView, now));
+    return sortTasksForView(scoped, now);
   }, [tasks, selectedView, selectedProjectId, now]);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
@@ -124,7 +127,7 @@ export default function WorkbenchView(): JSX.Element {
               {activeTask ? <button className="active-task-pill" type="button" onClick={() => setSelectedTaskId(activeTask.id)}>进行中：{activeTask.title}</button> : null}
             </div>
             <div className="workbench-header-actions">
-              {selectedView === 'completed' || selectedView === 'archived' ? (
+              {selectedProjectId === null && (selectedView === 'completed' || selectedView === 'archived') ? (
                 <button type="button" className="completed-filter" onClick={() => selectView(selectedView === 'completed' ? 'archived' : 'completed')}>
                   <Archive size={13} />{selectedView === 'completed' ? '查看归档' : '返回已完成'}
                 </button>

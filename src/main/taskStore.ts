@@ -25,7 +25,13 @@ import {
 
 const DATABASE_FILE = 'eyeprotect.db';
 const LEGACY_TASKS_FILE = 'tasks.json';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+
+export interface TaskReminderOccurrence {
+  taskId: string;
+  fireAt: number;
+  consumedAt: number | null;
+}
 
 interface LegacyTasksFile {
   version?: number;
@@ -90,7 +96,7 @@ export class TaskStore extends EventEmitter {
     const rows = this.db.prepare(`
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
-             estimate_minutes, sort_order, created_at, updated_at, completed_at
+             remind_on_break, estimate_minutes, sort_order, created_at, updated_at, completed_at
       FROM tasks
       ORDER BY sort_order, created_at, id
     `).all() as SqlRow[];
@@ -110,7 +116,7 @@ export class TaskStore extends EventEmitter {
     const row = this.db.prepare(`
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
-             estimate_minutes, sort_order, created_at, updated_at, completed_at
+             remind_on_break, estimate_minutes, sort_order, created_at, updated_at, completed_at
       FROM tasks WHERE id = ?
     `).get(id) as SqlRow | undefined;
     if (!row) {
@@ -173,6 +179,7 @@ export class TaskStore extends EventEmitter {
       reminderAt: input.reminderAt,
       recurrence: input.recurrence,
       context: input.context,
+      remindOnBreak: input.remindOnBreak,
       estimateMinutes: input.estimateMinutes,
       sortOrder: this.nextSortOrder(),
       createdAt: now,
@@ -208,9 +215,9 @@ export class TaskStore extends EventEmitter {
       this.db.prepare(`
         UPDATE tasks SET title = ?, notes = ?, status = ?, priority = ?, project_id = ?,
           parent_id = ?, planned_at = ?, due_at = ?, reminder_at = ?, recurrence_json = ?,
-          context = ?, estimate_minutes = ?, sort_order = ?, updated_at = ?, completed_at = ?
+          context = ?, remind_on_break = ?, estimate_minutes = ?, sort_order = ?, updated_at = ?, completed_at = ?
         WHERE id = ?
-      `).run(...taskSqlValues(next).slice(1, 14), next.updatedAt, next.completedAt, id);
+      `).run(...taskSqlValues(next).slice(1, 15), next.updatedAt, next.completedAt, id);
       this.writeTaskTags(id, next.tags);
       if (next.status === 'done' || next.status === 'archived') {
         this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(id);
@@ -540,6 +547,49 @@ export class TaskStore extends EventEmitter {
     }));
   }
 
+  isTaskReminderConsumed(taskId: string, fireAt: number): boolean {
+    const row = this.db.prepare(`
+      SELECT consumed_at FROM task_reminders WHERE task_id = ? AND fire_at = ?
+    `).get(taskId, fireAt) as SqlRow | undefined;
+    return row?.consumed_at !== null && row?.consumed_at !== undefined;
+  }
+
+  consumeTaskReminder(taskId: string, fireAt: number, consumedAt: number = Date.now()): void {
+    this.db.prepare(`
+      UPDATE task_reminders SET consumed_at = ? WHERE task_id = ? AND fire_at = ?
+    `).run(consumedAt, taskId, fireAt);
+  }
+
+  getTaskReminderOccurrences(): TaskReminderOccurrence[] {
+    return (this.db.prepare(`
+      SELECT task_id, fire_at, consumed_at FROM task_reminders ORDER BY task_id
+    `).all() as SqlRow[]).map((row) => ({
+      taskId: String(row.task_id),
+      fireAt: Number(row.fire_at),
+      consumedAt: nullableNumber(row.consumed_at)
+    }));
+  }
+
+  replaceTaskReminderOccurrences(occurrences: TaskReminderOccurrence[]): void {
+    const tasks = new Map(this.getTasks().map((task) => [task.id, task]));
+    this.transaction(() => {
+      this.db.prepare('UPDATE task_reminders SET consumed_at = NULL').run();
+      const consume = this.db.prepare(`
+        UPDATE task_reminders SET consumed_at = ? WHERE task_id = ? AND fire_at = ?
+      `);
+      for (const occurrence of occurrences) {
+        const task = tasks.get(occurrence.taskId);
+        if (
+          task?.reminderAt === occurrence.fireAt &&
+          typeof occurrence.consumedAt === 'number' &&
+          Number.isFinite(occurrence.consumedAt)
+        ) {
+          consume.run(occurrence.consumedAt, occurrence.taskId, occurrence.fireAt);
+        }
+      }
+    });
+  }
+
   private openDatabase(): DatabaseSync {
     try {
       return new DatabaseSync(this.filePath, { enableForeignKeyConstraints: true });
@@ -591,6 +641,7 @@ export class TaskStore extends EventEmitter {
         reminder_at INTEGER,
         recurrence_json TEXT,
         context TEXT NOT NULL CHECK(context IN ('desk','away','any')),
+        remind_on_break INTEGER NOT NULL DEFAULT 0,
         estimate_minutes INTEGER,
         sort_order INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
@@ -610,7 +661,8 @@ export class TaskStore extends EventEmitter {
       );
       CREATE TABLE IF NOT EXISTS task_reminders (
         task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-        fire_at INTEGER NOT NULL
+        fire_at INTEGER NOT NULL,
+        consumed_at INTEGER
       );
       CREATE TABLE IF NOT EXISTS standalone_reminders (
         id TEXT PRIMARY KEY,
@@ -634,6 +686,14 @@ export class TaskStore extends EventEmitter {
         value TEXT NOT NULL
       );
     `);
+    const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
+    if (!taskColumns.some((column) => column.name === 'remind_on_break')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN remind_on_break INTEGER NOT NULL DEFAULT 0');
+    }
+    const reminderColumns = this.db.prepare('PRAGMA table_info(task_reminders)').all() as SqlRow[];
+    if (!reminderColumns.some((column) => column.name === 'consumed_at')) {
+      this.db.exec('ALTER TABLE task_reminders ADD COLUMN consumed_at INTEGER');
+    }
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(SCHEMA_VERSION, Date.now());
     const defensiveDb = this.db as DatabaseSync & { enableDefensive?: (active: boolean) => void };
@@ -702,12 +762,12 @@ export class TaskStore extends EventEmitter {
   private insertTask(task: Task): void {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
-        planned_at, due_at, reminder_at, recurrence_json, context, estimate_minutes,
-        sort_order, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
+        estimate_minutes, sort_order, created_at, updated_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(...taskSqlValues(task));
     if (task.reminderAt !== null) {
-      this.db.prepare('INSERT OR REPLACE INTO task_reminders(task_id, fire_at) VALUES (?, ?)')
+      this.db.prepare('INSERT OR IGNORE INTO task_reminders(task_id, fire_at, consumed_at) VALUES (?, ?, NULL)')
         .run(task.id, task.reminderAt);
     }
   }
@@ -715,15 +775,16 @@ export class TaskStore extends EventEmitter {
   private upsertTask(task: Task): void {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
-        planned_at, due_at, reminder_at, recurrence_json, context, estimate_minutes,
-        sort_order, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
+        estimate_minutes, sort_order, created_at, updated_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET title = excluded.title, notes = excluded.notes,
         status = excluded.status, priority = excluded.priority,
         project_id = excluded.project_id, parent_id = excluded.parent_id,
         planned_at = excluded.planned_at, due_at = excluded.due_at,
         reminder_at = excluded.reminder_at, recurrence_json = excluded.recurrence_json,
-        context = excluded.context, estimate_minutes = excluded.estimate_minutes,
+        context = excluded.context, remind_on_break = excluded.remind_on_break,
+        estimate_minutes = excluded.estimate_minutes,
         sort_order = excluded.sort_order, created_at = excluded.created_at,
         updated_at = excluded.updated_at, completed_at = excluded.completed_at
     `).run(...taskSqlValues(task));
@@ -731,10 +792,14 @@ export class TaskStore extends EventEmitter {
 
   private writeTaskTags(taskId: string, tags: string[]): void {
     this.db.prepare('DELETE FROM task_tags WHERE task_id = ?').run(taskId);
-    this.db.prepare('DELETE FROM task_reminders WHERE task_id = ?').run(taskId);
     const task = this.db.prepare('SELECT reminder_at FROM tasks WHERE id = ?').get(taskId) as SqlRow | undefined;
     if (task?.reminder_at !== null && task?.reminder_at !== undefined) {
-      this.db.prepare('INSERT INTO task_reminders(task_id, fire_at) VALUES (?, ?)').run(taskId, task.reminder_at);
+      this.db.prepare('DELETE FROM task_reminders WHERE task_id = ? AND fire_at <> ?').run(taskId, task.reminder_at);
+      this.db.prepare(`
+        INSERT OR IGNORE INTO task_reminders(task_id, fire_at, consumed_at) VALUES (?, ?, NULL)
+      `).run(taskId, task.reminder_at);
+    } else {
+      this.db.prepare('DELETE FROM task_reminders WHERE task_id = ?').run(taskId);
     }
     for (const tag of tags) {
       this.db.prepare('INSERT OR IGNORE INTO tags(name) VALUES (?)').run(tag);
@@ -773,6 +838,7 @@ const taskSqlValues = (task: Task): SqlValue[] => [
   task.reminderAt,
   task.recurrence ? JSON.stringify(task.recurrence) : null,
   task.context,
+  task.remindOnBreak ? 1 : 0,
   task.estimateMinutes,
   task.sortOrder,
   task.createdAt,
@@ -794,6 +860,7 @@ const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
   reminderAt: nullableNumber(row.reminder_at),
   recurrence: parseJson(row.recurrence_json),
   context: String(row.context),
+  remindOnBreak: Number(row.remind_on_break) === 1,
   estimateMinutes: nullableNumber(row.estimate_minutes),
   sortOrder: Number(row.sort_order),
   createdAt: Number(row.created_at),
@@ -856,6 +923,7 @@ const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({
   reminderAt: null,
   recurrence: null,
   context: todo.remindOnBreak || todo.context === 'away' ? 'away' : 'desk',
+  remindOnBreak: todo.remindOnBreak === true,
   estimateMinutes: null,
   sortOrder,
   createdAt: todo.createdAt,

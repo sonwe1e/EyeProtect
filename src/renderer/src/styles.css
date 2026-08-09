@@ -2885,6 +2885,27 @@
   background: rgb(31 42 46 / 5%);
 }
 
+.task-break-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.task-break-option input {
+  accent-color: var(--accent);
+}
+
+.task-break-option:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.detail-break-option {
+  justify-content: flex-start;
+}
+
 .task-compose-row button[type='submit'] {
   display: grid;
   place-items: center;

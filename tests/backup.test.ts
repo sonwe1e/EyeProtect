@@ -13,7 +13,7 @@ const event: ReminderEvent = {
   mode: 'guided'
 };
 
-test('complete v2 backup round-trips preferences, Task Core and reminder history', () => {
+test('complete v3 backup round-trips Task Core, occurrences and reminder history', () => {
   const settings = {
     ...DEFAULT_SETTINGS,
     eyeIntervalMinutes: 35
@@ -21,7 +21,7 @@ test('complete v2 backup round-trips preferences, Task Core and reminder history
   const task: Task = {
     id: 'task-1', title: '接水', notes: null, status: 'inbox', priority: 'important',
     projectId: null, parentId: null, tags: [], plannedAt: null, dueAt: null,
-    reminderAt: null, recurrence: null, context: 'away', estimateMinutes: null,
+    reminderAt: 50, recurrence: null, context: 'away', remindOnBreak: true, estimateMinutes: null,
     sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null
   };
   const text = createBackup(settings, [event], '1.1.0', 123_456, {
@@ -31,7 +31,8 @@ test('complete v2 backup round-trips preferences, Task Core and reminder history
       id: 'reminder-1', label: '下午茶', schedule: { type: 'daily', hour: 15, minute: 20 },
       enabled: true, createdAt: 1, updatedAt: 1
     }],
-    activeTaskId: task.id
+    activeTaskId: task.id,
+    taskReminderOccurrences: [{ taskId: task.id, fireAt: 50, consumedAt: 60 }]
   });
   const restored = parseBackup(text);
 
@@ -43,6 +44,7 @@ test('complete v2 backup round-trips preferences, Task Core and reminder history
   assert.equal(restored.tasks[0].title, '接水');
   assert.equal(restored.standaloneReminders[0].schedule.type, 'daily');
   assert.equal(restored.activeTaskId, 'task-1');
+  assert.deepEqual(restored.taskReminderOccurrences, [{ taskId: task.id, fireAt: 50, consumedAt: 60 }]);
   assert.deepEqual(restored.reminderHistory, [event]);
 });
 
@@ -60,6 +62,7 @@ test('v1 backup imports legacy todos and alarms into Task Core domains', () => {
   }));
   assert.equal(restored.tasks[0].title, '接水');
   assert.equal(restored.tasks[0].context, 'away');
+  assert.equal(restored.tasks[0].remindOnBreak, true);
   assert.deepEqual(restored.standaloneReminders[0].schedule, { type: 'daily', hour: 15, minute: 20 });
   assert.equal('todos' in restored.settings, false);
 });

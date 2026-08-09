@@ -31,6 +31,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
   const [expanded, setExpanded] = useState(false);
   const [priority, setPriority] = useState<TodoPriority>('normal');
   const [context, setContext] = useState<TaskContext>('desk');
+  const [remindOnBreak, setRemindOnBreak] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(defaultProjectId ?? null);
   const [dueAt, setDueAt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +40,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
     setDraft('');
     setPriority('normal');
     setContext('desk');
+    setRemindOnBreak(false);
     setProjectId(defaultProjectId ?? null);
     setDueAt('');
     setExpanded(false);
@@ -56,6 +58,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
         title,
         priority,
         context,
+        remindOnBreak: context !== 'desk' && remindOnBreak,
         projectId
       };
       if (dueAt) {
@@ -66,7 +69,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
         onCreated?.();
       });
     },
-    [draft, priority, context, projectId, dueAt, reset, onCreated]
+    [draft, priority, context, remindOnBreak, projectId, dueAt, reset, onCreated]
   );
 
   return (
@@ -118,12 +121,24 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
                   key={key}
                   type="button"
                   className={context === key ? 'is-active' : ''}
-                  onClick={() => setContext(key)}
+                  onClick={() => {
+                    setContext(key);
+                    if (key === 'desk') setRemindOnBreak(false);
+                  }}
                 >
                   {CONTEXT_LABELS[key]}
                 </button>
               ))}
             </div>
+          </label>
+          <label className="task-break-option">
+            <input
+              type="checkbox"
+              checked={remindOnBreak}
+              disabled={context === 'desk'}
+              onChange={(event) => setRemindOnBreak(event.currentTarget.checked)}
+            />
+            <span>休息时提醒</span>
           </label>
           <label className="task-compose-field">
             <span>项目</span>

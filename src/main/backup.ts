@@ -10,8 +10,9 @@ import {
   type StandaloneReminder,
   type Task
 } from '../shared/types';
+import type { TaskReminderOccurrence } from './taskStore';
 
-const BACKUP_SCHEMA_VERSION = 2;
+const BACKUP_SCHEMA_VERSION = 3;
 type PreferenceSettings = Omit<Settings, 'todos' | 'alarms' | 'activeTaskId'>;
 
 export interface BackupDomainData {
@@ -19,10 +20,11 @@ export interface BackupDomainData {
   projects: Project[];
   standaloneReminders: StandaloneReminder[];
   activeTaskId: string | null;
+  taskReminderOccurrences: TaskReminderOccurrence[];
 }
 
 export interface EyeProtectBackup extends BackupDomainData {
-  version: 2;
+  version: 3;
   createdAt: number;
   appVersion: string;
   settings: PreferenceSettings;
@@ -33,8 +35,13 @@ const emptyDomain = (): BackupDomainData => ({
   tasks: [],
   projects: [],
   standaloneReminders: [],
-  activeTaskId: null
+  activeTaskId: null,
+  taskReminderOccurrences: []
 });
+
+type BackupDomainInput = Omit<BackupDomainData, 'taskReminderOccurrences'> & {
+  taskReminderOccurrences?: TaskReminderOccurrence[];
+};
 
 const preferenceSettings = (settings: Settings): PreferenceSettings => {
   const { todos: _todos, alarms: _alarms, activeTaskId: _activeTaskId, ...preferences } = settings;
@@ -46,20 +53,21 @@ export const createBackup = (
   reminderHistory: readonly ReminderEvent[],
   appVersion: string,
   now: number = Date.now(),
-  domain: BackupDomainData = emptyDomain()
+  domain: BackupDomainInput = emptyDomain()
 ): string => `${JSON.stringify({
   version: BACKUP_SCHEMA_VERSION,
   createdAt: now,
   appVersion,
   settings: preferenceSettings(settings),
   reminderHistory: [...reminderHistory],
-  ...domain
+  ...domain,
+  taskReminderOccurrences: domain.taskReminderOccurrences ?? []
 } satisfies EyeProtectBackup, null, 2)}\n`;
 
 export const parseBackup = (text: string): EyeProtectBackup => {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (
-    (parsed.version !== 1 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
+    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
     !Number.isFinite(parsed.createdAt) ||
     typeof parsed.appVersion !== 'string' ||
     !parsed.settings || typeof parsed.settings !== 'object' ||
@@ -97,6 +105,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         reminderAt: null,
         recurrence: null,
         context: todo.remindOnBreak || todo.context === 'away' ? 'away' as const : 'desk' as const,
+        remindOnBreak: todo.remindOnBreak === true,
         estimateMinutes: null,
         sortOrder,
         createdAt: todo.createdAt,
@@ -116,6 +125,30 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         updatedAt: alarm.createdAt
       }));
   const legacyActiveTaskId = sanitizedSettings.activeTaskId;
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const taskReminderOccurrences = Array.isArray(parsed.taskReminderOccurrences)
+    ? parsed.taskReminderOccurrences.flatMap((value) => {
+        if (!value || typeof value !== 'object') {
+          return [];
+        }
+        const candidate = value as Partial<TaskReminderOccurrence>;
+        if (
+          typeof candidate.taskId !== 'string' ||
+          !taskIds.has(candidate.taskId) ||
+          typeof candidate.fireAt !== 'number' ||
+          !Number.isFinite(candidate.fireAt) ||
+          (candidate.consumedAt !== null &&
+            (typeof candidate.consumedAt !== 'number' || !Number.isFinite(candidate.consumedAt)))
+        ) {
+          return [];
+        }
+        return [{
+          taskId: candidate.taskId,
+          fireAt: candidate.fireAt,
+          consumedAt: candidate.consumedAt ?? null
+        }];
+      })
+    : [];
   return {
     version: BACKUP_SCHEMA_VERSION,
     createdAt: parsed.createdAt as number,
@@ -125,6 +158,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
     tasks,
     projects,
     standaloneReminders,
+    taskReminderOccurrences,
     activeTaskId: typeof (parsed.activeTaskId ?? legacyActiveTaskId) === 'string' &&
       tasks.some((task) => task.id === (parsed.activeTaskId ?? legacyActiveTaskId))
       ? (parsed.activeTaskId ?? legacyActiveTaskId) as string

@@ -160,6 +160,8 @@ export interface Task {
   reminderAt: number | null;
   recurrence: RecurrenceRule | null;
   context: TaskContext;
+  /** Whether an away/any task may be suggested inside a walk reminder. */
+  remindOnBreak: boolean;
   estimateMinutes: number | null;
   sortOrder: number;
   createdAt: number;
@@ -190,6 +192,7 @@ export interface TaskInput {
   reminderAt?: number | null;
   recurrence?: RecurrenceRule | null;
   context?: TaskContext;
+  remindOnBreak?: boolean;
   estimateMinutes?: number | null;
 }
 
@@ -865,6 +868,7 @@ export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | n
   const parentId = typeof candidate.parentId === 'string' && candidate.parentId ? candidate.parentId : null;
   const recurrence = sanitizeRecurrenceRule(candidate.recurrence);
   const context = asTaskContext(candidate.context);
+  const remindOnBreak = candidate.remindOnBreak === true && context !== 'desk';
   const estimateMinutes =
     typeof candidate.estimateMinutes === 'number' &&
     Number.isFinite(candidate.estimateMinutes) &&
@@ -889,6 +893,7 @@ export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | n
     reminderAt: normalizeTaskTimestamp(candidate.reminderAt, null),
     recurrence,
     context,
+    remindOnBreak,
     estimateMinutes,
     sortOrder,
     createdAt,
@@ -1079,6 +1084,9 @@ const endOfDay = (timestamp: number): number => {
 };
 
 const isActiveStatus = (status: TaskStatus): boolean => status === 'inbox' || status === 'active';
+
+export const matchesProjectView = (task: Task, projectId: string): boolean =>
+  task.projectId === projectId && isActiveStatus(task.status);
 
 /** Predicates a task matches a view. `now` injectable for deterministic tests. */
 export const matchesTaskView = (task: Task, view: TaskView, now: number = Date.now()): boolean => {

@@ -8,7 +8,6 @@
 
 export interface EmergencyTemplateInput {
   title: string;
-  reminderId: string;
 }
 
 /** Escape a value for safe interpolation into HTML text/attributes. */
@@ -27,13 +26,9 @@ export const escapeHtml = (value: string): string =>
  * prematurely and inject HTML. Escaping `<` to `<` keeps the literal
  * identical after evaluation while preventing any tag breakout.
  */
-const stringifyForInlineScript = (value: string): string =>
-  JSON.stringify(value).replace(/</g, '\\u003c');
-
 /** Render the emergency card HTML. No external resources — fully self-contained. */
 export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
   const escapedTitle = escapeHtml(input.title);
-  const reminderId = stringifyForInlineScript(input.reminderId);
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"/>
 <style>
   :root { color-scheme: light; }
@@ -85,10 +80,9 @@ export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
     <div class="hint">完成 / 稍后 / 跳过均会恢复自动提醒节奏</div>
   </div>
 <script>
-  var id = ${reminderId};
   function act(action) {
-    if (window.eyeProtect && window.eyeProtect.reminderAction) {
-      window.eyeProtect.reminderAction(action, id);
+    if (window.eyeProtectEmergency && window.eyeProtectEmergency.action) {
+      window.eyeProtectEmergency.action(action);
     }
   }
   document.getElementById('complete').onclick = function () { act('complete'); };

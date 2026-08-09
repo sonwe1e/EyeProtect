@@ -171,13 +171,18 @@ export class TaskService extends EventEmitter {
         ? completedAt
         : task.reminderAt ?? task.dueAt ?? task.plannedAt ?? completedAt;
 
-    const nextFire = nextRecurrenceFireAt(rule, anchor, now);
+    // A rollover always advances beyond the current occurrence. A due time
+    // later today must not become another same-day instance merely because the
+    // user completed the current task before that time.
+    const nextFire = nextRecurrenceFireAt(rule, anchor, Math.max(now, anchor + 1));
     if (nextFire === null) {
       // Rule cannot produce a future occurrence (e.g. weekly with no weekdays).
       return;
     }
 
     const delta = nextFire - anchor;
+    const hasScheduledField =
+      task.plannedAt !== null || task.dueAt !== null || task.reminderAt !== null;
     this.store.createTask(
       {
         title: task.title,
@@ -188,11 +193,16 @@ export class TaskService extends EventEmitter {
         tags: task.tags,
         // Shift the planned/due/reminder dates together so their relative
         // spacing is preserved across occurrences.
-        plannedAt: task.plannedAt ? task.plannedAt + delta : null,
-        dueAt: task.dueAt ? task.dueAt + delta : null,
-        reminderAt: nextFire,
+        plannedAt: task.plannedAt !== null
+          ? task.plannedAt + delta
+          : hasScheduledField
+            ? null
+            : nextFire,
+        dueAt: task.dueAt !== null ? task.dueAt + delta : null,
+        reminderAt: task.reminderAt !== null ? task.reminderAt + delta : null,
         recurrence: task.recurrence,
         context: task.context,
+        remindOnBreak: task.remindOnBreak,
         estimateMinutes: task.estimateMinutes
       },
       now

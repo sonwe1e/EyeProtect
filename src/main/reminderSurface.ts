@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ActiveReminder } from '../shared/types';
 import { emergencyTitleFor, renderEmergencyHtml } from './scheduling/emergencyTemplate';
+import { runReminderSurfaceFallback } from './scheduling/surfaceFallback';
 
 /**
  * ReminderSurfaceManager — owns the fallback chain that guarantees a reminder
@@ -24,7 +25,7 @@ import { emergencyTitleFor, renderEmergencyHtml } from './scheduling/emergencyTe
  */
 
 const moduleDir = join(fileURLToPath(new URL('.', import.meta.url)));
-const preloadPath = join(moduleDir, '../preload/index.cjs');
+const emergencyPreloadPath = join(moduleDir, '../preload/emergency.cjs');
 
 type EmergencyAction = 'complete' | 'snooze' | 'skip';
 
@@ -51,36 +52,31 @@ export class ReminderSurfaceManager {
     active: ActiveReminder
   ): Promise<'primary' | 'emergency' | 'notification' | 'none'> {
     const sequence = ++this.presentationSequence;
-    this.trace('window-create', { reminderId: active.id, kind: active.kind, surface: 'primary' });
-    try {
-      if (await this.showPrimary(active)) {
-        this.trace('shown', { reminderId: active.id, surface: 'primary' });
-        return 'primary';
-      }
-    } catch (error) {
-      console.error('[surface] primary surface failed, falling back:', error);
-    }
-    try {
-      if (sequence !== this.presentationSequence) {
-        return 'none';
-      }
-      this.trace('window-create', { reminderId: active.id, surface: 'emergency' });
-      if (await this.showEmergency(active)) {
-        this.trace('shown', { reminderId: active.id, surface: 'emergency' });
-        return 'emergency';
-      }
-    } catch (error) {
-      console.error('[surface] emergency surface failed, falling back:', error);
-    }
-    if (sequence !== this.presentationSequence) {
-      return 'none';
-    }
-    const shown = this.showNotification(active);
-    this.trace(shown ? 'shown' : 'surface-failed', {
-      reminderId: active.id,
-      surface: shown ? 'notification' : 'none'
+    const result = await runReminderSurfaceFallback({
+      isCurrent: () => sequence === this.presentationSequence,
+      primary: async () => {
+        this.trace('window-create', { reminderId: active.id, kind: active.kind, surface: 'primary' });
+        const shown = await this.showPrimary(active);
+        if (shown) this.trace('shown', { reminderId: active.id, surface: 'primary' });
+        return shown;
+      },
+      emergency: async () => {
+        this.trace('window-create', { reminderId: active.id, surface: 'emergency' });
+        const shown = await this.showEmergency(active);
+        if (shown) this.trace('shown', { reminderId: active.id, surface: 'emergency' });
+        return shown;
+      },
+      notification: () => {
+        const shown = this.showNotification(active);
+        if (shown) this.trace('shown', { reminderId: active.id, surface: 'notification' });
+        return shown;
+      },
+      onError: (surface, error) => console.error(`[surface] ${surface} surface failed, falling back:`, error)
     });
-    return shown ? 'notification' : 'none';
+    if (result === 'none' && sequence === this.presentationSequence) {
+      this.trace('surface-failed', { reminderId: active.id, surface: 'none' });
+    }
+    return result;
   }
 
   /**
@@ -102,6 +98,10 @@ export class ReminderSurfaceManager {
   /** Tear down any emergency surface (e.g. when the reminder ends). */
   destroy(): void {
     this.presentationSequence += 1;
+    this.destroyEmergencyWindow();
+  }
+
+  private destroyEmergencyWindow(): void {
     if (this.emergencyWindow && !this.emergencyWindow.isDestroyed()) {
       this.emergencyWindow.destroy();
     }
@@ -131,7 +131,7 @@ export class ReminderSurfaceManager {
     if (!app.isReady()) {
       return false;
     }
-    this.destroy();
+    this.destroyEmergencyWindow();
 
     const title = emergencyTitleFor(active.kind);
     const window = new BrowserWindow({
@@ -149,13 +149,23 @@ export class ReminderSurfaceManager {
       show: false,
       backgroundColor: '#00000000',
       webPreferences: {
-        preload: preloadPath,
+        preload: emergencyPreloadPath,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true
       }
     });
     window.setAlwaysOnTop(true, 'screen-saver');
+    window.webContents.on('ipc-message', (event, channel, action: unknown) => {
+      if (
+        channel !== 'emergency-reminder:action' ||
+        event.sender.id !== window.webContents.id ||
+        (action !== 'complete' && action !== 'snooze' && action !== 'skip')
+      ) {
+        return;
+      }
+      this.onAction(action, active.id);
+    });
     window.on('closed', () => {
       if (this.emergencyWindow === window) {
         this.emergencyWindow = null;
@@ -164,7 +174,7 @@ export class ReminderSurfaceManager {
 
     this.emergencyWindow = window;
     try {
-      await this.loadEmergencyHtml(window, active, title);
+      await this.loadEmergencyHtml(window, title);
       if (window.isDestroyed() || this.emergencyWindow !== window) {
         return false;
       }
@@ -183,10 +193,9 @@ export class ReminderSurfaceManager {
   /** Render the minimal emergency card from a self-contained template (no assets). */
   private async loadEmergencyHtml(
     window: BrowserWindow,
-    active: ActiveReminder,
     title: string
   ): Promise<void> {
-    const html = renderEmergencyHtml({ title, reminderId: active.id });
+    const html = renderEmergencyHtml({ title });
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   }
 

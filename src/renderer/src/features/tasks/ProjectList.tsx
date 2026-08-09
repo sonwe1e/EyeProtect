@@ -33,7 +33,7 @@ export function ProjectList({
   const taskCountByProject = useMemo(() => {
     const counts = new Map<string, number>();
     for (const task of tasks) {
-      if (task.projectId && task.status !== 'archived') {
+      if (task.projectId && (task.status === 'inbox' || task.status === 'active')) {
         counts.set(task.projectId, (counts.get(task.projectId) ?? 0) + 1);
       }
     }

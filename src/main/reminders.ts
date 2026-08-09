@@ -1064,7 +1064,12 @@ export class ReminderScheduler extends EventEmitter {
   private pickBreakTask(): Pick<Task, 'id' | 'title'> | null {
     const priorityRank = { urgent: 0, important: 1, normal: 2 } as const;
     const task = this.tasks
-      .filter((entry) => entry.status !== 'done' && entry.status !== 'archived' && (entry.context === 'away' || entry.context === 'any'))
+      .filter((entry) =>
+        entry.status !== 'done' &&
+        entry.status !== 'archived' &&
+        entry.remindOnBreak &&
+        (entry.context === 'away' || entry.context === 'any')
+      )
       .sort(
         (a, b) =>
           priorityRank[a.priority] - priorityRank[b.priority] ||
@@ -1098,7 +1103,9 @@ export class ReminderScheduler extends EventEmitter {
       // tasks is an away/any-context task, attach it so the card shows the
       // "while you're up, consider…" prompt without opening a second surface.
       if (!active.breakTask) {
-        const suggestion = due.find((task) => task.context === 'away' || task.context === 'any');
+        const suggestion = due.find((task) =>
+          task.remindOnBreak && (task.context === 'away' || task.context === 'any')
+        );
         if (suggestion) {
           active.breakTask = { id: suggestion.id, title: suggestion.title };
           windows.broadcastReminderStatus(this.getStatus());

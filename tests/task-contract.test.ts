@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   matchesTaskView,
   nextRecurrenceFireAt,
+  matchesProjectView,
   sanitizeProject,
   sanitizeTask,
   sortTasksForView,
@@ -74,6 +75,19 @@ test('sanitizeTask validates tags, timestamps and recurrence', () => {
   assert.equal(result!.tags.length, 2, 'duplicate dropped, non-string dropped');
   assert.equal(result!.dueAt, null);
   assert.deepEqual(result!.recurrence, { type: 'weekly', interval: 2, weekdays: [1, 3] });
+});
+
+test('sanitizeTask keeps break suggestions explicit and disables them for desk work', () => {
+  assert.equal(sanitizeTask({ id: 'a', title: 'x', context: 'away', remindOnBreak: true }, now)!.remindOnBreak, true);
+  assert.equal(sanitizeTask({ id: 'b', title: 'x', context: 'desk', remindOnBreak: true }, now)!.remindOnBreak, false);
+  assert.equal(sanitizeTask({ id: 'c', title: 'x', context: 'any' }, now)!.remindOnBreak, false);
+});
+
+test('project view is independent and contains only active project tasks', () => {
+  assert.equal(matchesProjectView(task({ projectId: 'p', status: 'inbox' }), 'p'), true);
+  assert.equal(matchesProjectView(task({ projectId: 'p', status: 'active' }), 'p'), true);
+  assert.equal(matchesProjectView(task({ projectId: 'p', status: 'done' }), 'p'), false);
+  assert.equal(matchesProjectView(task({ projectId: 'other', status: 'inbox' }), 'p'), false);
 });
 
 test('sanitizeProject rejects bad color and empty name', () => {

@@ -36,6 +36,8 @@ const ALL_DONE_DISPLAY_MS = 2_500;
 const BUBBLE_DESTROY_DELAY_MS = 30_000;
 /** Coalesce bursts of display-added/removed/metrics events into one relayout. */
 const DISPLAY_CHANGE_DEBOUNCE_MS = 250;
+const forceEmergencySmoke =
+  process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-emergency');
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
@@ -114,7 +116,8 @@ export class AppWindows {
 
   constructor(
     private readonly settingsStore: SettingsStore,
-    private readonly scheduler: ReminderScheduler
+    private readonly scheduler: ReminderScheduler,
+    private readonly getTasks: () => Task[] = () => []
   ) {
     const onDisplaysChanged = (): void => this.handleDisplaysChangedSoon();
     screen.on('display-added', onDisplaysChanged);
@@ -511,8 +514,8 @@ export class AppWindows {
   refreshBubble(): void {
     const status = this.scheduler.getStatus();
     const active = status.activeReminder;
-    const todos = this.settingsStore.get().todos;
-    const pending = todos.filter((todo) => !todo.completed).length;
+    const tasks = this.getTasks();
+    const pending = tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length;
     const panelOpen = Boolean(
       this.panelWindow && !this.panelWindow.isDestroyed() && this.panelWindow.isVisible()
     );
@@ -540,7 +543,7 @@ export class AppWindows {
       return;
     }
 
-    if (todos.length === 0) {
+    if (tasks.length === 0) {
       // Nothing left at all: no reason to keep the window around.
       this.destroyBubble();
       return;
@@ -562,14 +565,14 @@ export class AppWindows {
 
   /** Preferences matter to the settings window and the pet's skin/size. */
   broadcastSettings(settings: Settings): void {
-    this.sendTo([this.settingsWindow, this.petWindow], 'settings:changed', settings);
+    this.sendTo([this.settingsWindow, this.workbenchWindow, this.petWindow], 'settings:changed', settings);
   }
 
   broadcastReminderStatus(status: ReminderStatus): void {
     // The pet only needs reminder status for its first-class double-click
     // shortcut in gentle mode; alert/settings/bubble render the visible state.
     this.sendTo(
-      [this.petWindow, this.alertWindow, this.settingsWindow, this.bubbleWindow],
+      [this.petWindow, this.alertWindow, this.settingsWindow, this.workbenchWindow, this.bubbleWindow],
       'reminder:changed',
       status
     );
@@ -599,12 +602,12 @@ export class AppWindows {
   }
 
   broadcastHistory(report: WeeklyReport, care: CareStatus): void {
-    this.sendTo([this.settingsWindow], 'history:changed', report);
-    this.sendTo([this.petWindow, this.settingsWindow], 'care:changed', care);
+    this.sendTo([this.settingsWindow, this.workbenchWindow], 'history:changed', report);
+    this.sendTo([this.petWindow, this.settingsWindow, this.workbenchWindow], 'care:changed', care);
   }
 
   broadcastHotkeyStatus(status: HotkeyStatus): void {
-    this.sendTo([this.settingsWindow], 'hotkeys:changed', status);
+    this.sendTo([this.settingsWindow, this.workbenchWindow], 'hotkeys:changed', status);
   }
 
   /** Pet scale/skin/dim changes: recompute pet bounds, nothing else. */
@@ -639,7 +642,9 @@ export class AppWindows {
       }
       this.destroyBubble();
       this.updateDimWindows(active.mode === 'focused', settings);
-      void this.ensureAlertWindow();
+      if (!forceEmergencySmoke) {
+        void this.ensureAlertWindow();
+      }
       return;
     }
 
@@ -1016,6 +1021,9 @@ export class AppWindows {
    * emergency surface. Used by ReminderSurfaceManager's fallback chain.
    */
   async showReminderOnPrimary(active: ActiveReminder): Promise<boolean> {
+    if (forceEmergencySmoke) {
+      return false;
+    }
     if (active.mode === 'gentle') {
       // Gentle reminders surface through the bubble, not the alert window.
       this.refreshBubble();
@@ -1056,6 +1064,7 @@ export class AppWindows {
       'task:changed',
       tasks
     );
+    this.refreshBubble();
   }
 
   broadcastProjects(projects: Project[]): void {

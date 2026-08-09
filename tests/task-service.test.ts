@@ -154,7 +154,7 @@ test('a weekly task rolls over to the next configured weekday', () => {
   });
 });
 
-test('an after-completion task anchors the next fire to the completion time', () => {
+test('an after-completion task plans the next instance without inventing a reminder', () => {
   withService((service) => {
     const rule: RecurrenceRule = { type: 'after-completion', days: 7 };
     const [task] = service.createTask({ title: 'follow up', recurrence: rule }, NOW);
@@ -162,7 +162,37 @@ test('an after-completion task anchors the next fire to the completion time', ()
 
     const result = service.setTaskStatus(task.id, 'done', completedAt);
     const next = result.find((t) => t.id !== task.id)!;
-    assert.equal(next.reminderAt, completedAt + 7 * DAY);
+    assert.equal(next.plannedAt, completedAt + 7 * DAY);
+    assert.equal(next.reminderAt, null);
+  });
+});
+
+test('a recurring task without a reminder keeps the next reminder disabled', () => {
+  withService((service) => {
+    const [task] = service.createTask({
+      title: '每日计划',
+      plannedAt: NOW,
+      recurrence: { type: 'daily', interval: 1 }
+    }, NOW);
+    const result = service.setTaskStatus(task.id, 'done', NOW + 60_000);
+    const next = result.find((entry) => entry.id !== task.id)!;
+    assert.equal(next.plannedAt, NOW + DAY);
+    assert.equal(next.reminderAt, null);
+  });
+});
+
+test('completing before a later due time advances to the next day', () => {
+  withService((service) => {
+    const dueAt = NOW + 7 * 3_600_000;
+    const [task] = service.createTask({
+      title: '每日截止',
+      dueAt,
+      recurrence: { type: 'daily', interval: 1 }
+    }, NOW);
+    const result = service.setTaskStatus(task.id, 'done', NOW + 2 * 3_600_000);
+    const next = result.find((entry) => entry.id !== task.id)!;
+    assert.equal(next.dueAt, dueAt + DAY);
+    assert.equal(next.reminderAt, null);
   });
 });
 
