@@ -82,7 +82,7 @@ test('savePetPosition persists without emitting anything', () => {
   });
 });
 
-test('persistAlarms writes without triggering the settings cascade', () => {
+test('legacy alarm mutations neither cascade nor repopulate preference storage', () => {
   withTempStore((store) => {
     let settingsEvents = 0;
     store.onChanged(() => {
@@ -94,7 +94,7 @@ test('persistAlarms writes without triggering the settings cascade', () => {
     ]);
 
     assert.equal(settingsEvents, 0, 'alarm persistence is silent');
-    assert.equal(new SettingsStore().get().alarms.length, 1, 'alarms still reach disk');
+    assert.equal(new SettingsStore().get().alarms.length, 0, 'legacy alarms stay out of settings.json');
   });
 });
 
@@ -166,6 +166,9 @@ test('settings are written with a schema version stamp', () => {
     const raw = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
     assert.equal(raw.version, 1);
     assert.equal(raw.snoozeMinutes, 9);
+    assert.equal('todos' in raw, false);
+    assert.equal('alarms' in raw, false);
+    assert.equal('activeTaskId' in raw, false);
   });
 });
 

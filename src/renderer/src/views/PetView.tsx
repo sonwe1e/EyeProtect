@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Clock3, Heart, ListChecks, Settings as SettingsIcon, X } from 'lucide-react';
-import type { Alarm, PetMood, PetSkin } from '../../../shared/types';
+import type { PetMood, PetSkin, StandaloneReminder } from '../../../shared/types';
 import { PetCharacter } from '../features/pet/PetCharacter';
 import { useCareStatus } from '../hooks/useCareStatus';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
-import { useTodos } from '../hooks/useTodos';
+import { useTasks } from '../hooks/useTasks';
 
 export default function PetView(): JSX.Element {
   const { settings } = useSettings();
   const reminderStatus = useReminderStatus();
   const care = useCareStatus();
-  const todos = useTodos();
-  const [firingAlarms, setFiringAlarms] = useState<Alarm[]>([]);
+  const tasks = useTasks();
+  const [firingAlarms, setFiringAlarms] = useState<StandaloneReminder[]>([]);
 
   const handleSkinSelect = useCallback((skin: PetSkin) => {
     void window.eyeProtect.saveSettings({ petSkin: skin });
   }, []);
   const handleOpenAlarms = useCallback(() => {
-    void window.eyeProtect.openPanel('alarms');
+    void window.eyeProtect.openWorkbench('reminders');
   }, []);
   const handleOpenTodos = useCallback(() => {
     void window.eyeProtect.openPanel('todos');
@@ -36,18 +36,18 @@ export default function PetView(): JSX.Element {
   }, [reminderStatus.activeReminder]);
   const handleContextMenu = useCallback((event: MouseEvent) => {
     event.preventDefault();
-    void window.eyeProtect.openPanel('alarms');
+    void window.eyeProtect.openWorkbench('reminders');
   }, []);
 
   useEffect(() => {
-    return window.eyeProtect.onAlarmFired((alarm) => {
+    return window.eyeProtect.onStandaloneReminderFired((alarm) => {
       setFiringAlarms((current) =>
         current.some((entry) => entry.id === alarm.id) ? current : [...current, alarm]
       );
     });
   }, []);
 
-  const pendingCount = useMemo(() => todos.filter((todo) => !todo.completed).length, [todos]);
+  const pendingCount = useMemo(() => tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length, [tasks]);
   const isFiring = firingAlarms.length > 0;
   const mood: PetMood = reminderStatus.preAlert ? 'anticipating' : care.mood;
   const displaySkin: PetSkin =

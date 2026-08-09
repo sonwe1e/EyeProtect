@@ -67,6 +67,147 @@ export interface Alarm {
   createdAt: number;
 }
 
+export type StandaloneReminderSchedule =
+  | { type: 'once'; fireAt: number }
+  | { type: 'daily'; hour: number; minute: number }
+  | { type: 'weekdays'; hour: number; minute: number }
+  | { type: 'weekly'; weekdays: number[]; hour: number; minute: number }
+  | { type: 'custom'; anchorAt: number; intervalDays: number };
+
+export interface StandaloneReminder {
+  id: string;
+  label: string;
+  schedule: StandaloneReminderSchedule;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface StandaloneReminderInput {
+  label?: string;
+  schedule: StandaloneReminderSchedule;
+  enabled?: boolean;
+}
+
+export interface PersistedScheduledEvent {
+  id: string;
+  owner: 'break' | 'task' | 'standalone' | 'system';
+  type: string;
+  fireAt: number;
+  revision: number;
+  payloadRef: string | null;
+}
+
+/**
+ * v1.1 Task Core (USERPLAN §二). A Task is the canonical work item: richer than
+ * the legacy TodoItem, with separate planned-vs-deadline dates, projects,
+ * subtasks, tags, recurrence, and a desk/away/any context. TodoItem remains an
+ * import-only compatibility shape; the first successful SQLite migration
+ * removes its persisted source.
+ */
+export type TaskStatus = 'inbox' | 'active' | 'done' | 'archived';
+
+export const TASK_STATUSES: TaskStatus[] = ['inbox', 'active', 'done', 'archived'];
+
+/**
+ * Where a task is normally handled. `away` tasks are surfaced during walk
+ * reminders ("while you're up, consider…"); `desk` tasks are the default;
+ * `any` tasks show in both. This is the plan's key product differentiator.
+ */
+export type TaskContext = 'desk' | 'away' | 'any';
+
+export const TASK_CONTEXTS: TaskContext[] = ['desk', 'away', 'any'];
+
+export interface RecurrenceRuleDaily {
+  type: 'daily';
+  interval: number;
+}
+export interface RecurrenceRuleWeekly {
+  type: 'weekly';
+  interval: number;
+  /** 0 (Sun) – 6 (Sat). Fixed weekdays, distinct from "after completion". */
+  weekdays: number[];
+}
+export interface RecurrenceRuleMonthly {
+  type: 'monthly';
+  interval: number;
+  day: number;
+}
+export interface RecurrenceRuleAfterCompletion {
+  type: 'after-completion';
+  days: number;
+}
+export type RecurrenceRule =
+  | RecurrenceRuleDaily
+  | RecurrenceRuleWeekly
+  | RecurrenceRuleMonthly
+  | RecurrenceRuleAfterCompletion;
+
+export interface Task {
+  id: string;
+  title: string;
+  notes: string | null;
+  status: TaskStatus;
+  priority: TodoPriority;
+  projectId: string | null;
+  parentId: string | null;
+  tags: string[];
+  /** When you intend to work on it. Distinct from the hard deadline (USERPLAN §二 plannedAt !== dueAt). */
+  plannedAt: number | null;
+  /** Hard deadline. */
+  dueAt: number | null;
+  /** Optional standalone reminder deadline registered with the scheduler kernel. */
+  reminderAt: number | null;
+  recurrence: RecurrenceRule | null;
+  context: TaskContext;
+  estimateMinutes: number | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  color: string | null;
+  parentId: string | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Fields a renderer may supply when creating a task. */
+export interface TaskInput {
+  title: string;
+  notes?: string | null;
+  priority?: TodoPriority;
+  projectId?: string | null;
+  parentId?: string | null;
+  tags?: string[];
+  plannedAt?: number | null;
+  dueAt?: number | null;
+  reminderAt?: number | null;
+  recurrence?: RecurrenceRule | null;
+  context?: TaskContext;
+  estimateMinutes?: number | null;
+}
+
+/** Partial update; `status` is separate because it drives recurrence + stats. */
+export type TaskUpdateInput = Partial<TaskInput> & {
+  status?: TaskStatus;
+  /** Used by the Workbench's explicit move controls. */
+  sortOrder?: number;
+};
+
+export interface ProjectInput {
+  name: string;
+  color?: string | null;
+  parentId?: string | null;
+}
+
+export type ProjectUpdateInput = Partial<ProjectInput>;
+
 export interface PetPosition {
   x: number;
   y: number;
@@ -122,6 +263,12 @@ export interface Settings {
   hotkeysEnabled: boolean;
   alarms: Alarm[];
   todos: TodoItem[];
+  /**
+   * The task the user is currently working on (USERPLAN §四 rhythm loop). When
+   * a break ends, the workbench can surface "resume: <active task>". Null when no
+   * task is active. Persisted so it survives restarts.
+   */
+  activeTaskId: string | null;
 }
 
 export interface ActiveReminder {
@@ -155,7 +302,26 @@ export interface ActiveReminder {
    * starts. Keeping the copy here makes the reminder stable across renderer
    * reloads while the live todo remains addressable by id.
    */
-  breakTodo: Pick<TodoItem, 'id' | 'text'> | null;
+  breakTask: Pick<Task, 'id' | 'title'> | null;
+}
+
+/**
+ * The subset of an active reminder that survives a crash/restart (USERPLAN §一.3).
+ * Persisted next to the scheduler snapshot: if the app dies mid-break, the next
+ * launch restores the in-progress session instead of recomputing from a stale
+ * deadline. Transient fields (the per-event `id`) are intentionally dropped.
+ */
+export interface PersistedBreakSession {
+  kind: ReminderKind;
+  kinds: SingleReminderKind[];
+  startedAt: number;
+  scheduledAt: number;
+  unlockAt: number;
+  snoozeAllowedAt: number;
+  mode: ReminderMode;
+  snoozeCount: number;
+  activityIds: string[];
+  breakTask: Pick<Task, 'id' | 'title'> | null;
 }
 
 export interface ReminderEvent {
@@ -280,20 +446,34 @@ export interface EyeProtectApi {
   onQuickAddTodo: (callback: () => void) => () => void;
   onSettingsChanged: (callback: (settings: Settings) => void) => () => void;
   onReminderChanged: (callback: (status: ReminderStatus) => void) => () => void;
-  getAlarms: () => Promise<Alarm[]>;
-  setAlarm: (input: Omit<Alarm, 'id' | 'createdAt'>) => Promise<Alarm[]>;
-  cancelAlarm: (id: string) => Promise<Alarm[]>;
-  onAlarmFired: (callback: (alarm: Alarm) => void) => () => void;
-  onAlarmsChanged: (callback: (alarms: Alarm[]) => void) => () => void;
-  getTodos: () => Promise<TodoItem[]>;
-  addTodo: (text: string) => Promise<TodoItem[]>;
-  toggleTodo: (id: string) => Promise<TodoItem[]>;
-  updateTodo: (id: string, text: string) => Promise<TodoItem[]>;
-  removeTodo: (id: string) => Promise<TodoItem[]>;
-  setTodoPriority: (id: string, priority: TodoPriority) => Promise<TodoItem[]>;
-  setTodoBreakReminder: (id: string, enabled: boolean) => Promise<TodoItem[]>;
-  clearCompletedTodos: () => Promise<TodoItem[]>;
-  onTodosChanged: (callback: (todos: TodoItem[]) => void) => () => void;
+  // --- v1.1 Task Core (USERPLAN §二) ---
+  /** All tasks (any view/filter is applied in the renderer). */
+  getTasks: () => Promise<Task[]>;
+  getTask: (id: string) => Promise<Task | null>;
+  createTask: (input: TaskInput) => Promise<Task[]>;
+  updateTask: (id: string, input: TaskUpdateInput) => Promise<Task[]>;
+  setTaskStatus: (id: string, status: TaskStatus) => Promise<Task[]>;
+  deleteTask: (id: string) => Promise<Task[]>;
+  onTasksChanged: (callback: (tasks: Task[]) => void) => () => void;
+  getProjects: () => Promise<Project[]>;
+  getProject: (id: string) => Promise<Project | null>;
+  createProject: (input: ProjectInput) => Promise<Project[]>;
+  updateProject: (id: string, input: ProjectUpdateInput) => Promise<Project[]>;
+  deleteProject: (id: string) => Promise<Project[]>;
+  onProjectsChanged: (callback: (projects: Project[]) => void) => () => void;
+  getActiveTaskId: () => Promise<string | null>;
+  setActiveTask: (id: string | null) => Promise<Task[]>;
+  onActiveTaskChanged: (callback: (id: string | null) => void) => () => void;
+  getStandaloneReminders: () => Promise<StandaloneReminder[]>;
+  createStandaloneReminder: (input: StandaloneReminderInput) => Promise<StandaloneReminder[]>;
+  updateStandaloneReminder: (id: string, input: Partial<StandaloneReminderInput>) => Promise<StandaloneReminder[]>;
+  deleteStandaloneReminder: (id: string) => Promise<StandaloneReminder[]>;
+  onStandaloneRemindersChanged: (callback: (reminders: StandaloneReminder[]) => void) => () => void;
+  onStandaloneReminderFired: (callback: (reminder: StandaloneReminder) => void) => () => void;
+  openWorkbench: (section?: 'today' | 'settings' | 'reminders') => Promise<void>;
+  closeWorkbench: () => Promise<void>;
+  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders'>;
+  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders') => void) => () => void;
   getWeeklyReport: () => Promise<WeeklyReport>;
   getCareStatus: () => Promise<CareStatus>;
   clearReminderHistory: () => Promise<WeeklyReport>;
@@ -335,7 +515,8 @@ export const DEFAULT_SETTINGS: Settings = {
   quietAppWhitelist: [],
   hotkeysEnabled: true,
   alarms: [],
-  todos: []
+  todos: [],
+  activeTaskId: null
 };
 
 export const SETTINGS_LIMITS = {
@@ -462,3 +643,514 @@ export const sanitizeAlarms = (value: unknown): Alarm[] => {
   }
   return value.map((entry) => sanitizeAlarm(entry)).filter((entry): entry is Alarm => Boolean(entry));
 };
+
+export const sanitizeStandaloneReminderSchedule = (value: unknown): StandaloneReminderSchedule | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  const validClock =
+    Number.isInteger(candidate.hour) && Number(candidate.hour) >= 0 && Number(candidate.hour) <= 23 &&
+    Number.isInteger(candidate.minute) && Number(candidate.minute) >= 0 && Number(candidate.minute) <= 59;
+  switch (candidate.type) {
+    case 'once':
+      return typeof candidate.fireAt === 'number' && Number.isFinite(candidate.fireAt) && candidate.fireAt > 0
+        ? { type: 'once', fireAt: candidate.fireAt }
+        : null;
+    case 'daily':
+      return validClock ? { type: 'daily', hour: Number(candidate.hour), minute: Number(candidate.minute) } : null;
+    case 'weekdays':
+      return validClock ? { type: 'weekdays', hour: Number(candidate.hour), minute: Number(candidate.minute) } : null;
+    case 'weekly': {
+      const weekdays = Array.isArray(candidate.weekdays)
+        ? [...new Set(candidate.weekdays.filter((day): day is number => Number.isInteger(day) && day >= 0 && day <= 6))].sort()
+        : [];
+      return validClock && weekdays.length > 0
+        ? { type: 'weekly', weekdays, hour: Number(candidate.hour), minute: Number(candidate.minute) }
+        : null;
+    }
+    case 'custom':
+      return typeof candidate.anchorAt === 'number' && Number.isFinite(candidate.anchorAt) && candidate.anchorAt > 0 &&
+        Number.isInteger(candidate.intervalDays) && Number(candidate.intervalDays) > 0 && Number(candidate.intervalDays) <= 365
+        ? { type: 'custom', anchorAt: candidate.anchorAt, intervalDays: Number(candidate.intervalDays) }
+        : null;
+    default:
+      return null;
+  }
+};
+
+export const sanitizeStandaloneReminder = (value: unknown, now: number = Date.now()): StandaloneReminder | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<StandaloneReminder>;
+  const schedule = sanitizeStandaloneReminderSchedule(candidate.schedule);
+  if (typeof candidate.id !== 'string' || !candidate.id || !schedule) {
+    return null;
+  }
+  const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt) ? candidate.createdAt : now;
+  return {
+    id: candidate.id,
+    label: typeof candidate.label === 'string' ? candidate.label.trim().slice(0, ALARM_LABEL_MAX) : '',
+    schedule,
+    enabled: candidate.enabled !== false,
+    createdAt,
+    updatedAt: typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : createdAt
+  };
+};
+
+export const nextStandaloneReminderFireAt = (
+  schedule: StandaloneReminderSchedule,
+  now: number = Date.now()
+): number | null => {
+  if (schedule.type === 'once') {
+    return schedule.fireAt >= now ? schedule.fireAt : null;
+  }
+  if (schedule.type === 'custom') {
+    if (schedule.anchorAt >= now) {
+      return schedule.anchorAt;
+    }
+    // Calendar-day recurrence must retain the user's local wall-clock time.
+    // Adding 24-hour milliseconds drifts by an hour across a DST boundary.
+    const candidate = new Date(schedule.anchorAt);
+    const anchorDay = new Date(
+      candidate.getFullYear(),
+      candidate.getMonth(),
+      candidate.getDate()
+    ).getTime();
+    const reference = new Date(now);
+    const referenceDay = new Date(
+      reference.getFullYear(),
+      reference.getMonth(),
+      reference.getDate()
+    ).getTime();
+    const approximateDays = Math.max(0, Math.round((referenceDay - anchorDay) / 86_400_000));
+    const jumps = Math.max(1, Math.floor(approximateDays / schedule.intervalDays));
+    candidate.setDate(candidate.getDate() + jumps * schedule.intervalDays);
+    while (candidate.getTime() < now) {
+      candidate.setDate(candidate.getDate() + schedule.intervalDays);
+    }
+    return candidate.getTime();
+  }
+  const allowed = schedule.type === 'daily'
+    ? [0, 1, 2, 3, 4, 5, 6]
+    : schedule.type === 'weekdays'
+      ? [1, 2, 3, 4, 5]
+      : schedule.weekdays;
+  for (let offset = 0; offset <= 7; offset += 1) {
+    const candidate = new Date(now);
+    candidate.setDate(candidate.getDate() + offset);
+    candidate.setHours(schedule.hour, schedule.minute, 0, 0);
+    if (allowed.includes(candidate.getDay()) && candidate.getTime() >= now) {
+      return candidate.getTime();
+    }
+  }
+  return null;
+};
+
+export const TASK_TITLE_MAX = 120;
+export const TASK_NOTES_MAX = 2000;
+export const TASK_TAGS_MAX = 10;
+export const PROJECT_NAME_MAX = 60;
+
+const sanitizeRecurrenceRule = (value: unknown): RecurrenceRule | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<RecurrenceRule> & Record<string, unknown>;
+  const interval =
+    typeof candidate.interval === 'number' && Number.isInteger(candidate.interval) && candidate.interval > 0
+      ? candidate.interval
+      : 1;
+  switch (candidate.type) {
+    case 'daily':
+      return { type: 'daily', interval };
+    case 'weekly': {
+      const weekdays = Array.isArray(candidate.weekdays)
+        ? candidate.weekdays
+            .filter((day): day is number => typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6)
+            .slice(0, 7)
+        : [];
+      return { type: 'weekly', interval, weekdays };
+    }
+    case 'monthly': {
+      const day =
+        typeof candidate.day === 'number' && Number.isInteger(candidate.day) && candidate.day >= 1 && candidate.day <= 31
+          ? candidate.day
+          : 1;
+      return { type: 'monthly', interval, day };
+    }
+    case 'after-completion': {
+      const days =
+        typeof candidate.days === 'number' && Number.isInteger(candidate.days) && candidate.days > 0
+          ? candidate.days
+          : 1;
+      return { type: 'after-completion', days };
+    }
+    default:
+      return null;
+  }
+};
+
+const normalizeTaskTimestamp = (value: unknown, fallback: number | null): number | null => {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
+const sanitizeTagList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const tag = entry.trim().slice(0, 24);
+    if (tag && !seen.has(tag)) {
+      seen.add(tag);
+      result.push(tag);
+    }
+    if (result.length >= TASK_TAGS_MAX) {
+      break;
+    }
+  }
+  return result;
+};
+
+const asTaskStatus = (value: unknown): TaskStatus =>
+  TASK_STATUSES.includes(value as TaskStatus) ? (value as TaskStatus) : 'inbox';
+
+const asTaskContext = (value: unknown): TaskContext =>
+  TASK_CONTEXTS.includes(value as TaskContext) ? (value as TaskContext) : 'desk';
+
+/**
+ * Coerce arbitrary input into a Task, or reject it. Used on every IPC ingress
+ * and on load from disk, so a corrupt value can never propagate into the store.
+ * `now` is injectable for deterministic tests.
+ */
+export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<Task> & Record<string, unknown>;
+  if (typeof candidate.id !== 'string' || !candidate.id) {
+    return null;
+  }
+  if (typeof candidate.title !== 'string') {
+    return null;
+  }
+  const title = candidate.title.trim().slice(0, TASK_TITLE_MAX);
+  if (!title) {
+    return null;
+  }
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  const updatedAt = normalizeTaskTimestamp(candidate.updatedAt, createdAt) ?? createdAt;
+  // Legacy TodoItem uses a bare `completed` flag. Honor it: a completed flag
+  // with no explicit done status means "done" (the migration path). An explicit
+  // status always wins, so a task can also be forced not-done via status.
+  const legacyCompleted =
+    candidate.status !== 'done' && typeof candidate.completed === 'boolean' && candidate.completed;
+  const status: TaskStatus = legacyCompleted ? 'done' : asTaskStatus(candidate.status);
+  const completedAt =
+    status === 'done'
+      ? normalizeTaskTimestamp(candidate.completedAt, updatedAt) ?? updatedAt
+      : null;
+  const priority: TodoPriority =
+    candidate.priority === 'important' || candidate.priority === 'urgent' ? candidate.priority : 'normal';
+  const projectId = typeof candidate.projectId === 'string' && candidate.projectId ? candidate.projectId : null;
+  const parentId = typeof candidate.parentId === 'string' && candidate.parentId ? candidate.parentId : null;
+  const recurrence = sanitizeRecurrenceRule(candidate.recurrence);
+  const context = asTaskContext(candidate.context);
+  const estimateMinutes =
+    typeof candidate.estimateMinutes === 'number' &&
+    Number.isFinite(candidate.estimateMinutes) &&
+    candidate.estimateMinutes > 0
+      ? Math.round(candidate.estimateMinutes)
+      : null;
+  const sortOrder =
+    typeof candidate.sortOrder === 'number' && Number.isFinite(candidate.sortOrder)
+      ? Math.round(candidate.sortOrder)
+      : 0;
+  return {
+    id: candidate.id,
+    title,
+    notes: typeof candidate.notes === 'string' ? candidate.notes.trim().slice(0, TASK_NOTES_MAX) : null,
+    status,
+    priority,
+    projectId,
+    parentId,
+    tags: sanitizeTagList(candidate.tags),
+    plannedAt: normalizeTaskTimestamp(candidate.plannedAt, null),
+    dueAt: normalizeTaskTimestamp(candidate.dueAt, null),
+    reminderAt: normalizeTaskTimestamp(candidate.reminderAt, null),
+    recurrence,
+    context,
+    estimateMinutes,
+    sortOrder,
+    createdAt,
+    updatedAt,
+    completedAt
+  };
+};
+
+export const sanitizeTasks = (value: unknown, now: number = Date.now()): Task[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => sanitizeTask(entry, now))
+    .filter((entry): entry is Task => Boolean(entry));
+};
+
+const asProjectColor = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const color = value.trim();
+  // Accept only #rgb / #rrggbb to keep the value render-safe.
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color) ? color : null;
+};
+
+export const sanitizeProject = (value: unknown, now: number = Date.now()): Project | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<Project> & Record<string, unknown>;
+  if (typeof candidate.id !== 'string' || !candidate.id) {
+    return null;
+  }
+  if (typeof candidate.name !== 'string') {
+    return null;
+  }
+  const name = candidate.name.trim().slice(0, PROJECT_NAME_MAX);
+  if (!name) {
+    return null;
+  }
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  const updatedAt = normalizeTaskTimestamp(candidate.updatedAt, createdAt) ?? createdAt;
+  const parentId = typeof candidate.parentId === 'string' && candidate.parentId ? candidate.parentId : null;
+  const sortOrder =
+    typeof candidate.sortOrder === 'number' && Number.isFinite(candidate.sortOrder)
+      ? Math.round(candidate.sortOrder)
+      : 0;
+  return {
+    id: candidate.id,
+    name,
+    color: asProjectColor(candidate.color),
+    parentId,
+    sortOrder,
+    createdAt,
+    updatedAt
+  };
+};
+
+export const sanitizeProjects = (value: unknown, now: number = Date.now()): Project[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => sanitizeProject(entry, now))
+    .filter((entry): entry is Project => Boolean(entry));
+};
+
+/**
+ * Pure recurrence math (USERPLAN §二). Given a rule and an epoch-ms reference
+ * time, return the next fire-at >= reference, or null if the rule cannot
+ * produce one. No Date-state mutation, no I/O — safe to unit-test and to call
+ * from the scheduler. Kept here (shared) so both main and tests import one copy.
+ */
+export const nextRecurrenceFireAt = (
+  rule: RecurrenceRule,
+  reference: number,
+  now: number = Date.now()
+): number | null => {
+  if (!rule || !Number.isFinite(reference)) {
+    return null;
+  }
+  const from = Math.max(reference, now);
+  const anchor = new Date(reference);
+  switch (rule.type) {
+    case 'daily': {
+      const candidate = new Date(reference);
+      if (candidate.getTime() >= from) {
+        return candidate.getTime();
+      }
+      const elapsedDays = Math.max(
+        0,
+        calendarDayNumber(new Date(from)) - calendarDayNumber(candidate)
+      );
+      candidate.setDate(candidate.getDate() + Math.max(1, Math.floor(elapsedDays / rule.interval)) * rule.interval);
+      while (candidate.getTime() < from) {
+        candidate.setDate(candidate.getDate() + rule.interval);
+      }
+      return candidate.getTime();
+    }
+    case 'weekly': {
+      if (rule.weekdays.length === 0) {
+        return null;
+      }
+      const sorted = [...new Set(rule.weekdays)].sort((a, b) => a - b);
+      const firstDay = new Date(from);
+      firstDay.setHours(anchor.getHours(), anchor.getMinutes(), anchor.getSeconds(), anchor.getMilliseconds());
+      const anchorWeekDay = calendarDayNumber(anchor) - anchor.getDay();
+      for (let offset = 0; offset <= 7 * (rule.interval + 1); offset += 1) {
+        const probe = new Date(firstDay);
+        probe.setDate(firstDay.getDate() + offset);
+        const probeWeekDay = calendarDayNumber(probe) - probe.getDay();
+        const weekIndex = Math.floor((probeWeekDay - anchorWeekDay) / 7);
+        if (
+          weekIndex >= 0 &&
+          weekIndex % rule.interval === 0 &&
+          sorted.includes(probe.getDay()) &&
+          probe.getTime() >= from
+        ) {
+          return probe.getTime();
+        }
+      }
+      return null;
+    }
+    case 'monthly': {
+      const anchorMonth = anchor.getFullYear() * 12 + anchor.getMonth();
+      const fromDate = new Date(from);
+      const fromMonth = fromDate.getFullYear() * 12 + fromDate.getMonth();
+      const elapsedMonths = Math.max(0, fromMonth - anchorMonth);
+      const initialJump = Math.floor(elapsedMonths / rule.interval) * rule.interval;
+      for (let i = 0; i < 24; i += 1) {
+        const monthIndex = anchorMonth + initialJump + i * rule.interval;
+        const candidate = new Date(
+          Math.floor(monthIndex / 12),
+          monthIndex % 12,
+          1,
+          anchor.getHours(),
+          anchor.getMinutes(),
+          anchor.getSeconds(),
+          anchor.getMilliseconds()
+        );
+        const day = Math.min(rule.day, daysInMonth(candidate.getFullYear(), candidate.getMonth()));
+        candidate.setDate(day);
+        if (candidate.getTime() >= from) {
+          return candidate.getTime();
+        }
+      }
+      return null;
+    }
+    case 'after-completion':
+      return addCalendarDays(reference, rule.days);
+    default:
+      return null;
+  }
+};
+
+const calendarDayNumber = (date: Date): number =>
+  Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000);
+
+const addCalendarDays = (timestamp: number, days: number): number => {
+  const date = new Date(timestamp);
+  date.setDate(date.getDate() + days);
+  return date.getTime();
+};
+
+const daysInMonth = (year: number, month: number): number =>
+  new Date(year, month + 1, 0).getDate();
+
+/**
+ * Which task list a renderer is showing. Pure filter predicates over a task's
+ * timestamps; kept shared so main and renderer never drift on "what belongs in
+ * Today". All ranges are [startOfDay, endOfDay) in local time.
+ */
+export type TaskView = 'inbox' | 'today' | 'upcoming' | 'overdue' | 'completed' | 'archived';
+
+export const TASK_VIEWS: TaskView[] = ['inbox', 'today', 'upcoming', 'overdue', 'completed', 'archived'];
+
+const startOfDay = (timestamp: number): number => {
+  const date = new Date(timestamp);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+};
+
+const endOfDay = (timestamp: number): number => {
+  const date = new Date(timestamp);
+  date.setHours(23, 59, 59, 999);
+  return date.getTime();
+};
+
+const isActiveStatus = (status: TaskStatus): boolean => status === 'inbox' || status === 'active';
+
+/** Predicates a task matches a view. `now` injectable for deterministic tests. */
+export const matchesTaskView = (task: Task, view: TaskView, now: number = Date.now()): boolean => {
+  switch (view) {
+    case 'inbox':
+      return task.status === 'inbox';
+    case 'today': {
+      if (!isActiveStatus(task.status)) {
+        return false;
+      }
+      const todayStart = startOfDay(now);
+      const todayEnd = endOfDay(now);
+      const planned = task.plannedAt !== null && task.plannedAt <= todayEnd;
+      const due = task.dueAt !== null && task.dueAt <= todayEnd;
+      const started = task.status === 'active';
+      return planned || due || started;
+    }
+    case 'upcoming': {
+      if (!isActiveStatus(task.status)) {
+        return false;
+      }
+      const horizon = endOfDay(now + 7 * 86_400_000);
+      const futureStart = endOfDay(now) + 1;
+      const planned =
+        task.plannedAt !== null && task.plannedAt >= futureStart && task.plannedAt <= horizon;
+      const due = task.dueAt !== null && task.dueAt >= futureStart && task.dueAt <= horizon;
+      return planned || due;
+    }
+    case 'overdue': {
+      if (!isActiveStatus(task.status)) {
+        return false;
+      }
+      const todayStart = startOfDay(now);
+      const overduePlanned = task.plannedAt !== null && task.plannedAt < todayStart;
+      const overdueDue = task.dueAt !== null && task.dueAt < todayStart;
+      return overduePlanned || overdueDue;
+    }
+    case 'completed':
+      return task.status === 'done';
+    case 'archived':
+      return task.status === 'archived';
+    default:
+      return false;
+  }
+};
+
+/** Sort tasks for display within a view: overdue first, then by urgency
+ * (dueAt/plannedAt asc, then priority, then sortOrder/createdAt). */
+export const sortTasksForView = (tasks: Task[], now: number = Date.now()): Task[] => {
+  const rank = (task: Task): number => {
+    const overdue =
+      isActiveTask(task) &&
+      ((task.dueAt !== null && task.dueAt < startOfDay(now)) ||
+        (task.plannedAt !== null && task.plannedAt < startOfDay(now)));
+    if (overdue) {
+      return 0;
+    }
+    const priorityRank = task.priority === 'urgent' ? 0 : task.priority === 'important' ? 1 : 2;
+    return 1 + priorityRank;
+  };
+  return [...tasks].sort((a, b) => {
+    const rankDelta = rank(a) - rank(b);
+    if (rankDelta !== 0) {
+      return rankDelta;
+    }
+    const aTime = a.dueAt ?? a.plannedAt ?? Number.MAX_SAFE_INTEGER;
+    const bTime = b.dueAt ?? b.plannedAt ?? Number.MAX_SAFE_INTEGER;
+    if (aTime !== bTime) {
+      return aTime - bTime;
+    }
+    return a.sortOrder - b.sortOrder || a.createdAt - b.createdAt;
+  });
+};
+
+const isActiveTask = (task: Task): boolean => isActiveStatus(task.status);

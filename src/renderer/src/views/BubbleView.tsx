@@ -1,20 +1,31 @@
 import { useCallback } from 'react';
 import { Check, Clock3, Eye, Footprints, ListChecks, Timer, X } from 'lucide-react';
-import { sortTodosForDisplay } from '../../../shared/types';
+import { sortTasksForView } from '../../../shared/types';
 import { getActivity } from '../../../shared/breakActivities';
 import type { BreakActivity } from '../../../shared/types';
 import { ActivityGuide } from '../features/reminders/ActivityGuide';
 import { useClock } from '../hooks/useClock';
+import { useActiveTaskId } from '../hooks/useActiveTask';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useTodos } from '../hooks/useTodos';
+import { useTasks } from '../hooks/useTasks';
 
 export default function BubbleView(): JSX.Element {
-  const todos = useTodos();
+  const tasks = useTasks();
+  const activeTaskId = useActiveTaskId();
   const status = useReminderStatus();
   const now = useClock(1_000);
   const openTodos = useCallback(() => {
     void window.eyeProtect.openPanel('todos');
   }, []);
+  const handleBubbleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openTodos();
+      }
+    },
+    [openTodos]
+  );
 
   const active = status.activeReminder;
   // The bubble doubles as the surface for gentle reminders and soft
@@ -24,9 +35,10 @@ export default function BubbleView(): JSX.Element {
     const activities = active.activityIds
       .map((id) => getActivity(id))
       .filter((entry): entry is BreakActivity => Boolean(entry));
-    const breakTodo = active.breakTodo
-      ? todos.find((todo) => todo.id === active.breakTodo?.id)
+    const breakTask = active.breakTask
+      ? tasks.find((task) => task.id === active.breakTask?.id)
       : null;
+    const activeTask = activeTaskId ? tasks.find((task) => task.id === activeTaskId) : null;
     const waiting = now < active.unlockAt;
     return (
       <div className="bubble-shell bubble-reminder">
@@ -47,17 +59,18 @@ export default function BubbleView(): JSX.Element {
               />
             ))}
           </div>
-          {active.breakTodo && breakTodo && !breakTodo.completed ? (
+          {active.breakTask && breakTask && breakTask.status !== 'done' ? (
             <button
               type="button"
               className="bubble-break-todo"
-              onClick={() => void window.eyeProtect.toggleTodo(active.breakTodo?.id ?? '')}
+              onClick={() => void window.eyeProtect.setTaskStatus(active.breakTask?.id ?? '', 'done')}
             >
               <Footprints size={13} />
-              <span>顺路：{active.breakTodo.text}</span>
+              <span>顺路：{active.breakTask.title}</span>
               <Check size={13} />
             </button>
           ) : null}
+          {activeTask ? <p className="break-return-task compact">休息后继续：<strong>{activeTask.title}</strong></p> : null}
           <div className="bubble-actions">
             <button
               className="primary"
@@ -113,15 +126,22 @@ export default function BubbleView(): JSX.Element {
     );
   }
 
-  const pending = todos.filter((todo) => !todo.completed);
-  const preview = sortTodosForDisplay(pending).slice(0, 3);
+  const pending = tasks.filter((task) => task.status !== 'done' && task.status !== 'archived');
+  const preview = sortTasksForView(pending, now).slice(0, 3);
 
-  if (todos.length === 0) {
+  if (tasks.length === 0) {
     return <></>;
   }
   if (pending.length === 0) {
     return (
-      <div className="bubble-shell" role="button" title="查看全部待办" onClick={openTodos}>
+      <div
+        className="bubble-shell"
+        role="button"
+        tabIndex={0}
+        title="查看全部待办"
+        onClick={openTodos}
+        onKeyDown={handleBubbleKeyDown}
+      >
         <div className="bubble-card bubble-all-done">
           <div className="bubble-title">
             <Check size={13} />
@@ -136,20 +156,27 @@ export default function BubbleView(): JSX.Element {
 
   const overflow = pending.length - preview.length;
   return (
-    <div className="bubble-shell" role="button" title="查看全部待办" onClick={openTodos}>
+    <div
+      className="bubble-shell"
+      role="button"
+      tabIndex={0}
+      title="查看全部待办"
+      onClick={openTodos}
+      onKeyDown={handleBubbleKeyDown}
+    >
       <div className="bubble-card">
         <div className="bubble-title">
           <ListChecks size={13} />
           <span>待办</span>
-          <span className="bubble-count" title={`共 ${todos.length} 件，已完成 ${todos.length - pending.length} 件`}>
+          <span className="bubble-count" title={`共 ${tasks.length} 件，已完成 ${tasks.length - pending.length} 件`}>
             {pending.length}
           </span>
         </div>
         <ul className="bubble-list">
-          {preview.map((todo) => (
-            <li key={todo.id} className="bubble-item">
-              <span className="bubble-dot" data-priority={todo.priority} />
-              <span className="bubble-text">{todo.text}</span>
+          {preview.map((task) => (
+            <li key={task.id} className="bubble-item">
+              <span className="bubble-dot" data-priority={task.priority} />
+              <span className="bubble-text">{task.title}</span>
             </li>
           ))}
         </ul>

@@ -6,7 +6,8 @@ const ALLOWED_RENDERER_HASHES = new Set([
   '#settings',
   '#panel',
   '#bubble',
-  '#alert'
+  '#alert',
+  '#workbench'
 ]);
 
 const normalizedPathname = (value: string): string =>

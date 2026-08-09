@@ -1,7 +1,7 @@
 {
   "name": "eye-protect-pet",
-  "version": "1.0.0",
-  "description": "Portable Windows desktop pet reminders for eye rest and walking breaks.",
+  "version": "1.1.0",
+  "description": "Local-first Windows task and healthy work-rhythm assistant.",
   "main": "out/main/index.js",
   "author": "EyeProtect",
   "license": "MIT",
@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "start": "electron-vite preview",
-    "package": "npm run build && electron-builder --win portable --x64"
+    "package": "npm run build && electron-builder --win nsis portable --x64",
+    "package:nsis": "npm run build && electron-builder --win nsis --x64",
+    "package:portable": "npm run build && electron-builder --win portable --x64"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -24,11 +26,11 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^24.13.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.1",
+    "electron": "^43.3.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "tsx": "^4.19.2",
@@ -51,6 +53,12 @@
       "signAndEditExecutable": false,
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "x64"
@@ -59,7 +67,16 @@
       ]
     },
     "portable": {
-      "artifactName": "EyeProtect-${version}-win-x64.exe"
+      "artifactName": "EyeProtect-${version}-win-x64-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "EyeProtect-Setup-${version}-win-x64.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

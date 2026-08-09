@@ -5,6 +5,7 @@ const BubbleView = lazy(() => import('./views/BubbleView'));
 const PanelView = lazy(() => import('./views/PanelView'));
 const PetView = lazy(() => import('./views/PetView'));
 const SettingsView = lazy(() => import('./views/SettingsView'));
+const WorkbenchView = lazy(() => import('./views/WorkbenchView'));
 
 const route = window.location.hash.replace('#', '') || 'pet';
 
@@ -18,6 +19,8 @@ const resolveView = () => {
       return PanelView;
     case 'settings':
       return SettingsView;
+    case 'workbench':
+      return WorkbenchView;
     default:
       return PetView;
   }

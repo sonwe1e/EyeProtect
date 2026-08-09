@@ -33,13 +33,20 @@ export const sanitizeSnapshot = (value: unknown): ReminderSnapshot | null => {
     Number.isInteger(candidate.snoozeCount) && (candidate.snoozeCount as number) >= 0
       ? (candidate.snoozeCount as number)
       : 0;
+  // The active break session is validated on restore by the scheduler; here we
+  // only guard its shape so a corrupt value can't crash the sanitizer.
+  const active =
+    candidate.active && typeof candidate.active === 'object'
+      ? (candidate.active as ReminderSnapshot['active'])
+      : null;
   return {
     nextEyeAt: candidate.nextEyeAt,
     nextWalkAt: candidate.nextWalkAt,
     pausedUntil,
     snoozeCount,
     frozenEyeMs,
-    frozenWalkMs
+    frozenWalkMs,
+    active
   };
 };
 

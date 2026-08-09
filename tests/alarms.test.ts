@@ -4,8 +4,26 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { AlarmClock, nextFireAt } from '../src/main/alarms';
+import { SchedulerKernel } from '../src/main/scheduling/kernel';
 import { SettingsStore } from '../src/main/settings';
 import { Alarm, sanitizeAlarm, sanitizeAlarms } from '../src/shared/types';
+
+const MINUTE = 60_000;
+
+/** Deterministic wall+monotonic clock for kernel-driven alarm tests. */
+const makeClock = () => {
+  let now = BASE_TS;
+  return {
+    now: (): number => now,
+    monotonic: (): number => now,
+    set: (value: number): void => {
+      now = value;
+    },
+    advance: (ms: number): void => {
+      now += ms;
+    }
+  };
+};
 
 // Fixed local time: 2026-07-08 10:30:59.500 (a Wednesday).
 // Placed just under a minute boundary so a 10:31 alarm fires in ~500ms of real
@@ -131,7 +149,7 @@ test('sanitizeAlarm drops an alarm with an out-of-range hour or minute', () => {
   assert.equal(sanitizeAlarm({ id: 'a1', hour: 7, minute: 30, repeat: 'yearly', enabled: true, createdAt: 1 }), null);
 });
 
-test('persistAlarms writes alarms and a second SettingsStore instance reads them back', () => {
+test('legacy alarm mutations are not written back to preference-only settings.json', () => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-a-'));
   const original = process.env.EYEPROTECT_DATA_DIR;
   process.env.EYEPROTECT_DATA_DIR = dir;
@@ -143,18 +161,7 @@ test('persistAlarms writes alarms and a second SettingsStore instance reads them
     ]);
 
     const readback = new SettingsStore().get().alarms;
-    assert.equal(readback.length, 2);
-    assert.deepEqual(readback[0], {
-      id: 'a1',
-      hour: 7,
-      minute: 30,
-      label: 'wake',
-      repeat: 'once',
-      enabled: true,
-      createdAt: 1000
-    });
-    assert.equal(readback[1].repeat, 'daily');
-    assert.equal(readback[1].enabled, false);
+    assert.deepEqual(readback, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     if (original === undefined) {
@@ -240,6 +247,98 @@ test('dispose cancels all pending timers', async () => {
   await new Promise((resolve) => setTimeout(resolve, 250));
 
   assert.deepEqual(fired, [], 'nothing fires after dispose');
+});
+
+test('kernel path: alarm fires through the shared deadline queue', () => {
+  const clock = makeClock();
+  const kernel = new SchedulerKernel({
+    clock: { now: clock.now, monotonic: clock.monotonic },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const alarmClock = new AlarmClock({ now: clock.now, kernel });
+  kernel.start();
+
+  const fired: string[] = [];
+  alarmClock.on('fired', (a) => fired.push(a.id));
+  alarmClock.setAlarm({ hour: 10, minute: 31, repeat: 'once', enabled: true });
+  const id = alarmClock.getAlarms()[0]?.id;
+  assert.ok(id, 'alarm was registered');
+
+  // Advance to the fire time and let the kernel wake the alarm clock.
+  clock.set(new Date(2026, 6, 8, 10, 31, 0, 0).getTime());
+  kernel.reconcile();
+
+  assert.equal(fired.length, 1, 'alarm fired exactly once via the kernel');
+  assert.equal(fired[0], id);
+  assert.equal(alarmClock.getAlarms().length, 0, 'once alarm removed after firing');
+});
+
+test('kernel path: daily alarm re-arms for the next day; once alarm is removed', () => {
+  const clock = makeClock();
+  const kernel = new SchedulerKernel({
+    clock: { now: clock.now, monotonic: clock.monotonic },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const alarmClock = new AlarmClock({ now: clock.now, kernel });
+  kernel.start();
+
+  const fired: string[] = [];
+  alarmClock.on('fired', (a) => fired.push(a.id));
+  alarmClock.setAlarm({ hour: 10, minute: 31, repeat: 'daily', enabled: true });
+
+  clock.set(new Date(2026, 6, 8, 10, 31, 0, 0).getTime());
+  kernel.reconcile();
+  assert.equal(fired.length, 1, 'daily alarm fires on day 1');
+  assert.equal(alarmClock.getAlarms().length, 1, 'daily alarm stays in the list');
+
+  // A second reconcile in the same minute must not double-fire the same occurrence.
+  kernel.reconcile();
+  assert.equal(fired.length, 1, 'no double-fire for the same occurrence');
+
+  // The next day at the same wall-clock time fires again.
+  clock.set(new Date(2026, 6, 9, 10, 31, 0, 0).getTime());
+  kernel.reconcile();
+  assert.equal(fired.length, 2, 'daily alarm fires again the next day');
+});
+
+test('kernel path: reconcile after a wall-clock jump fires a missed alarm', () => {
+  const clock = makeClock();
+  const kernel = new SchedulerKernel({
+    clock: { now: clock.now, monotonic: clock.monotonic },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const alarmClock = new AlarmClock({ now: clock.now, kernel });
+  kernel.start();
+
+  const fired: string[] = [];
+  alarmClock.on('fired', (a) => fired.push(a.id));
+  alarmClock.setAlarm({ hour: 10, minute: 31, repeat: 'once', enabled: true });
+
+  // Jump the wall clock an hour past the fire time (as if the app slept).
+  clock.advance(60 * MINUTE);
+  kernel.reconcile();
+  assert.equal(fired.length, 1, 'missed alarm fires on reconcile after a jump');
+});
+
+test('kernel path: nearest deadline is reported when alarms share the queue', () => {
+  const clock = makeClock();
+  const kernel = new SchedulerKernel({
+    clock: { now: clock.now, monotonic: clock.monotonic },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const alarmClock = new AlarmClock({ now: clock.now, kernel });
+  kernel.start();
+
+  alarmClock.setAlarm({ hour: 11, minute: 0, repeat: 'once', enabled: true }); // later
+  alarmClock.setAlarm({ hour: 10, minute: 31, repeat: 'once', enabled: true }); // sooner
+
+  const events = kernel.peek().filter((e) => e.owner === 'alarm');
+  assert.equal(events.length, 1, 'exactly one nearest deadline reported');
+  assert.equal(
+    events[0].fireAt,
+    new Date(2026, 6, 8, 10, 31, 0, 0).getTime(),
+    'the nearest alarm deadline is reported'
+  );
 });
 
 test('sanitizeAlarms keeps valid entries in order and drops malformed ones', () => {

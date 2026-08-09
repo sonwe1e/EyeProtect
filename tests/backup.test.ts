@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBackup, parseBackup } from '../src/main/backup';
-import { DEFAULT_SETTINGS, type ReminderEvent } from '../src/shared/types';
+import { DEFAULT_SETTINGS, type ReminderEvent, type Task } from '../src/shared/types';
 
 const event: ReminderEvent = {
   timestamp: new Date(2026, 6, 27, 12, 0, 0, 0).getTime(),
@@ -13,41 +13,55 @@ const event: ReminderEvent = {
   mode: 'guided'
 };
 
-test('complete backup round-trips settings, todos, alarms and reminder history', () => {
+test('complete v2 backup round-trips preferences, Task Core and reminder history', () => {
   const settings = {
     ...DEFAULT_SETTINGS,
-    eyeIntervalMinutes: 35,
-    todos: [
-      {
-        id: 'todo-1',
-        text: '接水',
-        createdAt: 1,
-        completed: false,
-        priority: 'important' as const,
-        context: 'away' as const,
-        remindOnBreak: true
-      }
-    ],
-    alarms: [
-      {
-        id: 'alarm-1',
-        hour: 15,
-        minute: 20,
-        repeat: 'daily' as const,
-        enabled: true,
-        createdAt: 1
-      }
-    ]
+    eyeIntervalMinutes: 35
   };
-  const text = createBackup(settings, [event], '0.5.1', 123_456);
+  const task: Task = {
+    id: 'task-1', title: '接水', notes: null, status: 'inbox', priority: 'important',
+    projectId: null, parentId: null, tags: [], plannedAt: null, dueAt: null,
+    reminderAt: null, recurrence: null, context: 'away', estimateMinutes: null,
+    sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null
+  };
+  const text = createBackup(settings, [event], '1.1.0', 123_456, {
+    tasks: [task],
+    projects: [],
+    standaloneReminders: [{
+      id: 'reminder-1', label: '下午茶', schedule: { type: 'daily', hour: 15, minute: 20 },
+      enabled: true, createdAt: 1, updatedAt: 1
+    }],
+    activeTaskId: task.id
+  });
   const restored = parseBackup(text);
 
   assert.equal(restored.createdAt, 123_456);
-  assert.equal(restored.appVersion, '0.5.1');
+  assert.equal(restored.appVersion, '1.1.0');
   assert.equal(restored.settings.eyeIntervalMinutes, 35);
-  assert.equal(restored.settings.todos[0].text, '接水');
-  assert.equal(restored.settings.alarms[0].hour, 15);
+  assert.equal('todos' in restored.settings, false);
+  assert.equal('alarms' in restored.settings, false);
+  assert.equal(restored.tasks[0].title, '接水');
+  assert.equal(restored.standaloneReminders[0].schedule.type, 'daily');
+  assert.equal(restored.activeTaskId, 'task-1');
   assert.deepEqual(restored.reminderHistory, [event]);
+});
+
+test('v1 backup imports legacy todos and alarms into Task Core domains', () => {
+  const restored = parseBackup(JSON.stringify({
+    version: 1,
+    createdAt: 1,
+    appVersion: '1.0.0',
+    settings: {
+      ...DEFAULT_SETTINGS,
+      todos: [{ id: 'todo-1', text: '接水', createdAt: 1, completed: false, priority: 'important', context: 'away', remindOnBreak: true }],
+      alarms: [{ id: 'alarm-1', hour: 15, minute: 20, repeat: 'daily', enabled: true, createdAt: 1 }]
+    },
+    reminderHistory: []
+  }));
+  assert.equal(restored.tasks[0].title, '接水');
+  assert.equal(restored.tasks[0].context, 'away');
+  assert.deepEqual(restored.standaloneReminders[0].schedule, { type: 'daily', hour: 15, minute: 20 });
+  assert.equal('todos' in restored.settings, false);
 });
 
 test('backup parser rejects unsupported containers and any malformed history entry', () => {

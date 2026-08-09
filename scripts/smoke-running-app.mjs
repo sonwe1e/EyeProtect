@@ -20,11 +20,15 @@ const listTargets = async () => {
 const waitForTarget = async (hash, timeoutMs = 10_000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const target = (await listTargets()).find(
-      (candidate) => candidate.type === 'page' && candidate.url.endsWith(hash)
-    );
-    if (target) {
-      return target;
+    try {
+      const target = (await listTargets()).find(
+        (candidate) => candidate.type === 'page' && candidate.url.endsWith(hash)
+      );
+      if (target) {
+        return target;
+      }
+    } catch {
+      // The packaged process may still be starting its debugging endpoint.
     }
     await delay(100);
   }
@@ -104,37 +108,43 @@ if (
 }
 
 await evaluate(petTarget, 'window.eyeProtect.openSettings()');
-const settingsTarget = await waitForTarget('#settings');
-const settings = await evaluate(
-  settingsTarget,
+const workbenchTarget = await waitForTarget('#workbench');
+await delay(500);
+const workbench = await evaluate(
+  workbenchTarget,
   `(async () => {
     const current = await window.eyeProtect.getSettings();
     const saved = await window.eyeProtect.saveSettings({
       snoozeMinutes: current.snoozeMinutes
     });
+    const tasks = await window.eyeProtect.createTask({ title: 'Packaged smoke task' });
     return {
       bridge: typeof window.eyeProtect === 'object',
+      workbenchShell: Boolean(document.querySelector('.workbench-shell')),
       settingsShell: Boolean(document.querySelector('.settings-shell')),
       heading: document.querySelector('.settings-header h1')?.textContent,
-      savedSnoozeMinutes: saved.snoozeMinutes
+      savedSnoozeMinutes: saved.snoozeMinutes,
+      taskPersisted: tasks.some((task) => task.title === 'Packaged smoke task')
     };
   })()`
 );
 
 if (
-  !settings?.bridge ||
-  !settings.settingsShell ||
-  settings.heading !== '提醒设置' ||
-  settings.savedSnoozeMinutes !== pet.settings.snoozeMinutes
+  !workbench?.bridge ||
+  !workbench.workbenchShell ||
+  !workbench.settingsShell ||
+  workbench.heading !== '提醒设置' ||
+  workbench.savedSnoozeMinutes !== pet.settings.snoozeMinutes ||
+  !workbench.taskPersisted
 ) {
-  throw new Error(`Settings renderer smoke check failed: ${JSON.stringify(settings)}`);
+  throw new Error(`Workbench renderer smoke check failed: ${JSON.stringify(workbench)}`);
 }
 
 console.log(
   JSON.stringify(
     {
       pet,
-      settings
+      workbench
     },
     null,
     2

@@ -114,7 +114,7 @@ const minutesUntilClockTime = (value: string, now: number): number => {
   return Math.max(1, Math.ceil((target.getTime() - now) / 60_000));
 };
 
-export default function SettingsView(): JSX.Element {
+export default function SettingsView({ embedded = false }: { embedded?: boolean }): JSX.Element {
   const { settings, setSettings } = useSettings();
   const status = useReminderStatus();
   const care = useCareStatus();
@@ -242,13 +242,15 @@ export default function SettingsView(): JSX.Element {
           <span className="eyebrow">EyeProtect</span>
           <h1>提醒设置</h1>
         </div>
-        <button
-          className="icon-button"
-          title="关闭设置"
-          onClick={() => void window.eyeProtect.closeSettings()}
-        >
-          <X size={20} />
-        </button>
+        {!embedded ? (
+          <button
+            className="icon-button"
+            title="关闭设置"
+            onClick={() => void window.eyeProtect.closeSettings()}
+          >
+            <X size={20} />
+          </button>
+        ) : null}
       </header>
 
       <section className="status-strip">
@@ -699,7 +701,7 @@ export default function SettingsView(): JSX.Element {
         <div className="section-heading-row">
           <div>
             <h2>备份与迁移</h2>
-            <small>一个文件包含设置、待办、闹钟和本地提醒历史；导入前会再次确认。</small>
+            <small>一个文件包含设置、任务、独立提醒和本地提醒历史；导入前会再次确认。</small>
           </div>
           <DatabaseBackup size={20} />
         </div>

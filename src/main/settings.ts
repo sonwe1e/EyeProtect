@@ -236,7 +236,11 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         ? input.hotkeysEnabled
         : DEFAULT_SETTINGS.hotkeysEnabled,
     alarms: sanitizeAlarms(input.alarms),
-    todos: sanitizeTodos(input.todos)
+    todos: sanitizeTodos(input.todos),
+    activeTaskId:
+      typeof input.activeTaskId === 'string' && input.activeTaskId
+        ? input.activeTaskId
+        : null
   };
 };
 
@@ -434,6 +438,12 @@ export class SettingsStore extends EventEmitter {
     this.write(next);
   }
 
+  /** Remove v1.0 collections after their verified SQLite migration. */
+  clearLegacyTaskData(): void {
+    this.settings = sanitizeSettings({ ...this.get(), todos: [], alarms: [], activeTaskId: null });
+    this.write(this.settings);
+  }
+
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {
     this.on('changed', callback);
   }
@@ -473,7 +483,10 @@ export class SettingsStore extends EventEmitter {
   private write(settings: Settings): void {
     mkdirSync(this.dataDir, { recursive: true });
     const tempPath = `${this.filePath}.tmp`;
-    const payload = { version: SETTINGS_SCHEMA_VERSION, ...settings };
+    // These fields are accepted by read() solely for one-time v1.0 migration;
+    // v1.1 never writes them back to settings.json.
+    const { todos: _todos, alarms: _alarms, activeTaskId: _activeTaskId, ...preferences } = settings;
+    const payload = { version: SETTINGS_SCHEMA_VERSION, ...preferences };
     writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     renameSync(tempPath, this.filePath);
   }

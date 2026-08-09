@@ -1,0 +1,214 @@
+import { BrowserWindow, Notification, app } from 'electron';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { ActiveReminder } from '../shared/types';
+import { emergencyTitleFor, renderEmergencyHtml } from './scheduling/emergencyTemplate';
+
+/**
+ * ReminderSurfaceManager — owns the fallback chain that guarantees a reminder
+ * is always user-visible while the main process is alive (USERPLAN §四.B):
+ *
+ *   Scheduler
+ *      ↓
+ *   primary AlertWindow (React, artwork, activities)
+ *      ↓  render-process-gone / failed load
+ *   Emergency Window (minimal inline HTML, no assets)
+ *      ↓  also failed / unsupported
+ *   Native Notification
+ *      ↓
+ *   tray state
+ *
+ * The emergency surface deliberately has no React, no image assets and no
+ * external CSS: it renders from an inline template so it works even when the
+ * renderer that builds the pretty card is the very thing that broke.
+ */
+
+const moduleDir = join(fileURLToPath(new URL('.', import.meta.url)));
+const preloadPath = join(moduleDir, '../preload/index.cjs');
+
+type EmergencyAction = 'complete' | 'snooze' | 'skip';
+
+export class ReminderSurfaceManager {
+  private emergencyWindow: BrowserWindow | null = null;
+  private presentationSequence = 0;
+
+  constructor(
+    /** Shows the pretty primary alert; returns false if it could not be shown. */
+    private readonly showPrimary: (active: ActiveReminder) => Promise<boolean>,
+    /** Invoked when the emergency surface triggers an action, so the scheduler
+     *  can record it and reschedule. */
+    private readonly onAction: (action: EmergencyAction, reminderId: string) => void,
+    private readonly openWorkbench: () => void = () => {},
+    private readonly trace: (event: string, data?: Record<string, unknown>) => void = () => {}
+  ) {}
+
+  /**
+   * Show a reminder on the best available surface. Returns the surface that
+   * ended up presenting it. Never throws: a failure here must not take down the
+   * reminder, it must degrade.
+   */
+  async present(
+    active: ActiveReminder
+  ): Promise<'primary' | 'emergency' | 'notification' | 'none'> {
+    const sequence = ++this.presentationSequence;
+    this.trace('window-create', { reminderId: active.id, kind: active.kind, surface: 'primary' });
+    try {
+      if (await this.showPrimary(active)) {
+        this.trace('shown', { reminderId: active.id, surface: 'primary' });
+        return 'primary';
+      }
+    } catch (error) {
+      console.error('[surface] primary surface failed, falling back:', error);
+    }
+    try {
+      if (sequence !== this.presentationSequence) {
+        return 'none';
+      }
+      this.trace('window-create', { reminderId: active.id, surface: 'emergency' });
+      if (await this.showEmergency(active)) {
+        this.trace('shown', { reminderId: active.id, surface: 'emergency' });
+        return 'emergency';
+      }
+    } catch (error) {
+      console.error('[surface] emergency surface failed, falling back:', error);
+    }
+    if (sequence !== this.presentationSequence) {
+      return 'none';
+    }
+    const shown = this.showNotification(active);
+    this.trace(shown ? 'shown' : 'surface-failed', {
+      reminderId: active.id,
+      surface: shown ? 'notification' : 'none'
+    });
+    return shown ? 'notification' : 'none';
+  }
+
+  /**
+   * The primary renderer crashed (or its window was destroyed) while a reminder
+   * was on screen. Swap in the emergency surface so the reminder does not
+   * silently disappear.
+   */
+  handleRendererGone(active: ActiveReminder | null): void {
+    if (!active) {
+      return;
+    }
+    if (this.emergencyWindow && !this.emergencyWindow.isDestroyed()) {
+      return;
+    }
+    console.warn('[surface] renderer gone during active reminder; showing emergency surface');
+    void this.presentEmergencyFallback(active);
+  }
+
+  /** Tear down any emergency surface (e.g. when the reminder ends). */
+  destroy(): void {
+    this.presentationSequence += 1;
+    if (this.emergencyWindow && !this.emergencyWindow.isDestroyed()) {
+      this.emergencyWindow.destroy();
+    }
+    this.emergencyWindow = null;
+  }
+
+  // ── Emergency surface ────────────────────────────────────────────────────────
+
+  private async presentEmergencyFallback(active: ActiveReminder): Promise<void> {
+    try {
+      if (await this.showEmergency(active)) {
+        this.trace('shown', { reminderId: active.id, surface: 'emergency', reason: 'renderer-gone' });
+        return;
+      }
+    } catch (error) {
+      console.error('[surface] emergency surface failed after renderer loss:', error);
+    }
+    const shown = this.showNotification(active);
+    this.trace(shown ? 'shown' : 'surface-failed', {
+      reminderId: active.id,
+      surface: shown ? 'notification' : 'none',
+      reason: 'renderer-gone'
+    });
+  }
+
+  private async showEmergency(active: ActiveReminder): Promise<boolean> {
+    if (!app.isReady()) {
+      return false;
+    }
+    this.destroy();
+
+    const title = emergencyTitleFor(active.kind);
+    const window = new BrowserWindow({
+      width: 360,
+      height: 220,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      alwaysOnTop: true,
+      show: false,
+      backgroundColor: '#00000000',
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+    window.setAlwaysOnTop(true, 'screen-saver');
+    window.on('closed', () => {
+      if (this.emergencyWindow === window) {
+        this.emergencyWindow = null;
+      }
+    });
+
+    this.emergencyWindow = window;
+    try {
+      await this.loadEmergencyHtml(window, active, title);
+      if (window.isDestroyed() || this.emergencyWindow !== window) {
+        return false;
+      }
+      window.show();
+      window.flashFrame(true);
+      return window.isVisible();
+    } catch (error) {
+      console.error('[surface] emergency window failed to load:', error);
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+      return false;
+    }
+  }
+
+  /** Render the minimal emergency card from a self-contained template (no assets). */
+  private async loadEmergencyHtml(
+    window: BrowserWindow,
+    active: ActiveReminder,
+    title: string
+  ): Promise<void> {
+    const html = renderEmergencyHtml({ title, reminderId: active.id });
+    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  }
+
+  // ── Native notification fallback ─────────────────────────────────────────────
+
+  private showNotification(active: ActiveReminder): boolean {
+    if (!Notification.isSupported()) {
+      return false;
+    }
+    const title = active.kind === 'walk' ? 'EyeProtect · 起来走走' : 'EyeProtect · 休息眼睛';
+    try {
+      const notification = new Notification({
+        title,
+        body: '点击打开 EyeProtect 处理这枚提醒。',
+        silent: true
+      });
+      notification.on('click', this.openWorkbench);
+      notification.show();
+      return true;
+    } catch (error) {
+      console.warn('[surface] notification failed:', error);
+      return false;
+    }
+  }
+}

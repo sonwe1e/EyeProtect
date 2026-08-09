@@ -1,163 +1,111 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock3, ListChecks, X } from 'lucide-react';
-import type { PanelTab, TodoPriority } from '../../../shared/types';
-import { AlarmSection } from '../features/alarms/AlarmSection';
-import { TodoSection } from '../features/todos/TodoSection';
-import { useAlarms } from '../hooks/useAlarms';
-import { useTodos } from '../hooks/useTodos';
-
-const NUDGE_RESET_MS = 1800;
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Check, Eye, Footprints, Pause, Play, Plus, X } from 'lucide-react';
+import { matchesTaskView, sortTasksForView, TASK_TITLE_MAX } from '../../../shared/types';
+import { useClock } from '../hooks/useClock';
+import { useReminderStatus } from '../hooks/useReminderStatus';
+import { useTasks } from '../hooks/useTasks';
+import { formatClock, minutesLeft } from '../lib/time';
 
 export default function PanelView(): JSX.Element {
-  const [tab, setTab] = useState<PanelTab>('todos');
-  const alarms = useAlarms();
-  const todos = useTodos();
+  const tasks = useTasks();
+  const reminder = useReminderStatus();
+  const now = useClock(30_000);
+  const [draft, setDraft] = useState('');
   const [nudge, setNudge] = useState(false);
-  const [quickAddToken, setQuickAddToken] = useState(0);
-  const dirtyRef = useRef(false);
-  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dirty = draft.trim().length > 0;
 
-  useEffect(() => {
-    let mounted = true;
-    void window.eyeProtect.getPanelTab().then((initialTab) => {
-      if (mounted) {
-        setTab(initialTab);
-      }
-    });
-    const offTab = window.eyeProtect.onPanelTab(setTab);
-    return () => {
-      mounted = false;
-      offTab();
-    };
-  }, []);
-
-  useEffect(
-    () => window.eyeProtect.onQuickAddTodo(() => setQuickAddToken((value) => value + 1)),
-    []
+  const today = useMemo(
+    () => sortTasksForView(tasks.filter((task) => matchesTaskView(task, 'today', now)), now).slice(0, 3),
+    [tasks, now]
   );
 
+  useEffect(() => window.eyeProtect.onQuickAddTodo(() => inputRef.current?.focus()), []);
   useEffect(() => {
-    void window.eyeProtect.consumeQuickAddTodo().then((pending) => {
-      if (pending) {
-        setQuickAddToken((value) => value + 1);
-      }
-    });
+    void window.eyeProtect.consumeQuickAddTodo().then((pending) => pending && inputRef.current?.focus());
   }, []);
-
-  useEffect(() => {
-    const offBlur = window.eyeProtect.onPanelBlur(() => {
-      if (dirtyRef.current) {
-        setNudge(true);
-        if (nudgeTimerRef.current) {
-          clearTimeout(nudgeTimerRef.current);
-        }
-        nudgeTimerRef.current = setTimeout(() => setNudge(false), NUDGE_RESET_MS);
-        return;
-      }
+  useEffect(() => window.eyeProtect.onPanelBlur(() => {
+    if (dirty) {
+      setNudge(true);
+    } else {
       void window.eyeProtect.closePanel();
+    }
+  }), [dirty]);
+
+  const addTask = (event: FormEvent): void => {
+    event.preventDefault();
+    const title = draft.trim();
+    if (!title) {
+      return;
+    }
+    void window.eyeProtect.createTask({ title, plannedAt: Date.now(), context: 'desk' }).then(() => {
+      setDraft('');
+      setNudge(false);
+      inputRef.current?.focus();
     });
-    return () => {
-      offBlur();
-      if (nudgeTimerRef.current) {
-        clearTimeout(nudgeTimerRef.current);
-      }
-    };
-  }, []);
+  };
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !dirtyRef.current) {
-        void window.eyeProtect.closePanel();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleDirtyChange = useCallback((dirty: boolean) => {
-    dirtyRef.current = dirty;
-  }, []);
-  const handleAddTodo = useCallback((text: string) => {
-    void window.eyeProtect.addTodo(text);
-  }, []);
-  const handleToggleTodo = useCallback((id: string) => {
-    void window.eyeProtect.toggleTodo(id);
-  }, []);
-  const handleUpdateTodo = useCallback((id: string, text: string) => {
-    void window.eyeProtect.updateTodo(id, text);
-  }, []);
-  const handleRemoveTodo = useCallback((id: string) => {
-    void window.eyeProtect.removeTodo(id);
-  }, []);
-  const handleSetTodoPriority = useCallback((id: string, priority: TodoPriority) => {
-    void window.eyeProtect.setTodoPriority(id, priority);
-  }, []);
-  const handleSetTodoBreakReminder = useCallback((id: string, enabled: boolean) => {
-    void window.eyeProtect.setTodoBreakReminder(id, enabled);
-  }, []);
-  const handleCancelAlarm = useCallback((id: string) => {
-    void window.eyeProtect.cancelAlarm(id);
-  }, []);
-
-  const pendingCount = useMemo(() => todos.filter((todo) => !todo.completed).length, [todos]);
+  const paused = reminder.pausedUntil !== null && reminder.pausedUntil > now;
 
   return (
-    <main className="panel-shell">
-      <header className="panel-header">
-        <div className="panel-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'todos'}
-            className={tab === 'todos' ? 'is-active' : ''}
-            title={`共 ${todos.length} 件，已完成 ${todos.length - pendingCount} 件`}
-            onClick={() => setTab('todos')}
-          >
-            <ListChecks size={15} />
-            待办
-            {pendingCount > 0 ? <span className="panel-tab-count">{pendingCount}</span> : null}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'alarms'}
-            className={tab === 'alarms' ? 'is-active' : ''}
-            onClick={() => setTab('alarms')}
-          >
-            <Clock3 size={15} />
-            闹钟
-            {alarms.length > 0 ? <span className="panel-tab-count">{alarms.length}</span> : null}
-          </button>
+    <main className="panel-shell quick-panel-shell">
+      <header className="panel-header quick-panel-header">
+        <div>
+          <strong>今天</strong>
+          <span>{today.length} 项优先任务</span>
         </div>
-        <button
-          type="button"
-          className="panel-close"
-          title="关闭"
-          onClick={() => void window.eyeProtect.closePanel()}
-        >
-          <X size={16} />
+        <button type="button" title="关闭" aria-label="关闭" onClick={() => {
+          if (dirty) {
+            setNudge(true);
+          } else {
+            void window.eyeProtect.closePanel();
+          }
+        }}>
+          <X size={15} />
         </button>
       </header>
 
-      {nudge ? <span className="panel-nudge">有未保存内容，按 Esc 或点 × 关闭</span> : null}
+      {nudge ? <span className="panel-nudge">请先添加任务或清空输入内容</span> : null}
 
-      <div className="panel-body">
-        {tab === 'todos' ? (
-          <TodoSection
-            quickAddToken={quickAddToken}
-            todos={todos}
-            onAdd={handleAddTodo}
-            onToggle={handleToggleTodo}
-            onUpdate={handleUpdateTodo}
-            onRemove={handleRemoveTodo}
-            onPriorityChange={handleSetTodoPriority}
-            onBreakReminderChange={handleSetTodoBreakReminder}
-            onDirtyChange={handleDirtyChange}
-          />
-        ) : (
-          <AlarmSection alarms={alarms} onCancel={handleCancelAlarm} onDirtyChange={handleDirtyChange} />
-        )}
-      </div>
+      <section className="quick-rhythm-card">
+        <div><Eye size={15} /><span>护眼</span><strong>{paused ? '已暂停' : minutesLeft(reminder.nextEyeAt, now)}</strong></div>
+        <div><Footprints size={15} /><span>走动</span><strong>{paused ? formatClock(reminder.pausedUntil!) : minutesLeft(reminder.nextWalkAt, now)}</strong></div>
+        <button type="button" onClick={() => void (paused ? window.eyeProtect.resume() : window.eyeProtect.pause(10))}>
+          {paused ? <Play size={14} /> : <Pause size={14} />}
+          {paused ? '恢复' : '暂停 10 分钟'}
+        </button>
+      </section>
+
+      <form className="quick-add-task" onSubmit={addTask}>
+        <input
+          ref={inputRef}
+          value={draft}
+          maxLength={TASK_TITLE_MAX}
+          placeholder="快速添加今天的任务…"
+          onChange={(event) => {
+            setDraft(event.currentTarget.value);
+            setNudge(false);
+          }}
+        />
+        <button type="submit" disabled={!draft.trim()} aria-label="添加任务"><Plus size={15} /></button>
+      </form>
+
+      <ul className="quick-task-list">
+        {today.map((task) => (
+          <li key={task.id}>
+            <button type="button" aria-label={`完成 ${task.title}`} onClick={() => void window.eyeProtect.setTaskStatus(task.id, 'done')}>
+              <Check size={12} />
+            </button>
+            <span>{task.title}</span>
+            <small>{task.priority === 'urgent' ? '紧急' : task.priority === 'important' ? '重要' : ''}</small>
+          </li>
+        ))}
+        {today.length === 0 ? <li className="quick-empty">今天还没有任务，先添加一件吧。</li> : null}
+      </ul>
+
+      <button className="quick-open-workbench" type="button" onClick={() => void window.eyeProtect.openWorkbench('today')}>
+        打开完整工作台
+      </button>
     </main>
   );
 }

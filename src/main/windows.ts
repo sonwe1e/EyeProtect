@@ -3,13 +3,17 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  ActiveReminder,
   Alarm,
   CareStatus,
   HotkeyStatus,
   PanelTab,
+  Project,
   ReminderStatus,
   RuntimeInfo,
   Settings,
+  StandaloneReminder,
+  Task,
   TodoItem,
   WeeklyReport
 } from '../shared/types';
@@ -37,7 +41,7 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
 
 const loadRenderer = async (
   window: BrowserWindow,
-  view: 'pet' | 'settings' | 'panel' | 'bubble' | 'alert'
+  view: 'pet' | 'settings' | 'panel' | 'bubble' | 'alert' | 'workbench'
 ): Promise<void> => {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
@@ -100,8 +104,10 @@ export class AppWindows {
   private bubbleDestroyTimer: NodeJS.Timeout | null = null;
   private allDoneTimer: NodeJS.Timeout | null = null;
   private alertWindow: BrowserWindow | null = null;
-  private alertLoading: Promise<void> | null = null;
+  private alertLoading: Promise<boolean> | null = null;
   private dimWindows: BrowserWindow[] = [];
+  private workbenchWindow: BrowserWindow | null = null;
+  private workbenchSection: 'today' | 'settings' | 'reminders' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
   private applyingBounds = false;
@@ -221,6 +227,64 @@ export class AppWindows {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       this.settingsWindow.close();
     }
+  }
+
+  /**
+   * The Workbench is the v1.1 task-management surface (USERPLAN §三): a normal,
+   * resizable, taskbar-visible MainWindow (~1080×720) hosting the Inbox/Today/
+   * Upcoming/Projects/Completed views. Unlike the pet/panel it is not a
+   * floating overlay — it is a real workspace the user switches to.
+   */
+  showWorkbenchWindow(section: 'today' | 'settings' | 'reminders' = 'today'): void {
+    this.workbenchSection = section;
+    if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      this.workbenchWindow.show();
+      this.workbenchWindow.focus();
+      this.workbenchWindow.webContents.send('workbench:navigate', section);
+      return;
+    }
+
+    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+    const initialWidth = Math.max(960, Math.min(1280, Math.round(width * 0.7)));
+    const initialHeight = Math.max(600, Math.min(800, Math.round(height * 0.75)));
+
+    this.workbenchWindow = new BrowserWindow({
+      width: initialWidth,
+      height: initialHeight,
+      minWidth: 880,
+      minHeight: 560,
+      title: 'EyeProtect · 工作台',
+      autoHideMenuBar: true,
+      backgroundColor: '#f7f2e8',
+      show: false,
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+
+    this.workbenchWindow.on('closed', () => {
+      this.workbenchWindow = null;
+    });
+
+    this.workbenchWindow.webContents.once('did-finish-load', () => {
+      this.workbenchWindow?.webContents.send('workbench:navigate', section);
+      this.workbenchWindow?.show();
+      this.workbenchWindow?.focus();
+    });
+    void loadRenderer(this.workbenchWindow, 'workbench');
+  }
+
+  closeWorkbenchWindow(): void {
+    if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      this.workbenchWindow.close();
+    }
+  }
+
+  getWorkbenchSection(): 'today' | 'settings' | 'reminders' {
+    return this.workbenchSection;
   }
 
   getPanelTab(): PanelTab {
@@ -521,6 +585,14 @@ export class AppWindows {
     this.sendTo([this.petWindow], 'alarm:fired', alarm);
   }
 
+  broadcastStandaloneReminders(reminders: StandaloneReminder[]): void {
+    this.sendTo([this.workbenchWindow, this.panelWindow], 'standalone-reminder:changed', reminders);
+  }
+
+  broadcastStandaloneReminderFired(reminder: StandaloneReminder): void {
+    this.sendTo([this.workbenchWindow, this.panelWindow], 'standalone-reminder:fired', reminder);
+  }
+
   broadcastTodos(todos: TodoItem[]): void {
     this.sendTo([this.petWindow, this.bubbleWindow, this.panelWindow], 'todo:changed', todos);
     this.refreshBubble();
@@ -598,10 +670,10 @@ export class AppWindows {
     }
   }
 
-  private ensureAlertWindow(): Promise<void> {
+  private ensureAlertWindow(): Promise<boolean> {
     if (this.alertWindow && !this.alertWindow.isDestroyed()) {
       this.positionAlertWindow();
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
     if (this.alertLoading) {
       return this.alertLoading;
@@ -644,7 +716,7 @@ export class AppWindows {
         if (!window.isDestroyed()) {
           window.destroy();
         }
-        return;
+        return false;
       }
 
       if (!this.scheduler.getStatus().activeReminder) {
@@ -652,12 +724,13 @@ export class AppWindows {
         if (!window.isDestroyed()) {
           window.destroy();
         }
-        return;
+        return false;
       }
 
       this.alertWindow = window;
       window.show();
       window.flashFrame(true);
+      return window.isVisible();
     })().finally(() => {
       this.alertLoading = null;
     });
@@ -826,7 +899,7 @@ export class AppWindows {
     }
     const active = status.activeReminder;
     if (active?.mode === 'gentle') {
-      return active.kind === 'combined' || Boolean(active.breakTodo)
+      return active.kind === 'combined' || Boolean(active.breakTask)
         ? GENTLE_COMBINED_BUBBLE_SIZE
         : GENTLE_BUBBLE_SIZE;
     }
@@ -936,11 +1009,60 @@ export class AppWindows {
     );
   }
 
+  /**
+   * Present a reminder on the primary (full) alert surface. Returns true if the
+   * primary surface is showing or became showing; false if it could not (e.g. the
+   * reminder ended mid-flight), in which case the caller falls back to the
+   * emergency surface. Used by ReminderSurfaceManager's fallback chain.
+   */
+  async showReminderOnPrimary(active: ActiveReminder): Promise<boolean> {
+    if (active.mode === 'gentle') {
+      // Gentle reminders surface through the bubble, not the alert window.
+      this.refreshBubble();
+      if (this.bubbleLoading) {
+        try {
+          await this.bubbleLoading;
+        } catch {
+          return false;
+        }
+      }
+      return this.bubbleWindow !== null && !this.bubbleWindow.isDestroyed() && this.bubbleWindow.isVisible();
+    }
+    if (this.scheduler.getStatus().activeReminder?.id !== active.id) {
+      return false;
+    }
+    const loaded = await this.ensureAlertWindow();
+    const showing =
+      this.alertWindow !== null &&
+      !this.alertWindow.isDestroyed() &&
+      this.alertWindow.isVisible();
+    return loaded && showing;
+  }
+
   private sendTo(targets: Array<BrowserWindow | null>, channel: string, payload: unknown): void {
     for (const window of targets) {
       if (window && !window.isDestroyed()) {
         window.webContents.send(channel, payload);
       }
     }
+  }
+
+  // Push the full task list to every live window so hooks subscribed to
+  // onTasksChanged re-render. The workbench is the primary consumer; the pet/
+  // panel ignore the channel (per the project's separate-subscriptions rule).
+  broadcastTasks(tasks: Task[]): void {
+    this.sendTo(
+      [this.petWindow, this.panelWindow, this.bubbleWindow, this.workbenchWindow, this.settingsWindow],
+      'task:changed',
+      tasks
+    );
+  }
+
+  broadcastProjects(projects: Project[]): void {
+    this.sendTo([this.workbenchWindow], 'project:changed', projects);
+  }
+
+  broadcastActiveTask(id: string | null): void {
+    this.sendTo([this.workbenchWindow, this.panelWindow, this.bubbleWindow], 'task:active-changed', id);
   }
 }

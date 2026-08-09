@@ -7,7 +7,7 @@ export const useWeeklyReport = (): WeeklyReport | null => {
   useEffect(() => {
     let mounted = true;
     void window.eyeProtect.getWeeklyReport().then((next) => {
-      if (mounted) {
+      if (mounted && next) {
         setReport(next);
       }
     });

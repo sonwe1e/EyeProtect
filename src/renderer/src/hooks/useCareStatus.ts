@@ -18,7 +18,7 @@ export const useCareStatus = (): CareStatus => {
   useEffect(() => {
     let mounted = true;
     void window.eyeProtect.getCareStatus().then((next) => {
-      if (mounted) {
+      if (mounted && next) {
         setCare(next);
       }
     });

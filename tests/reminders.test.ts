@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ReminderScheduler } from '../src/main/reminders';
-import type { ReminderEvent, Settings } from '../src/shared/types';
+import type { ReminderEvent, Settings, Task } from '../src/shared/types';
 
 const MINUTE = 60_000;
 const T0 = new Date(2026, 6, 8, 10, 0, 0, 0).getTime();
@@ -55,6 +55,13 @@ const makeScheduler = (settings: Settings = makeSettings()) => {
   const scheduler = new ReminderScheduler(settings, { now: clock.now });
   return { clock, scheduler };
 };
+
+const makeTask = (id: string, title: string, priority: Task['priority'], context: Task['context'], sortOrder: number): Task => ({
+  id, title, notes: null, status: 'inbox', priority, projectId: null, parentId: null,
+  tags: [], plannedAt: null, dueAt: null, reminderAt: null, recurrence: null,
+  context, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
+  updatedAt: sortOrder + 1, completedAt: null
+});
 
 test('test reminders do not reset real schedules when completed', () => {
   const { clock, scheduler } = makeScheduler();
@@ -110,6 +117,60 @@ test('resume is a no-op when not paused', () => {
   const before = scheduler.getStatus();
   const after = scheduler.resume();
   assert.deepEqual(after, before);
+});
+
+test('pausing while already paused extends the hold without inflating the frozen remainder', () => {
+  // Regression: a second pause() while paused used to recompute frozen from
+  // nextEyeAt/nextWalkAt, which already include the first pause's extension,
+  // so the remainder grew with each re-pause instead of staying put.
+  const { clock, scheduler } = makeScheduler();
+  clock.advance(10 * MINUTE); // eye has 10 min left, walk has 50 min left
+
+  const first = scheduler.pause(30);
+  assert.equal(first.pausedUntil, clock.now() + 30 * MINUTE);
+  assert.equal(first.nextEyeAt, clock.now() + 40 * MINUTE); // 30 pause + 10 frozen
+  assert.equal(first.nextWalkAt, clock.now() + 80 * MINUTE); // 30 pause + 50 frozen
+
+  clock.advance(5 * MINUTE); // 5 min into the pause
+  const second = scheduler.pause(30); // extend from now, not from the old end
+  assert.equal(second.pausedUntil, clock.now() + 30 * MINUTE);
+  // Frozen remainder must still be the original 10 / 50 min, not inflated.
+  assert.equal(second.nextEyeAt, clock.now() + 40 * MINUTE); // 30 + 10
+  assert.equal(second.nextWalkAt, clock.now() + 80 * MINUTE); // 30 + 50
+
+  // Resume then confirms the frozen time was preserved, not inflated.
+  const resumed = scheduler.resume();
+  assert.equal(resumed.pausedUntil, null);
+  assert.equal(resumed.nextEyeAt, clock.now() + 10 * MINUTE);
+  assert.equal(resumed.nextWalkAt, clock.now() + 50 * MINUTE);
+});
+
+test('a later pause extends the hold deadline when it would push further out', () => {
+  const { clock, scheduler } = makeScheduler();
+  clock.advance(10 * MINUTE);
+
+  const first = scheduler.pause(30); // until now + 30
+  clock.advance(20 * MINUTE); // now + 30 total; 10 min left on the pause
+  const second = scheduler.pause(60); // extends to now + 60, later than old end
+  assert.equal(second.pausedUntil, clock.now() + 60 * MINUTE);
+  // Frozen eye remainder is still the original 10 min.
+  assert.equal(second.nextEyeAt, clock.now() + 70 * MINUTE);
+});
+
+test('triggerTest is suppressed while paused', () => {
+  const { scheduler } = makeScheduler();
+  scheduler.pause(30);
+  const after = scheduler.triggerTest('eye');
+  assert.equal(after.activeReminder, null, 'no test reminder during a pause');
+  assert.ok(after.pausedUntil, 'pause remains in place');
+});
+
+test('triggerNow is suppressed while paused', () => {
+  const { scheduler } = makeScheduler();
+  scheduler.pause(30);
+  const after = scheduler.triggerNow();
+  assert.equal(after.activeReminder, null, 'no manual reminder during a pause');
+  assert.ok(after.pausedUntil, 'pause remains in place');
 });
 
 test('restartCycle clears pause and starts both cycles fresh', () => {
@@ -424,75 +485,41 @@ test('activities are picked per kind and avoid immediate repeats', () => {
   assert.notEqual(second?.activityIds[0], first?.activityIds[0], 'no back-to-back repeat');
 });
 
-test('walk reminders snapshot the highest-priority pending away todo', () => {
-  const todos = [
-    {
-      id: 'desk',
-      text: '继续写代码',
-      createdAt: 1,
-      completed: false,
-      priority: 'urgent' as const,
-      context: 'desk' as const,
-      remindOnBreak: false
-    },
-    {
-      id: 'water',
-      text: '接一杯水',
-      createdAt: 2,
-      completed: false,
-      priority: 'normal' as const,
-      context: 'away' as const,
-      remindOnBreak: true
-    },
-    {
-      id: 'parcel',
-      text: '拿快递',
-      createdAt: 3,
-      completed: false,
-      priority: 'important' as const,
-      context: 'away' as const,
-      remindOnBreak: true
-    }
-  ];
-  const { scheduler } = makeScheduler(makeSettings({ todos }));
+test('walk reminders snapshot the highest-priority pending away task', () => {
+  const { scheduler } = makeScheduler();
+  scheduler.updateTasks([
+    makeTask('desk', '继续写代码', 'urgent', 'desk', 0),
+    makeTask('water', '接一杯水', 'normal', 'away', 1),
+    makeTask('parcel', '拿快递', 'important', 'away', 2)
+  ]);
 
-  assert.equal(scheduler.triggerTest('eye').activeReminder?.breakTodo, null);
+  assert.equal(scheduler.triggerTest('eye').activeReminder?.breakTask, null);
   scheduler.handleAction('skip', scheduler.getStatus().activeReminder?.id ?? '');
 
   const active = scheduler.triggerTest('walk').activeReminder;
-  assert.deepEqual(active?.breakTodo, { id: 'parcel', text: '拿快递' });
+  assert.deepEqual(active?.breakTask, { id: 'parcel', title: '拿快递' });
 
-  if (active?.breakTodo) {
-    active.breakTodo.text = 'mutated outside';
+  if (active?.breakTask) {
+    active.breakTask.title = 'mutated outside';
   }
   assert.equal(
-    scheduler.getStatus().activeReminder?.breakTodo?.text,
+    scheduler.getStatus().activeReminder?.breakTask?.title,
     '拿快递',
     'status snapshots cannot mutate scheduler state'
   );
 });
 
-test('todo updates affect the next walk reminder without moving deadlines', () => {
+test('task updates affect the next walk reminder without moving deadlines', () => {
   const { scheduler } = makeScheduler();
   const before = scheduler.getStatus();
-  scheduler.updateTodos([
-    {
-      id: 'water',
-      text: '接水',
-      createdAt: 1,
-      completed: false,
-      priority: 'normal',
-      context: 'away',
-      remindOnBreak: true
-    }
-  ]);
+  scheduler.updateTasks([makeTask('water', '接水', 'normal', 'away', 0)]);
 
   const afterUpdate = scheduler.getStatus();
   assert.equal(afterUpdate.nextEyeAt, before.nextEyeAt);
   assert.equal(afterUpdate.nextWalkAt, before.nextWalkAt);
-  assert.deepEqual(scheduler.triggerTest('walk').activeReminder?.breakTodo, {
+  assert.deepEqual(scheduler.triggerTest('walk').activeReminder?.breakTask, {
     id: 'water',
-    text: '接水'
+    title: '接水'
   });
 });
 

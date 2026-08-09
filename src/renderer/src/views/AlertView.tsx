@@ -4,12 +4,14 @@ import { getActivity } from '../../../shared/breakActivities';
 import { ActivityGuide } from '../features/reminders/ActivityGuide';
 import { ReminderArtwork, reminderCopy } from '../features/reminders/ReminderArtwork';
 import { useClock } from '../hooks/useClock';
+import { useActiveTaskId } from '../hooks/useActiveTask';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useTodos } from '../hooks/useTodos';
+import { useTasks } from '../hooks/useTasks';
 
 export default function AlertView(): JSX.Element {
   const status = useReminderStatus();
-  const todos = useTodos();
+  const tasks = useTasks();
+  const activeTaskId = useActiveTaskId();
   const now = useClock(1_000);
   const active = status.activeReminder;
 
@@ -28,9 +30,10 @@ export default function AlertView(): JSX.Element {
     active.startedAt +
     Math.max(0, ...activities.map((activity) => activity.durationSeconds * 1_000));
   const suggestedSeconds = Math.max(0, Math.ceil((suggestedUntil - now) / 1_000));
-  const liveBreakTodo = active.breakTodo
-    ? todos.find((todo) => todo.id === active.breakTodo?.id)
+  const liveBreakTask = active.breakTask
+    ? tasks.find((task) => task.id === active.breakTask?.id)
     : null;
+  const activeTask = activeTaskId ? tasks.find((task) => task.id === activeTaskId) : null;
 
   const handleDoubleClick = (): void => {
     if (!waiting) {
@@ -71,21 +74,22 @@ export default function AlertView(): JSX.Element {
             <small>不强制等待，可随时完成</small>
           </div>
         ) : null}
-        {active.breakTodo && liveBreakTodo && !liveBreakTodo.completed ? (
+        {active.breakTask && liveBreakTask && liveBreakTask.status !== 'done' ? (
           <div className="break-todo-card">
             <div>
               <span>这次走动可以顺便</span>
-              <strong>{active.breakTodo.text}</strong>
+              <strong>{active.breakTask.title}</strong>
             </div>
             <button
               type="button"
-              onClick={() => void window.eyeProtect.toggleTodo(active.breakTodo?.id ?? '')}
+              onClick={() => void window.eyeProtect.setTaskStatus(active.breakTask?.id ?? '', 'done')}
             >
               <Check size={14} />
               做好了
             </button>
           </div>
         ) : null}
+        {activeTask ? <p className="break-return-task">休息后继续：<strong>{activeTask.title}</strong></p> : null}
         {waiting ? (
           <div className="alert-wait-hint">
             <span className="alert-wait-time">

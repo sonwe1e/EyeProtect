@@ -208,7 +208,8 @@ test('sanitizeSnapshot repairs partial garbage instead of dropping the whole sta
     pausedUntil: null,
     snoozeCount: 0,
     frozenEyeMs: null,
-    frozenWalkMs: 12.5
+    frozenWalkMs: 12.5,
+    active: null
   });
 });
 
@@ -233,4 +234,98 @@ test('lastExitAt round-trips through the store', () => {
     assert.equal(parsed.lastExitAt, T0 + 1234);
     assert.equal(parsed.savedAt, T0 + 1235);
   });
+});
+
+test('an active break session is serialized and recovered after a restart', () => {
+  withTempDir((dir) => {
+    let now = T0;
+    const clock = () => now;
+    const store = new RuntimeStateStore(dir);
+    // Walk shorter than eye so a walk-only reminder can be active without the
+    // eye kind also being due (and folding in via the combine window).
+    const settings = { ...baseSettings, eyeIntervalMinutes: 60, walkIntervalMinutes: 25 };
+
+    const first = new ReminderScheduler(settings, {
+      now: clock
+    });
+    // A walk reminder becomes due and fires while eye is not yet due.
+    now = T0 + 25 * MINUTE;
+    const active = first.tick().activeReminder;
+    assert.ok(active, 'a reminder is active');
+    assert.equal(active?.kind, 'walk');
+
+    // Simulate the running app persisting its state (as reconcile() does on
+    // every transition) just before a crash/restart.
+    store.save(first.serialize(), clock);
+    const persisted = store.load(clock);
+    assert.ok(persisted?.active, 'active session persisted');
+    assert.equal(persisted?.active?.kind, 'walk');
+    assert.equal(persisted?.active?.unlockAt, active?.unlockAt);
+
+    // Restart a few seconds later (within the recovery grace window) recovers
+    // the in-progress session under a fresh id instead of resetting the cycle.
+    now = T0 + 25 * MINUTE + 5000;
+    const second = new ReminderScheduler(settings, {
+      now: clock,
+      restore: store.load(clock)
+    });
+    const recovered = second.getStatus().activeReminder;
+    assert.ok(recovered, 'active session recovered after restart');
+    assert.equal(recovered?.kind, 'walk');
+    assert.equal(recovered?.unlockAt, active?.unlockAt, 'enforcement window preserved');
+    assert.notEqual(recovered?.id, active?.id, 'recovered session gets a fresh id');
+  });
+});
+
+test('a stale active session (past the grace window) is not recovered', () => {
+  withTempDir((dir) => {
+    let now = T0;
+    const clock = () => now;
+    const store = new RuntimeStateStore(dir);
+
+    const first = new ReminderScheduler(baseSettings, {
+      now: clock,
+      onPersist: (snapshot) => store.save(snapshot, clock)
+    });
+    now = T0 + 60 * MINUTE;
+    assert.ok(first.tick().activeReminder, 'a reminder is active');
+
+    // Restart long after the enforcement window lapsed: no session recovered,
+    // and the scheduler falls back to the normal deadline reconcile.
+    now = T0 + 60 * MINUTE + 30 * MINUTE;
+    const second = new ReminderScheduler(baseSettings, {
+      now: clock,
+      restore: store.load(clock)
+    });
+    assert.equal(second.getStatus().activeReminder, null, 'stale session dropped');
+  });
+});
+
+test('a paused schedule never restores an active session', () => {
+  const restore = {
+    nextEyeAt: T0 + 10 * MINUTE,
+    nextWalkAt: T0 + 50 * MINUTE,
+    pausedUntil: T0 + 40 * MINUTE,
+    snoozeCount: 0,
+    frozenEyeMs: 10 * MINUTE,
+    frozenWalkMs: 50 * MINUTE,
+    active: {
+      kind: 'walk',
+      kinds: ['walk'],
+      startedAt: T0,
+      scheduledAt: T0,
+      unlockAt: T0 + 60_000,
+      snoozeAllowedAt: T0,
+      mode: 'focused',
+      snoozeCount: 0,
+      activityIds: [],
+      breakTask: null
+    }
+  };
+  const scheduler = new ReminderScheduler(baseSettings, {
+    now: () => T0 + 20 * MINUTE,
+    restore
+  });
+  assert.equal(scheduler.getStatus().activeReminder, null, 'paused + active is impossible: no session');
+  assert.ok(scheduler.getStatus().pausedUntil, 'pause still applies');
 });

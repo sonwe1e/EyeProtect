@@ -1,7 +1,11 @@
+import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 import { pickActivityIds } from '../shared/breakActivities';
+import type { ScheduledEvent, SchedulerKernel } from './scheduling/kernel';
+import type { AppWindows } from './windows';
 import type {
   ActiveReminder,
+  PersistedBreakSession,
   PreAlertAction,
   ReminderAction,
   ReminderEvent,
@@ -9,10 +13,18 @@ import type {
   ReminderStatus,
   Settings,
   SingleReminderKind,
+  Task,
   TodoItem
 } from '../shared/types';
 
 type ReminderChangedPayload = ReminderStatus;
+
+/** Structural shape of Electron's Notification — avoids a top-level electron
+ * import so this module still loads under the pure-Node tsx test runner. */
+interface ElectronNotificationConstructor {
+  isSupported(): boolean;
+  new (options: { title: string; body: string; silent?: boolean }): { show(): void };
+}
 
 const MINUTE = 60_000;
 const COMBINE_WINDOW_MS = 60_000;
@@ -31,6 +43,13 @@ const SYSTEM_GRACE_MS = 60_000;
 const NATURAL_BREAK_MIN_MS = 10 * MINUTE;
 /** Restore sanity bound: anything scheduled further out than this is corrupt. */
 const MAX_SCHEDULE_AHEAD_MS = 48 * 60 * MINUTE;
+/**
+ * A persisted break session is only worth recovering while the enforcement
+ * window is still live. Past this past unlockAt the user has either long since
+ * rested or walked away, so the session is dropped and the normal deadline
+ * reconcile fires instead (a focused eye break's wait is 30s, walk 60s).
+ */
+const ACTIVE_SESSION_RECOVERY_GRACE_MS = 10 * MINUTE;
 
 /**
  * Mandatory rest time before 'complete' is accepted in focused mode, owned
@@ -60,6 +79,12 @@ export interface ReminderSnapshot {
   /** Remaining ms frozen by pause(); null when not paused. */
   frozenEyeMs: number | null;
   frozenWalkMs: number | null;
+  /**
+   * The in-progress break session at the time of the last write, if any. Lets a
+   * restart recover a focused break mid-enforcement instead of recomputing from
+   * a stale deadline (USERPLAN §一.3). Null when no reminder is active.
+   */
+  active?: PersistedBreakSession | null;
 }
 
 export interface SchedulerOptions {
@@ -83,6 +108,17 @@ export interface SchedulerOptions {
     scheduledAt: number
   ) => Promise<ReminderGateDecision>;
   onContextNotification?: (decision: ReminderGateDecision) => void;
+  /**
+   * Shared deadline queue. When provided, the scheduler delegates its single
+   * timer to the kernel instead of managing its own `setTimeout`, so break,
+   * alarm and task deadlines share one timer and one watchdog. The scheduler
+   * keeps all its business logic; it only reports its next deadline and gets
+   * woken to reconcile. When omitted, the scheduler manages its own timer
+   * exactly as before (so existing behaviour and tests are unchanged).
+   */
+  kernel?: SchedulerKernel;
+  /** Structured lifecycle trace for missed-reminder diagnostics. */
+  trace?: (event: string, data?: Record<string, unknown>) => void;
 }
 
 export interface ReminderGateDecision {
@@ -98,6 +134,7 @@ export class ReminderScheduler extends EventEmitter {
   private status: ReminderStatus;
   private timer: NodeJS.Timeout | null = null;
   private sequence = 0;
+  private kernelRevision = 0;
   private activeIsTest = false;
   private snoozeCount = 0;
   private frozen: { eyeMs: number; walkMs: number } | null = null;
@@ -113,6 +150,9 @@ export class ReminderScheduler extends EventEmitter {
   private consecutiveContextDeferrals = 0;
   /** Recently shown activity ids, to avoid back-to-back repeats. */
   private recentActivityIds: string[] = [];
+  private tasks: Task[] = [];
+  private readonly kernel: SchedulerKernel | null;
+  private readonly kernelEvents: ScheduledEvent[] = [];
   private readonly now: () => number;
   private readonly onPersist: ((snapshot: ReminderSnapshot) => void) | null;
   private readonly onEvent: ((event: ReminderEvent) => void) | null;
@@ -128,6 +168,7 @@ export class ReminderScheduler extends EventEmitter {
   private readonly onContextNotification:
     | ((decision: ReminderGateDecision) => void)
     | null;
+  private readonly trace: (event: string, data?: Record<string, unknown>) => void;
 
   constructor(settings: Settings, options: SchedulerOptions = {}) {
     super();
@@ -138,8 +179,20 @@ export class ReminderScheduler extends EventEmitter {
     this.getEffectiveMode = options.getEffectiveMode ?? null;
     this.onContextNotification = options.onContextNotification ?? null;
     this.beforeReminder = options.beforeReminder ?? null;
+    this.trace = options.trace ?? (() => {});
+    this.kernel = options.kernel ?? null;
     this.settings = settings;
     this.status = this.initialStatus(options.restore ?? null);
+    if (this.kernel) {
+      // The kernel wakes us to reconcile; the scheduler then re-reports its
+      // next deadline via armTimer(). No per-deadline handler registration:
+      // the scheduler always reports a single "next" candidate.
+      this.kernel.on('wake', (owner, due) => {
+        if (owner === 'break') {
+          this.reconcile();
+        }
+      });
+    }
   }
 
   /**
@@ -165,8 +218,8 @@ export class ReminderScheduler extends EventEmitter {
         ? {
             ...this.status.activeReminder,
             activityIds: [...this.status.activeReminder.activityIds],
-            breakTodo: this.status.activeReminder.breakTodo
-              ? { ...this.status.activeReminder.breakTodo }
+            breakTask: this.status.activeReminder.breakTask
+              ? { ...this.status.activeReminder.breakTask }
               : null
           }
         : null,
@@ -215,6 +268,10 @@ export class ReminderScheduler extends EventEmitter {
     };
   }
 
+  updateTasks(tasks: Task[]): void {
+    this.tasks = tasks.map((task) => ({ ...task, tags: [...task.tags] }));
+  }
+
   handleAction(action: ReminderAction, reminderId: string): ReminderStatus {
     const active = this.status.activeReminder;
     if (!active || active.id !== reminderId) {
@@ -222,6 +279,7 @@ export class ReminderScheduler extends EventEmitter {
     }
 
     const now = this.now();
+    this.trace('action', { reminderId, action, kind: active.kind });
     // Main-process enforcement of the rest wait: a renderer that reloads or
     // replays IPC still cannot complete early or spam snooze.
     if (action === 'complete' && now < active.unlockAt) {
@@ -250,6 +308,8 @@ export class ReminderScheduler extends EventEmitter {
         this.snoozeCount = 0;
       }
     }
+
+    this.emit('action', { action, reminder: { ...active }, isTest: this.activeIsTest });
 
     this.status.activeReminder = null;
     this.activeIsTest = false;
@@ -291,8 +351,9 @@ export class ReminderScheduler extends EventEmitter {
 
   triggerTest(kind: ReminderKind): ReminderStatus {
     // A settings-window test must never replace a real reminder that is
-    // already in progress (or another test the user is currently handling).
-    if (this.status.activeReminder) {
+    // already in progress (or another test the user is currently handling),
+    // and must not pull the user out of a pause they deliberately started.
+    if (this.status.activeReminder || this.status.pausedUntil) {
       return this.getStatus();
     }
     this.beginReminder(kind, true, this.now());
@@ -304,7 +365,10 @@ export class ReminderScheduler extends EventEmitter {
    * deadline is nearest; the other kind can still fold in via absorption.
    */
   triggerNow(): ReminderStatus {
-    if (this.status.activeReminder) {
+    // "Take a break now" is suppressed while one is already in progress or
+    // while a pause is active: a paused schedule should stay paused until the
+    // user explicitly resumes, not be overridden by the manual trigger.
+    if (this.status.activeReminder || this.status.pausedUntil) {
       return this.getStatus();
     }
     const kind: SingleReminderKind =
@@ -321,11 +385,33 @@ export class ReminderScheduler extends EventEmitter {
   pause(minutes: number): ReminderStatus {
     const pauseMinutes = Math.min(24 * 60, Math.max(1, Math.round(minutes)));
     const now = this.now();
+    const pausedUntil = now + pauseMinutes * MINUTE;
+
+    // Already paused: extend the hold instead of recomputing the frozen
+    // remainder. Recomputing from nextEyeAt/nextWalkAt would fold the first
+    // pause's extension back into frozen and inflate the remainder (a second
+    // pause while paused must never push the deadline further out than the
+    // new pause-end plus the original frozen time).
+    if (this.status.pausedUntil && this.frozen) {
+      this.status.pausedUntil = Math.max(this.status.pausedUntil, pausedUntil);
+      this.status.nextEyeAt = this.status.pausedUntil + this.frozen.eyeMs;
+      this.status.nextWalkAt = this.status.pausedUntil + this.frozen.walkMs;
+      this.status.activeReminder = null;
+      this.activeIsTest = false;
+      this.activePreAlert = null;
+      this.cancelPendingGate();
+      this.status.contextDeferral = null;
+      this.snoozeCount = 0;
+      this.emitChanged();
+      this.persist();
+      this.armTimer();
+      return this.getStatus();
+    }
+
     this.frozen = {
       eyeMs: Math.max(0, this.status.nextEyeAt - now),
       walkMs: Math.max(0, this.status.nextWalkAt - now)
     };
-    const pausedUntil = now + pauseMinutes * MINUTE;
     this.status.pausedUntil = pausedUntil;
     this.status.activeReminder = null;
     this.activeIsTest = false;
@@ -457,7 +543,32 @@ export class ReminderScheduler extends EventEmitter {
       pausedUntil: this.status.pausedUntil,
       snoozeCount: this.snoozeCount,
       frozenEyeMs: this.frozen?.eyeMs ?? null,
-      frozenWalkMs: this.frozen?.walkMs ?? null
+      frozenWalkMs: this.frozen?.walkMs ?? null,
+      active: this.activeSession()
+    };
+  }
+
+  /**
+   * Snapshot the active reminder for persistence, dropping the transient
+   * per-event id. Returns null when nothing is active. Persisted separately
+   * from the deadlines so a restart can recover a break mid-enforcement.
+   */
+  activeSession(): PersistedBreakSession | null {
+    const active = this.status.activeReminder;
+    if (!active) {
+      return null;
+    }
+    return {
+      kind: active.kind,
+      kinds: [...active.kinds],
+      startedAt: active.startedAt,
+      scheduledAt: active.scheduledAt,
+      unlockAt: active.unlockAt,
+      snoozeAllowedAt: active.snoozeAllowedAt,
+      mode: active.mode,
+      snoozeCount: active.snoozeCount,
+      activityIds: [...active.activityIds],
+      breakTask: active.breakTask ? { ...active.breakTask } : null
     };
   }
 
@@ -485,11 +596,13 @@ export class ReminderScheduler extends EventEmitter {
       } else if (pausedUntil !== null && restore.frozenEyeMs !== null && restore.frozenWalkMs !== null) {
         this.frozen = { eyeMs: restore.frozenEyeMs, walkMs: restore.frozenWalkMs };
       }
+      // A paused schedule never coexists with an active break.
+      const activeReminder = pausedUntil === null ? this.restoreActiveSession(restore, now) : null;
       return {
         nextEyeAt,
         nextWalkAt,
         pausedUntil,
-        activeReminder: null,
+        activeReminder,
         preAlert: null,
         contextDeferral: null
       };
@@ -521,7 +634,81 @@ export class ReminderScheduler extends EventEmitter {
     );
   }
 
+  /**
+   * Reconstruct an ActiveReminder from a persisted break session, or null if the
+   * session is corrupt or its enforcement window has lapsed (the user has long
+   * since rested, so recovering it would be surprising). A recovered session
+   * keeps its original timing but gets a fresh per-event id.
+   */
+  private restoreActiveSession(
+    snapshot: ReminderSnapshot,
+    now: number
+  ): ActiveReminder | null {
+    const persisted = snapshot.active;
+    if (!persisted) {
+      return null;
+    }
+    const recovered = this.sanitizePersistedSession(persisted);
+    if (!recovered) {
+      return null;
+    }
+    // Only recover while the enforcement window is still live: a focused break
+    // that unlocked minutes ago is stale, and the normal deadline reconcile is
+    // the right recovery path then.
+    if (recovered.unlockAt + ACTIVE_SESSION_RECOVERY_GRACE_MS < now) {
+      return null;
+    }
+    return {
+      ...recovered,
+      id: `${now}-${++this.sequence}`
+    };
+  }
+
+  /** Validate and normalize a persisted break session; null if unusable. */
+  private sanitizePersistedSession(
+    value: PersistedBreakSession | null | undefined
+  ): PersistedBreakSession | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    if (
+      !Number.isFinite(value.startedAt) ||
+      !Number.isFinite(value.scheduledAt) ||
+      !Number.isFinite(value.unlockAt) ||
+      !Number.isFinite(value.snoozeAllowedAt)
+    ) {
+      return null;
+    }
+    const kinds = Array.isArray(value.kinds)
+      ? value.kinds.filter((k): k is SingleReminderKind => k === 'eye' || k === 'walk')
+      : [];
+    const activityIds = Array.isArray(value.activityIds)
+      ? value.activityIds.filter((id): id is string => typeof id === 'string')
+      : [];
+    const breakTask =
+      value.breakTask && typeof value.breakTask === 'object' && typeof value.breakTask.id === 'string'
+        ? { id: value.breakTask.id, title: String(value.breakTask.title ?? '') }
+        : null;
+    return {
+      kind: value.kind === 'walk' || value.kind === 'combined' ? value.kind : 'eye',
+      kinds: kinds.length > 0 ? kinds : (value.kind === 'combined' ? ['eye', 'walk'] : [value.kind]),
+      startedAt: value.startedAt,
+      scheduledAt: value.scheduledAt,
+      unlockAt: value.unlockAt,
+      snoozeAllowedAt: value.snoozeAllowedAt,
+      mode: value.mode === 'gentle' || value.mode === 'guided' || value.mode === 'focused' ? value.mode : 'guided',
+      snoozeCount: Number.isInteger(value.snoozeCount) && value.snoozeCount >= 0 ? value.snoozeCount : 0,
+      activityIds,
+      breakTask
+    };
+  }
+
   private disarm(): void {
+    if (this.kernel) {
+      // The kernel owns the timer; clearing our deadlines disarms it.
+      this.kernel.set('break', []);
+      return;
+    }
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -529,9 +716,32 @@ export class ReminderScheduler extends EventEmitter {
   }
 
   private armTimer(): void {
-    this.disarm();
     const now = this.now();
     const deadline = this.nextDeadline(now);
+
+    if (this.kernel) {
+      // Delegate timing to the shared kernel: report the single nearest
+      // candidate as a 'break' deadline and let the kernel own the actual
+      // setTimeout. When nothing is pending (gate in flight) report nothing;
+      // the kernel disarms until we re-arm after the gate resolves.
+      if (deadline === null) {
+        this.kernel.set('break', []);
+        return;
+      }
+      this.kernelEvents.length = 0;
+      this.kernelEvents.push({
+        id: 'break-next',
+        owner: 'break',
+        type: 'deadline',
+        fireAt: deadline,
+        revision: ++this.kernelRevision
+      });
+      this.kernel.set('break', this.kernelEvents);
+      this.trace('scheduled', { owner: 'break', fireAt: deadline });
+      return;
+    }
+
+    this.disarm();
     if (deadline === null) {
       return;
     }
@@ -692,12 +902,19 @@ export class ReminderScheduler extends EventEmitter {
       mode,
       snoozeCount: isTest ? 0 : this.snoozeCount,
       activityIds: this.pickActivities(kind),
-      breakTodo: kind === 'walk' || kind === 'combined' ? this.pickBreakTodo() : null
+      breakTask: kind === 'walk' || kind === 'combined' ? this.pickBreakTask() : null
     };
     this.activeIsTest = isTest;
     this.activePreAlert = null;
     this.status.contextDeferral = null;
     this.status.activeReminder = active;
+    this.trace('shown-requested', {
+      reminderId: active.id,
+      kind,
+      scheduledAt,
+      shownAt: now,
+      mode
+    });
     this.emitChanged();
   }
 
@@ -708,6 +925,7 @@ export class ReminderScheduler extends EventEmitter {
    * forever.
    */
   private requestReminder(kind: ReminderKind, scheduledAt: number): void {
+    this.trace('gate', { kind, scheduledAt, enabled: Boolean(this.beforeReminder) });
     if (!this.beforeReminder) {
       this.consecutiveContextDeferrals = 0;
       this.beginReminder(kind, false, scheduledAt);
@@ -744,6 +962,13 @@ export class ReminderScheduler extends EventEmitter {
             foregroundApp: decision.foregroundApp?.trim() || null,
             consecutiveCount: this.consecutiveContextDeferrals
           };
+          this.trace('deferred', {
+            kind,
+            scheduledAt,
+            until: now + deferMinutes * MINUTE,
+            action: decision.action,
+            reason: decision.reason
+          });
           if (decision.action === 'notify') {
             this.onContextNotification?.(decision);
           }
@@ -799,7 +1024,7 @@ export class ReminderScheduler extends EventEmitter {
       this.status.nextEyeAt,
       this.status.nextWalkAt
     );
-    active.breakTodo ??= this.pickBreakTodo();
+    active.breakTask ??= this.pickBreakTask();
     // The absorbed kind gets its own activity suggestion too.
     const missing = active.kinds.filter(
       (kind) => !active.activityIds.some((id) => id.startsWith(kind))
@@ -833,18 +1058,84 @@ export class ReminderScheduler extends EventEmitter {
     } else {
       this.status.nextWalkAt = nextAt;
     }
+    this.trace('rescheduled', { kind, minutes, from, fireAt: nextAt });
   }
 
-  private pickBreakTodo(): Pick<TodoItem, 'id' | 'text'> | null {
+  private pickBreakTask(): Pick<Task, 'id' | 'title'> | null {
     const priorityRank = { urgent: 0, important: 1, normal: 2 } as const;
-    const todo = this.settings.todos
-      .filter((entry) => !entry.completed && entry.remindOnBreak && entry.context === 'away')
+    const task = this.tasks
+      .filter((entry) => entry.status !== 'done' && entry.status !== 'archived' && (entry.context === 'away' || entry.context === 'any'))
       .sort(
         (a, b) =>
           priorityRank[a.priority] - priorityRank[b.priority] ||
-          a.createdAt - b.createdAt
+          (a.plannedAt ?? Infinity) - (b.plannedAt ?? Infinity) ||
+          a.sortOrder - b.sortOrder
       )[0];
-    return todo ? { id: todo.id, text: todo.text } : null;
+    return task ? { id: task.id, title: task.title } : null;
+  }
+
+  /**
+   * v1.1 Rhythm integration (USERPLAN §四). A task's `reminderAt` fired. Task
+   * reminders never steal focus from an in-flight break: if a reminder is active
+   * we fold the task copy into it (a walk/combined reminder can surface an
+   * away-context task) and/or emit a native notification; otherwise we just
+   * notify. This is the plan's "task + walk should not fight for focus" rule.
+   *
+   * `getAwayTasks` supplies live away-context tasks so a walk reminder can
+   * suggest one even when the legacy todo list is empty.
+   */
+  queueTaskReminders(
+    due: Task[],
+    windows: AppWindows,
+    getAwayTasks: () => Task[] = () => []
+  ): void {
+    if (due.length === 0) {
+      return;
+    }
+    const active = this.status.activeReminder;
+    if (active && (active.kind === 'walk' || active.kind === 'combined')) {
+      // A walk is already up: if it lacks an away suggestion and one of the due
+      // tasks is an away/any-context task, attach it so the card shows the
+      // "while you're up, consider…" prompt without opening a second surface.
+      if (!active.breakTask) {
+        const suggestion = due.find((task) => task.context === 'away' || task.context === 'any');
+        if (suggestion) {
+          active.breakTask = { id: suggestion.id, title: suggestion.title };
+          windows.broadcastReminderStatus(this.getStatus());
+        }
+      }
+      this.notifyTaskReminder(due);
+      return;
+    }
+    // No in-flight break (or an eye-only break): surface via native
+    // notification so we never pop a window over the user's current work.
+    this.notifyTaskReminder(due);
+  }
+
+  private notifyTaskReminder(due: Task[]): void {
+    // Electron's Notification is required lazily: its CJS entry throws when
+    // loaded outside the Electron runtime, as happens under the tsx test runner
+    // (the same constraint settings.ts works around for app.getPath). The
+    // constructor shape is typed structurally so this file needs no top-level
+    // electron import (which would break the pure-Node test runs).
+    const require = createRequire(import.meta.url);
+    let NotificationCtor: ElectronNotificationConstructor;
+    try {
+      NotificationCtor = require('electron').Notification as ElectronNotificationConstructor;
+    } catch {
+      return;
+    }
+    if (!NotificationCtor.isSupported()) {
+      return;
+    }
+    const titles = due.slice(0, 3).map((task) => task.title).join('、');
+    const body =
+      due.length === 1 ? `该处理：「${titles}」` : `你有 ${due.length} 项任务到期：${titles}`;
+    new NotificationCtor({
+      title: 'EyeProtect · 任务提醒',
+      body,
+      silent: true
+    }).show();
   }
 
   private intervalFor(kind: SingleReminderKind): number {
