@@ -5,7 +5,21 @@ on:
   pull_request:
 
 jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan new commits for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   verify-and-package:
+    needs: secret-scan
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -23,11 +37,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Scan new commits for secrets
-        uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
         run: npm run typecheck
