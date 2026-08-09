@@ -16,7 +16,6 @@ const baseSettings: Settings = {
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Check, Footprints, Globe, Monitor, Trash2 } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
@@ -11,8 +11,6 @@ import {
   type TodoPriority
 } from '../../../../shared/types';
 
-const TASK_CONFIRM_RESET_MS = 2500;
-
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
   important: '重要',
@@ -20,8 +18,7 @@ const PRIORITY_LABELS: Record<TodoPriority, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  inbox: '收件箱',
-  active: '进行中',
+  open: '未完成',
   done: '已完成',
   archived: '已归档'
 };
@@ -75,7 +72,8 @@ export function TaskList({
   onStatusChange,
   onUpdate,
   onDelete,
-  onPriorityChange
+  onPriorityChange,
+  onMove
 }: {
   tasks: Task[];
   view: TaskView;
@@ -87,19 +85,11 @@ export function TaskList({
   onUpdate: (id: string, input: TaskUpdateInput) => void;
   onDelete: (id: string) => void;
   onPriorityChange: (id: string, priority: TodoPriority) => void;
+  onMove?: (taskId: string, beforeTaskId: string | null) => void;
 }): JSX.Element {
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (confirmTimerRef.current) {
-        clearTimeout(confirmTimerRef.current);
-      }
-    };
-  }, []);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const projectById = useMemo(() => {
     const map = new Map<string, Project>();
@@ -145,34 +135,9 @@ export function TaskList({
     if (!task || !neighbor) {
       return;
     }
-    if (task.sortOrder === neighbor.sortOrder) {
-      onUpdate(task.id, { sortOrder: Math.max(0, index + direction) });
-      onUpdate(neighbor.id, { sortOrder: Math.max(0, index) });
-      return;
-    }
-    onUpdate(task.id, { sortOrder: neighbor.sortOrder });
-    onUpdate(neighbor.id, { sortOrder: task.sortOrder });
-  }, [orderedTasks, onUpdate]);
-
-  const handleRemoveClick = useCallback(
-    (id: string) => {
-      if (confirmingId === id) {
-        if (confirmTimerRef.current) {
-          clearTimeout(confirmTimerRef.current);
-          confirmTimerRef.current = null;
-        }
-        setConfirmingId(null);
-        onDelete(id);
-        return;
-      }
-      setConfirmingId(id);
-      if (confirmTimerRef.current) {
-        clearTimeout(confirmTimerRef.current);
-      }
-      confirmTimerRef.current = setTimeout(() => setConfirmingId(null), TASK_CONFIRM_RESET_MS);
-    },
-    [confirmingId, onDelete]
-  );
+    const beforeTaskId = direction < 0 ? neighbor.id : orderedTasks[index + 2]?.id ?? null;
+    onMove?.(task.id, beforeTaskId);
+  }, [orderedTasks, onMove]);
 
   const startEdit = useCallback((task: Task) => {
     setEditingId(task.id);
@@ -198,7 +163,7 @@ export function TaskList({
 
   const toggleStatus = useCallback(
     (task: Task) => {
-      const next: TaskStatus = task.status === 'done' ? 'inbox' : 'done';
+      const next: TaskStatus = task.status === 'done' ? 'open' : 'done';
       onStatusChange(task.id, next);
     },
     [onStatusChange]
@@ -221,6 +186,15 @@ export function TaskList({
             className={`task-row ${selectedTaskId === task.id ? 'is-selected' : ''} ${task.status === 'done' ? 'is-done' : ''}`.trim()}
             style={{ ['--task-depth' as string]: depthById.get(task.id) ?? 0 }}
             onClick={() => onSelect(task.id)}
+            draggable={Boolean(onMove)}
+            onDragStart={() => setDraggingId(task.id)}
+            onDragOver={(event) => onMove && event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (draggingId && draggingId !== task.id) onMove?.(draggingId, task.id);
+              setDraggingId(null);
+            }}
+            onDragEnd={() => setDraggingId(null)}
           >
             <button
               type="button"
@@ -279,13 +253,14 @@ export function TaskList({
                 </span>
               )}
               <div className="task-meta">
+                {task.plannedAt !== null ? (
+                  <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
+                    ○ {isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
+                  </span>
+                ) : null}
                 {task.dueAt !== null ? (
                   <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-                    {isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
-                  </span>
-                ) : task.plannedAt !== null ? (
-                  <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-                    {isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
+                    ◇ {isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
                   </span>
                 ) : null}
                 <span className="context-tag" title={`上下文：${contextLabel[task.context]}`}>
@@ -307,34 +282,21 @@ export function TaskList({
             </div>
             <span className="task-status-label">{STATUS_LABELS[task.status] ?? task.status}</span>
             <span className="task-order-controls">
-              <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={index === 0} onClick={(event) => { event.stopPropagation(); moveTask(index, -1); }}><ArrowUp size={11} /></button>
-              <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={index === orderedTasks.length - 1} onClick={(event) => { event.stopPropagation(); moveTask(index, 1); }}><ArrowDown size={11} /></button>
+              <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={!onMove || index === 0} onClick={(event) => { event.stopPropagation(); moveTask(index, -1); }}><ArrowUp size={11} /></button>
+              <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={!onMove || index === orderedTasks.length - 1} onClick={(event) => { event.stopPropagation(); moveTask(index, 1); }}><ArrowDown size={11} /></button>
             </span>
-            {confirmingId === task.id ? (
-              <button
-                type="button"
-                className="task-remove-confirm"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleRemoveClick(task.id);
-                }}
-              >
-                确认?
-              </button>
-            ) : (
-              <button
+            <button
                 type="button"
                 className="task-remove"
                 title="删除"
                 aria-label={`删除「${task.title}」`}
                 onClick={(event) => {
                   event.stopPropagation();
-                  handleRemoveClick(task.id);
+                  onDelete(task.id);
                 }}
               >
                 <Trash2 size={13} />
               </button>
-            )}
           </li>
         );
       })}

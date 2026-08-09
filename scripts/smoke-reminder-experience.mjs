@@ -92,23 +92,25 @@ const alert = (await waitForValue('#alert', `(() => ({
   ready: Boolean(document.querySelector('.alert-panel')),
   away: document.querySelector('.break-todo-card strong')?.textContent,
   resume: document.querySelector('.break-return-task strong')?.textContent,
-  actions: document.querySelectorAll('.alert-actions button').length
+  actions: document.querySelectorAll('.alert-actions button').length,
+  proceduralSvg: Boolean(document.querySelector('.reminder-stage .procedural-character svg'))
 }))()`, (value) => value?.ready && value?.away && value?.resume)).value;
 assert(alert.away === '去打印室打印材料', 'walk reminder did not fold in the away task', alert);
 assert(alert.resume === '修改论文', 'break did not preserve the active task', alert);
 assert(alert.actions === 3, 'reminder actions are incomplete', alert);
+assert(alert.proceduralSvg, 'reminder choreography is not using the procedural character', alert);
 
 await evaluate(pet, `(async () => {
   const active = (await window.eyeProtect.getReminderStatus()).activeReminder;
   if (active) await window.eyeProtect.reminderAction('skip', active.id);
-  await window.eyeProtect.openQuickTodo();
+  await window.eyeProtect.openWorkbench('today');
 })()`);
-const panel = (await waitForValue('#panel', `(() => ({
-  ready: Boolean(document.querySelector('.quick-panel-shell')),
-  tasks: document.querySelectorAll('.quick-task-list li').length,
-  workbench: Boolean(document.querySelector('.quick-open-workbench'))
-}))()`, (value) => value?.ready)).value;
-assert(panel.tasks >= 1 && panel.workbench, 'quick panel contract failed', panel);
+const today = (await waitForValue('#workbench', `(() => ({
+  ready: Boolean(document.querySelector('.workbench-shell')),
+  composer: Boolean(document.querySelector('.task-composer')),
+  tasks: document.querySelectorAll('.task-list .task-row').length
+}))()`, (value) => value?.ready && value?.composer)).value;
+assert(today.tasks >= 1, 'Workbench Today contract failed', today);
 
 await evaluate(pet, `window.eyeProtect.openWorkbench('reminders')`);
 const workbench = (await waitForValue('#workbench', `(() => ({
@@ -117,4 +119,11 @@ const workbench = (await waitForValue('#workbench', `(() => ({
 }))()`, (value) => value?.ready)).value;
 assert(workbench.shell, 'Workbench reminder page failed', workbench);
 
-console.log(JSON.stringify({ setup, alert, panel, workbench }, null, 2));
+await evaluate(pet, `window.eyeProtect.openWorkbench('collection')`);
+const collection = (await waitForValue('#workbench', `(() => ({
+  ready: Boolean(document.querySelector('.collection-page')),
+  character: Boolean(document.querySelector('.procedural-character svg'))
+}))()`, (value) => value?.ready)).value;
+assert(collection.character, 'Character collection did not render a procedural candidate', collection);
+
+console.log(JSON.stringify({ setup, alert, today, workbench, collection }, null, 2));

@@ -16,7 +16,6 @@ const baseSettings: Settings = {
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,
@@ -57,7 +56,7 @@ const makeScheduler = (settings: Settings = makeSettings()) => {
 };
 
 const makeTask = (id: string, title: string, priority: Task['priority'], context: Task['context'], sortOrder: number, remindOnBreak = false): Task => ({
-  id, title, notes: null, status: 'inbox', priority, projectId: null, parentId: null,
+  id, title, notes: null, status: 'open', priority, projectId: null, parentId: null,
   tags: [], plannedAt: null, dueAt: null, reminderAt: null, recurrence: null,
   context, remindOnBreak, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
   updatedAt: sortOrder + 1, completedAt: null
@@ -576,7 +575,7 @@ test('ten minutes away restarts both cycles as a natural break', () => {
   assert.equal(status.nextWalkAt, clock.now() + 60 * MINUTE);
 });
 
-test('effective adaptive intervals stay separate from base settings and restore immediately', () => {
+test('effective adaptive intervals stay fixed until the next explicit cycle', () => {
   const clock = makeClock();
   const adaptive = makeSettings({ adaptiveEnabled: true });
   const scheduler = new ReminderScheduler(adaptive, {
@@ -598,8 +597,11 @@ test('effective adaptive intervals stay separate from base settings and restore 
 
   const restored = makeSettings({ adaptiveEnabled: false });
   const status = scheduler.updateSettings(restored, adaptive);
-  assert.equal(status.nextEyeAt, T0 + 20 * MINUTE);
-  assert.equal(status.nextWalkAt, T0 + 60 * MINUTE);
+  assert.equal(status.nextEyeAt, T0 + 24 * MINUTE);
+  assert.equal(status.nextWalkAt, T0 + 72 * MINUTE);
+  const restarted = scheduler.restartCycle();
+  assert.equal(restarted.nextEyeAt, T0 + 20 * MINUTE);
+  assert.equal(restarted.nextWalkAt, T0 + 60 * MINUTE);
 });
 
 test('scene-aware gate defers at most three times, explains each delay, then shows', async () => {

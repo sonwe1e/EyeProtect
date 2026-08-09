@@ -13,7 +13,6 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 import {
   DEFAULT_SETTINGS,
-  PET_SKINS,
   REMINDER_MODES,
   SETTINGS_LIMITS,
   TODO_PRIORITIES,
@@ -22,7 +21,6 @@ import {
   sanitizeTodos,
   type Alarm,
   type PetPosition,
-  type PetSkin,
   type ReminderMode,
   type Settings,
   type TodoItem,
@@ -176,6 +174,14 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.snoozeMinutes.max
       )
     ),
+    naturalBreakMinutes: Math.round(
+      clampNumber(
+        input.naturalBreakMinutes,
+        DEFAULT_SETTINGS.naturalBreakMinutes,
+        SETTINGS_LIMITS.naturalBreakMinutes.min,
+        SETTINGS_LIMITS.naturalBreakMinutes.max
+      )
+    ),
     reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
       ? (input.reminderMode as ReminderMode)
       : DEFAULT_SETTINGS.reminderMode,
@@ -199,9 +205,6 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
     ),
     petPosition: normalizePosition(input.petPosition),
     petPositionsByLayout: sanitizePetPositionsByLayout(input.petPositionsByLayout),
-    petSkin: PET_SKINS.includes(input.petSkin as PetSkin)
-      ? (input.petSkin as PetSkin)
-      : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
     historyEnabled:
@@ -235,6 +238,14 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.hotkeysEnabled === 'boolean'
         ? input.hotkeysEnabled
         : DEFAULT_SETTINGS.hotkeysEnabled,
+    theme:
+      input.theme === 'light' || input.theme === 'dark' || input.theme === 'system'
+        ? input.theme
+        : DEFAULT_SETTINGS.theme,
+    density:
+      input.density === 'compact' || input.density === 'comfortable'
+        ? input.density
+        : DEFAULT_SETTINGS.density,
     alarms: sanitizeAlarms(input.alarms),
     todos: sanitizeTodos(input.todos),
     activeTaskId:

@@ -183,6 +183,20 @@ test('history preferences use privacy-safe defaults and only accept supported re
   );
 });
 
+test('activity threshold, theme and density use bounded supported values', () => {
+  const defaults = sanitizeSettings({});
+  assert.equal(defaults.naturalBreakMinutes, 5);
+  assert.equal(defaults.theme, 'system');
+  assert.equal(defaults.density, 'comfortable');
+
+  assert.equal(sanitizeSettings({ naturalBreakMinutes: -4 }).naturalBreakMinutes, 1);
+  assert.equal(sanitizeSettings({ naturalBreakMinutes: 90 }).naturalBreakMinutes, 30);
+  assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).theme, 'dark');
+  assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).density, 'compact');
+  assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).theme, 'system');
+  assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).density, 'comfortable');
+});
+
 test('scene and adaptive preferences sanitize times and executable names without paths', () => {
   const defaults = sanitizeSettings({});
   assert.equal(defaults.adaptiveEnabled, false);

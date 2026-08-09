@@ -16,7 +16,6 @@ const baseSettings: Settings = {
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,
@@ -81,16 +80,16 @@ test('unlocking the screen grants a quiet window before forcing a reminder', () 
   assert.equal(scheduler.tick().activeReminder?.kind, 'eye');
 });
 
-test('resume while paused leaves the pause untouched', () => {
+test('a natural break clears an explicit pause and restarts both cycles', () => {
   const { clock, scheduler } = makeScheduler();
   clock.advance(10 * MINUTE);
-  const paused = scheduler.pause(60);
+  scheduler.pause(60);
 
   const status = scheduler.handleSystemResume(24 * 60 * 60); // a whole day idle
 
-  assert.equal(status.pausedUntil, paused.pausedUntil, 'explicit pause survives sleep');
-  assert.equal(status.nextEyeAt, paused.nextEyeAt);
-  assert.equal(status.nextWalkAt, paused.nextWalkAt);
+  assert.equal(status.pausedUntil, null);
+  assert.equal(status.nextEyeAt, clock.now() + 20 * MINUTE);
+  assert.equal(status.nextWalkAt, clock.now() + 60 * MINUTE);
 });
 
 test('suspend persists state via the onPersist hook', () => {

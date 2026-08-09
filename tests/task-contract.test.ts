@@ -18,7 +18,7 @@ const task = (over: Partial<Task>): Task =>
     id: 't1',
     title: '写论文',
     notes: null,
-    status: 'inbox',
+    status: 'open',
     priority: 'normal',
     projectId: null,
     parentId: null,
@@ -83,11 +83,10 @@ test('sanitizeTask keeps break suggestions explicit and disables them for desk w
   assert.equal(sanitizeTask({ id: 'c', title: 'x', context: 'any' }, now)!.remindOnBreak, false);
 });
 
-test('project view is independent and contains only active project tasks', () => {
-  assert.equal(matchesProjectView(task({ projectId: 'p', status: 'inbox' }), 'p'), true);
-  assert.equal(matchesProjectView(task({ projectId: 'p', status: 'active' }), 'p'), true);
+test('project view is independent and contains only open project tasks', () => {
+  assert.equal(matchesProjectView(task({ projectId: 'p', status: 'open' }), 'p'), true);
   assert.equal(matchesProjectView(task({ projectId: 'p', status: 'done' }), 'p'), false);
-  assert.equal(matchesProjectView(task({ projectId: 'other', status: 'inbox' }), 'p'), false);
+  assert.equal(matchesProjectView(task({ projectId: 'other', status: 'open' }), 'p'), false);
 });
 
 test('sanitizeProject rejects bad color and empty name', () => {
@@ -96,32 +95,33 @@ test('sanitizeProject rejects bad color and empty name', () => {
   assert.equal(sanitizeProject({ id: 'p', name: 'x', color: '#2f8f6f' }, now)!.color, '#2f8f6f');
 });
 
-test('matchesTaskView: today = active/inbox tasks that are started, due today, or planned today', () => {
+test('matchesTaskView: today includes activeTaskId, due today, or planned today', () => {
   // A plain inbox task with no date lives only in the inbox.
-  assert.ok(matchesTaskView(task({ status: 'inbox' }), 'inbox', now));
-  assert.ok(!matchesTaskView(task({ status: 'inbox' }), 'today', now));
+  assert.ok(matchesTaskView(task({ status: 'open' }), 'inbox', now));
+  assert.ok(!matchesTaskView(task({ status: 'open' }), 'today', now));
   // An actively-worked task shows in Today even without a date.
-  assert.ok(matchesTaskView(task({ status: 'active' }), 'today', now));
+  const active = task({ id: 'active', status: 'open' });
+  assert.ok(matchesTaskView(active, 'today', now, active.id));
   // A task planned/due today shows in Today.
-  assert.ok(matchesTaskView(task({ status: 'inbox', dueAt: now + 3_600_000 }), 'today', now));
+  assert.ok(matchesTaskView(task({ status: 'open', dueAt: now + 3_600_000 }), 'today', now));
   assert.ok(!matchesTaskView(task({ status: 'done' }), 'today', now));
 });
 
 test('matchesTaskView: overdue due dates surface in overdue + today', () => {
-  const overdue = task({ status: 'active', dueAt: now - 86_400_000 });
+  const overdue = task({ status: 'open', dueAt: now - 86_400_000 });
   assert.ok(matchesTaskView(overdue, 'overdue', now));
   assert.ok(matchesTaskView(overdue, 'today', now));
   assert.ok(!matchesTaskView(overdue, 'upcoming', now));
 });
 
 test('matchesTaskView: future planned falls in upcoming not today', () => {
-  const future = task({ status: 'inbox', plannedAt: now + 3 * 86_400_000 });
+  const future = task({ status: 'open', plannedAt: now + 3 * 86_400_000 });
   assert.ok(matchesTaskView(future, 'upcoming', now));
   assert.ok(!matchesTaskView(future, 'today', now));
 });
 
 test('matchesTaskView: far future is in no view', () => {
-  const far = task({ status: 'inbox', dueAt: now + 30 * 86_400_000 });
+  const far = task({ status: 'open', dueAt: now + 30 * 86_400_000 });
   assert.ok(!matchesTaskView(far, 'upcoming', now));
   assert.ok(!matchesTaskView(far, 'today', now));
 });

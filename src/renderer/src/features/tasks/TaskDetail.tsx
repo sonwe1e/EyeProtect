@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Clock3, Play, Repeat, Save, Square, Tags, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Clock3, Play, Repeat, Square, Tags, Trash2 } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
   type Project,
@@ -23,10 +23,9 @@ const CONTEXT_LABELS: Record<TaskContext, string> = {
   any: '任意'
 };
 
-const STATUS_OPTIONS: TaskStatus[] = ['inbox', 'active', 'done', 'archived'];
+const STATUS_OPTIONS: TaskStatus[] = ['open', 'done', 'archived'];
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  inbox: '收件箱',
-  active: '进行中',
+  open: '未完成',
   done: '已完成',
   archived: '已归档'
 };
@@ -113,8 +112,31 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const [afterDays, setAfterDays] = useState(task.recurrence?.type === 'after-completion' ? task.recurrence.days : 1);
   const [parentId, setParentId] = useState(task.parentId);
   const [status, setStatus] = useState<TaskStatus>(task.status);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const initialSyncRef = useRef(true);
+  const latestDraftRef = useRef<TaskUpdateInput>({});
+  latestDraftRef.current = {
+    title: title.trim() || task.title,
+    notes: notes.trim() || null,
+    priority,
+    context,
+    remindOnBreak: context !== 'desk' && remindOnBreak,
+    projectId,
+    parentId,
+    plannedAt: hasPlanned ? new Date(plannedAt).getTime() : null,
+    dueAt: hasDue ? new Date(dueAt).getTime() : null,
+    reminderAt: hasReminder ? new Date(reminderAt).getTime() : null,
+    estimateMinutes: estimateMinutes ? Number(estimateMinutes) : null,
+    tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+  };
+
+  // The workbench keys this component by task id. Flushing the latest draft
+  // during unmount closes the debounce gap when the user edits and immediately
+  // selects another task or closes the window.
+  useEffect(() => () => {
+    void window.eyeProtect.updateTask(task.id, latestDraftRef.current);
+  }, [task.id]);
 
   // Re-sync local state when the selected task changes.
   useEffect(() => {
@@ -139,67 +161,46 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     setAfterDays(task.recurrence?.type === 'after-completion' ? task.recurrence.days : 1);
     setParentId(task.parentId);
     setStatus(task.status);
-    setConfirmingDelete(false);
-  }, [task]);
+    initialSyncRef.current = true;
+    setSaveError(null);
+  }, [task.id]);
+
+  const persist = useCallback((input: TaskUpdateInput): void => {
+    saveQueueRef.current = saveQueueRef.current
+      .then(async () => {
+        await window.eyeProtect.updateTask(task.id, input);
+        setSaveError(null);
+        onUpdated?.();
+      })
+      .catch(() => {
+        setSaveError('保存失败，已保留本地内容；继续编辑会自动重试。');
+      });
+  }, [task.id, onUpdated]);
 
   useEffect(() => {
-    return () => {
-      if (confirmTimerRef.current) {
-        clearTimeout(confirmTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handleSave = useCallback(
-    (event?: FormEvent) => {
-      event?.preventDefault();
-      const input: TaskUpdateInput = {
-        title: title.trim() || task.title,
-        notes: notes.trim() || null,
-        priority,
-        context,
-        remindOnBreak: context !== 'desk' && remindOnBreak,
-        projectId,
-        parentId,
-        estimateMinutes: estimateMinutes ? Number(estimateMinutes) : null,
-        recurrence: buildRecurrence(recurrenceType, Math.max(1, Number(recurrenceInterval) || 1), recurrenceWeekdays, monthlyDay, afterDays),
-        status,
-        tags: tags
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean)
-      };
-      if (hasPlanned) {
-        input.plannedAt = new Date(plannedAt).getTime();
-      } else {
-        input.plannedAt = null;
-      }
-      if (hasDue) {
-        input.dueAt = new Date(dueAt).getTime();
-      } else {
-        input.dueAt = null;
-      }
-      input.reminderAt = hasReminder ? new Date(reminderAt).getTime() : null;
-      void window.eyeProtect.updateTask(task.id, input).then(() => onUpdated?.());
-    },
-    [title, notes, priority, context, remindOnBreak, projectId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, recurrenceType, recurrenceInterval, recurrenceWeekdays, monthlyDay, afterDays, status, task, onUpdated]
-  );
-
-  const handleDelete = useCallback(() => {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      confirmTimerRef.current = setTimeout(() => setConfirmingDelete(false), 2500);
+    if (initialSyncRef.current) {
+      initialSyncRef.current = false;
       return;
     }
-    if (confirmTimerRef.current) {
-      clearTimeout(confirmTimerRef.current);
-    }
-    setConfirmingDelete(false);
+    const timer = setTimeout(() => {
+      const { notes: _notes, ...input } = latestDraftRef.current;
+      persist(input);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [title, priority, context, remindOnBreak, projectId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, task.title, persist]);
+
+  useEffect(() => {
+    if (initialSyncRef.current) return;
+    const timer = setTimeout(() => persist({ notes: notes.trim() || null }), 500);
+    return () => clearTimeout(timer);
+  }, [notes, persist]);
+
+  const handleDelete = useCallback(() => {
     void window.eyeProtect.deleteTask(task.id).then(() => onDeleted?.());
-  }, [confirmingDelete, task.id, onDeleted]);
+  }, [task.id, onDeleted]);
 
   return (
-    <form className="detail-card" onSubmit={handleSave}>
+    <form className="detail-card" onSubmit={(event) => event.preventDefault()}>
       <div className="detail-header">
         <input
           className="detail-title-input"
@@ -208,10 +209,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           maxLength={TASK_TITLE_MAX}
           onChange={(event) => setTitle(event.currentTarget.value)}
         />
-        <button type="submit" className="detail-save" title="保存">
-          <Save size={14} />
-          <span>保存</span>
-        </button>
+        <span className={`detail-save-state ${saveError ? 'is-error' : ''}`}>{saveError ?? '自动保存'}</span>
       </div>
 
       <label className="detail-field">
@@ -300,7 +298,10 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
               key={key}
               type="button"
               className={status === key ? 'is-active' : ''}
-              onClick={() => setStatus(key)}
+              onClick={() => {
+                setStatus(key);
+                void window.eyeProtect.setTaskStatus(task.id, key);
+              }}
             >
               {STATUS_LABELS[key]}
             </button>
@@ -387,6 +388,9 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
             </option>
           ))}
         </select>
+        <button type="button" className="detail-recurrence-apply" onClick={() => persist({
+          recurrence: buildRecurrence(recurrenceType, Math.max(1, Number(recurrenceInterval) || 1), recurrenceWeekdays, monthlyDay, afterDays)
+        })}>应用重复规则</button>
       </label>
 
       {recurrenceType === 'daily' || recurrenceType === 'weekly' || recurrenceType === 'monthly' ? (
@@ -411,11 +415,11 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
         </button>
         <button
           type="button"
-          className={`detail-delete ${confirmingDelete ? 'is-confirm' : ''}`.trim()}
+          className="detail-delete"
           onClick={handleDelete}
         >
           <Trash2 size={13} />
-          <span>{confirmingDelete ? '确认删除?' : '删除'}</span>
+          <span>删除</span>
         </button>
       </div>
     </form>

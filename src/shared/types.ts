@@ -12,9 +12,69 @@ export const nextTodoPriority = (current: TodoPriority): TodoPriority => {
   return TODO_PRIORITIES[(index + 1) % TODO_PRIORITIES.length];
 };
 
-export type PetSkin = 'stable' | 'eye' | 'fu' | 'sleep';
+export type CharacterStyle = 'soft' | 'doodle' | 'pixel' | 'toy';
+export type CharacterMaterial = 'paper' | 'glow' | 'plush' | 'candy' | 'cosmic';
+export type CharacterPersonality = 'curious' | 'mischievous' | 'dreamy' | 'brave' | 'gentle';
+export type CharacterAppearanceMode = 'daily-random' | 'pinned';
 
-export const PET_SKINS: PetSkin[] = ['stable', 'eye', 'fu', 'sleep'];
+export interface CharacterAppendage {
+  angle: number;
+  length: number;
+  width: number;
+  tipSize: number;
+  bend: number;
+}
+
+export interface CharacterRecipe {
+  bodyWidth: number;
+  bodyHeight: number;
+  bodyRoundness: number;
+  bodyTilt: number;
+  attentionCount: number;
+  attentionSpread: number;
+  appendages: CharacterAppendage[];
+  orbitCount: number;
+  pattern: 'none' | 'spots' | 'stripes' | 'sparkles';
+  palette: [string, string, string];
+}
+
+export interface CharacterRig {
+  center: { x: number; y: number };
+  attention: { x: number; y: number };
+  locomotionY: number;
+  actionPoints: Array<{ x: number; y: number }>;
+}
+
+export interface CollectibleCharacter {
+  id: string;
+  seed: string;
+  generatorVersion: number;
+  name: string;
+  style: CharacterStyle;
+  personality: CharacterPersonality;
+  favoriteActions: [string, string];
+  recipe: CharacterRecipe;
+  rig: CharacterRig;
+  material: CharacterMaterial;
+  accessory: PetAccessory;
+  favorite: boolean;
+  createdAt: number;
+}
+
+export interface DailyCharacterCandidate {
+  localDate: string;
+  character: CollectibleCharacter;
+  decision: 'pending' | 'collected' | 'discarded';
+}
+
+export interface CharacterCollectionState {
+  installSalt: string;
+  characters: CollectibleCharacter[];
+  candidate: DailyCharacterCandidate | null;
+  appearanceMode: CharacterAppearanceMode;
+  pinnedCharacterId: string | null;
+  activeCharacterId: string;
+}
 
 /**
  * Enforcement style of a reminder, chosen in settings:
@@ -54,8 +114,6 @@ export interface BreakActivity {
 }
 
 export type AlarmRepeat = 'once' | 'daily';
-
-export type PanelTab = 'alarms' | 'todos';
 
 export interface Alarm {
   id: string;
@@ -105,9 +163,12 @@ export interface PersistedScheduledEvent {
  * import-only compatibility shape; the first successful SQLite migration
  * removes its persisted source.
  */
-export type TaskStatus = 'inbox' | 'active' | 'done' | 'archived';
+export type TaskStatus = 'open' | 'done' | 'archived';
 
-export const TASK_STATUSES: TaskStatus[] = ['inbox', 'active', 'done', 'archived'];
+export const TASK_STATUSES: TaskStatus[] = ['open', 'done', 'archived'];
+
+export type ThemePreference = 'system' | 'light' | 'dark';
+export type DensityPreference = 'comfortable' | 'compact';
 
 /**
  * Where a task is normally handled. `away` tasks are surfaced during walk
@@ -203,6 +264,27 @@ export type TaskUpdateInput = Partial<TaskInput> & {
   sortOrder?: number;
 };
 
+export interface TaskMoveInput {
+  taskId: string;
+  beforeTaskId: string | null;
+  scope: { type: 'inbox' } | { type: 'project'; projectId: string };
+}
+
+export interface TaskWorkSummary {
+  taskId: string | null;
+  taskActiveMs: number;
+  currentSessionMs: number;
+  continuousActiveMs: number;
+  timeboxNotified: boolean;
+}
+
+export interface UndoState {
+  operationId: string;
+  kind: 'complete' | 'delete';
+  taskTitle: string;
+  expiresAt: number;
+}
+
 export interface ProjectInput {
   name: string;
   color?: string | null;
@@ -235,6 +317,8 @@ export interface Settings {
   eyeIntervalMinutes: number;
   walkIntervalMinutes: number;
   snoozeMinutes: number;
+  /** Idle/lock duration that qualifies as a completed natural break. */
+  naturalBreakMinutes: number;
   /** How reminders enforce themselves; see ReminderMode. */
   reminderMode: ReminderMode;
   /** Soft bubble this many seconds before each deadline; 0 turns it off. */
@@ -244,7 +328,6 @@ export interface Settings {
   petPosition: PetPosition | null;
   /** One absolute pet position per connected-display topology. */
   petPositionsByLayout: Record<string, PetPosition>;
-  petSkin: PetSkin;
   /** Dims the desktop behind focused-mode reminders. */
   dimDesktop: boolean;
   /** Persist local reminder behavior for care feedback and weekly reports. */
@@ -264,6 +347,8 @@ export interface Settings {
   foregroundDetectionEnabled: boolean;
   quietAppWhitelist: string[];
   hotkeysEnabled: boolean;
+  theme: ThemePreference;
+  density: DensityPreference;
   alarms: Alarm[];
   todos: TodoItem[];
   /**
@@ -388,6 +473,11 @@ export interface DataActionResult {
 export interface DataRecoveryInfo {
   dataDir: string;
   corruptBackups: string[];
+  taskDatabase: {
+    readOnly: boolean;
+    snapshotPath: string | null;
+    reason: string | null;
+  };
 }
 
 export interface CareStatus {
@@ -436,17 +526,6 @@ export interface EyeProtectApi {
   testReminder: (kind: ReminderKind) => Promise<ReminderStatus>;
   triggerNow: () => Promise<ReminderStatus>;
   pause: (minutes: number) => Promise<ReminderStatus>;
-  openSettings: () => Promise<void>;
-  closeSettings: () => Promise<void>;
-  openPanel: (tab: PanelTab) => Promise<void>;
-  openQuickTodo: () => Promise<void>;
-  closePanel: () => Promise<void>;
-  getPanelTab: () => Promise<PanelTab>;
-  consumeQuickAddTodo: () => Promise<boolean>;
-  onPanelTab: (callback: (tab: PanelTab) => void) => () => void;
-  /** Fired when the panel lost focus to a window outside the app. */
-  onPanelBlur: (callback: () => void) => () => void;
-  onQuickAddTodo: (callback: () => void) => () => void;
   onSettingsChanged: (callback: (settings: Settings) => void) => () => void;
   onReminderChanged: (callback: (status: ReminderStatus) => void) => () => void;
   // --- v1.1 Task Core (USERPLAN §二) ---
@@ -455,8 +534,12 @@ export interface EyeProtectApi {
   getTask: (id: string) => Promise<Task | null>;
   createTask: (input: TaskInput) => Promise<Task[]>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<Task[]>;
+  moveTask: (input: TaskMoveInput) => Promise<Task[]>;
   setTaskStatus: (id: string, status: TaskStatus) => Promise<Task[]>;
   deleteTask: (id: string) => Promise<Task[]>;
+  getUndoState: () => Promise<UndoState | null>;
+  undoTaskOperation: (operationId: string) => Promise<Task[]>;
+  onUndoChanged: (callback: (state: UndoState | null) => void) => () => void;
   onTasksChanged: (callback: (tasks: Task[]) => void) => () => void;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
@@ -467,16 +550,28 @@ export interface EyeProtectApi {
   getActiveTaskId: () => Promise<string | null>;
   setActiveTask: (id: string | null) => Promise<Task[]>;
   onActiveTaskChanged: (callback: (id: string | null) => void) => () => void;
+  getTaskWorkSummary: () => Promise<TaskWorkSummary>;
+  onTaskWorkChanged: (callback: (summary: TaskWorkSummary) => void) => () => void;
   getStandaloneReminders: () => Promise<StandaloneReminder[]>;
   createStandaloneReminder: (input: StandaloneReminderInput) => Promise<StandaloneReminder[]>;
   updateStandaloneReminder: (id: string, input: Partial<StandaloneReminderInput>) => Promise<StandaloneReminder[]>;
   deleteStandaloneReminder: (id: string) => Promise<StandaloneReminder[]>;
   onStandaloneRemindersChanged: (callback: (reminders: StandaloneReminder[]) => void) => () => void;
   onStandaloneReminderFired: (callback: (reminder: StandaloneReminder) => void) => () => void;
-  openWorkbench: (section?: 'today' | 'settings' | 'reminders') => Promise<void>;
+  getCharacterCollection: () => Promise<CharacterCollectionState>;
+  collectDailyCharacter: () => Promise<CharacterCollectionState>;
+  discardDailyCharacter: () => Promise<CharacterCollectionState>;
+  renameCharacter: (id: string, name: string) => Promise<CharacterCollectionState>;
+  deleteCharacter: (id: string) => Promise<CharacterCollectionState>;
+  setCharacterFavorite: (id: string, favorite: boolean) => Promise<CharacterCollectionState>;
+  setCharacterAppearance: (mode: CharacterAppearanceMode, id?: string | null) => Promise<CharacterCollectionState>;
+  setCharacterMaterial: (id: string, material: CharacterMaterial) => Promise<CharacterCollectionState>;
+  setCharacterAccessory: (id: string, accessory: PetAccessory) => Promise<CharacterCollectionState>;
+  onCharacterCollectionChanged: (callback: (state: CharacterCollectionState) => void) => () => void;
+  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection') => Promise<void>;
   closeWorkbench: () => Promise<void>;
-  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders'>;
-  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders') => void) => () => void;
+  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection'>;
+  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'collection') => void) => () => void;
   getWeeklyReport: () => Promise<WeeklyReport>;
   getCareStatus: () => Promise<CareStatus>;
   clearReminderHistory: () => Promise<WeeklyReport>;
@@ -500,13 +595,13 @@ export const DEFAULT_SETTINGS: Settings = {
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  naturalBreakMinutes: 5,
   reminderMode: 'guided',
   preAlertSeconds: 30,
   startWithWindows: false,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,
@@ -517,6 +612,8 @@ export const DEFAULT_SETTINGS: Settings = {
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
   hotkeysEnabled: true,
+  theme: 'system',
+  density: 'comfortable',
   alarms: [],
   todos: [],
   activeTaskId: null
@@ -526,6 +623,7 @@ export const SETTINGS_LIMITS = {
   eyeIntervalMinutes: { min: 1, max: 240 },
   walkIntervalMinutes: { min: 1, max: 240 },
   snoozeMinutes: { min: 1, max: 60 },
+  naturalBreakMinutes: { min: 1, max: 30 },
   preAlertSeconds: PRE_ALERT_LIMIT,
   petScale: { min: 0.7, max: 1.8 },
   minuteOfDay: { min: 0, max: 24 * 60 - 1 }
@@ -824,8 +922,12 @@ const sanitizeTagList = (value: unknown): string[] => {
   return result;
 };
 
-const asTaskStatus = (value: unknown): TaskStatus =>
-  TASK_STATUSES.includes(value as TaskStatus) ? (value as TaskStatus) : 'inbox';
+const asTaskStatus = (value: unknown): TaskStatus => {
+  if (value === 'inbox' || value === 'active') {
+    return 'open';
+  }
+  return TASK_STATUSES.includes(value as TaskStatus) ? (value as TaskStatus) : 'open';
+};
 
 const asTaskContext = (value: unknown): TaskContext =>
   TASK_CONTEXTS.includes(value as TaskContext) ? (value as TaskContext) : 'desk';
@@ -1067,9 +1169,9 @@ const daysInMonth = (year: number, month: number): number =>
  * timestamps; kept shared so main and renderer never drift on "what belongs in
  * Today". All ranges are [startOfDay, endOfDay) in local time.
  */
-export type TaskView = 'inbox' | 'today' | 'upcoming' | 'overdue' | 'completed' | 'archived';
+export type TaskView = 'inbox' | 'today' | 'upcoming' | 'overdue' | 'away' | 'completed' | 'archived';
 
-export const TASK_VIEWS: TaskView[] = ['inbox', 'today', 'upcoming', 'overdue', 'completed', 'archived'];
+export const TASK_VIEWS: TaskView[] = ['inbox', 'today', 'upcoming', 'overdue', 'away', 'completed', 'archived'];
 
 const startOfDay = (timestamp: number): number => {
   const date = new Date(timestamp);
@@ -1083,16 +1185,21 @@ const endOfDay = (timestamp: number): number => {
   return date.getTime();
 };
 
-const isActiveStatus = (status: TaskStatus): boolean => status === 'inbox' || status === 'active';
+const isActiveStatus = (status: TaskStatus): boolean => status === 'open';
 
 export const matchesProjectView = (task: Task, projectId: string): boolean =>
   task.projectId === projectId && isActiveStatus(task.status);
 
 /** Predicates a task matches a view. `now` injectable for deterministic tests. */
-export const matchesTaskView = (task: Task, view: TaskView, now: number = Date.now()): boolean => {
+export const matchesTaskView = (
+  task: Task,
+  view: TaskView,
+  now: number = Date.now(),
+  activeTaskId: string | null = null
+): boolean => {
   switch (view) {
     case 'inbox':
-      return task.status === 'inbox';
+      return task.status === 'open' && task.projectId === null;
     case 'today': {
       if (!isActiveStatus(task.status)) {
         return false;
@@ -1101,8 +1208,7 @@ export const matchesTaskView = (task: Task, view: TaskView, now: number = Date.n
       const todayEnd = endOfDay(now);
       const planned = task.plannedAt !== null && task.plannedAt <= todayEnd;
       const due = task.dueAt !== null && task.dueAt <= todayEnd;
-      const started = task.status === 'active';
-      return planned || due || started;
+      return planned || due || task.id === activeTaskId;
     }
     case 'upcoming': {
       if (!isActiveStatus(task.status)) {
@@ -1124,6 +1230,8 @@ export const matchesTaskView = (task: Task, view: TaskView, now: number = Date.n
       const overdueDue = task.dueAt !== null && task.dueAt < todayStart;
       return overduePlanned || overdueDue;
     }
+    case 'away':
+      return isActiveStatus(task.status) && task.context === 'away';
     case 'completed':
       return task.status === 'done';
     case 'archived':

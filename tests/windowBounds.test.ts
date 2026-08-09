@@ -38,7 +38,7 @@ test('alert bounds adapt to common work areas without overflowing', () => {
   }
 });
 
-test('alert bounds preserve the reminder artwork aspect when space allows', () => {
+test('alert bounds use a compact maximum instead of inheriting legacy artwork dimensions', () => {
   const workAreas: WindowRectangle[] = [
     { x: 0, y: 0, width: 1280, height: 720 },
     { x: 0, y: 0, width: 1920, height: 1040 },
@@ -48,12 +48,11 @@ test('alert bounds preserve the reminder artwork aspect when space allows', () =
 
   for (const workArea of workAreas) {
     const bounds = getAlertBounds(workArea);
-    const artworkWidth = bounds.width - ALERT_LAYOUT.horizontalPadding;
-    const artworkHeight = bounds.height - ALERT_LAYOUT.topPadding - ALERT_LAYOUT.panelReservedSpace;
-
-    assert.ok(artworkWidth > 0);
-    assert.ok(artworkHeight > 0);
-    assert.ok(Math.abs(artworkWidth / artworkHeight - ALERT_LAYOUT.artworkAspect) < 0.02);
+    assert.ok(bounds.width <= ALERT_LAYOUT.targetWidth);
+    assert.ok(bounds.height <= ALERT_LAYOUT.targetHeight);
+    if (workArea.width >= ALERT_LAYOUT.targetWidth + ALERT_LAYOUT.edgeGapMax * 2) {
+      assert.equal(bounds.width, ALERT_LAYOUT.targetWidth);
+    }
   }
 });
 

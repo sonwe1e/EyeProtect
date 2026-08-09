@@ -69,9 +69,9 @@ test('setTaskStatus transitions and emits exactly once for a non-recurring task'
     const events: Task[][] = [];
     service.on('tasks-changed', (tasks) => events.push(tasks));
 
-    const result = service.setTaskStatus(task.id, 'active', NOW + 1000);
+    const result = service.setTaskStatus(task.id, 'done', NOW + 1000);
 
-    assert.equal(result.find((t) => t.id === task.id)!.status, 'active');
+    assert.equal(result.find((t) => t.id === task.id)!.status, 'done');
     assert.equal(events.length, 1, 'no rollover → single emit');
   });
 });
@@ -84,7 +84,7 @@ test('setTaskStatus on an unknown id emits the unchanged list', () => {
 
     const result = service.setTaskStatus('missing', 'done', NOW);
     assert.equal(result.length, 1);
-    assert.equal(result[0].status, 'inbox');
+    assert.equal(result[0].status, 'open');
     assert.equal(events.length, 1);
   });
 });
@@ -117,7 +117,7 @@ test('completing a daily task spawns a new inbox instance shifted by one day', (
     const next = result.find((t) => t.id !== task.id)!;
 
     assert.equal(done.status, 'done');
-    assert.equal(next.status, 'inbox');
+    assert.equal(next.status, 'open');
     assert.equal(next.title, '每日回顾', 'title preserved');
     assert.equal(next.recurrence?.type, 'daily', 'recurrence preserved');
     // Next fire is the anchor (reminderAt) shifted by exactly one day.
@@ -245,6 +245,85 @@ test('setTaskStatus emits tasks-changed exactly once even with rollover', () => 
   });
 });
 
+test('a recurring parent clones its complete open subtree into the next occurrence', () => {
+  withService((service, store) => {
+    const [parent] = service.createTask({
+      title: 'Weekly review',
+      plannedAt: NOW,
+      recurrence: { type: 'daily', interval: 1 }
+    }, NOW);
+    const child = store.createTask({ title: 'Checklist item', parentId: parent.id, plannedAt: NOW + 1_000 }, NOW);
+    store.createTask({ title: 'Nested item', parentId: child.id, dueAt: NOW + 2_000 }, NOW);
+
+    const result = service.setTaskStatus(parent.id, 'done', NOW + 5_000);
+    const nextParent = result.find((task) => task.id !== parent.id && task.parentId === null)!;
+    const nextChild = result.find((task) => task.parentId === nextParent.id)!;
+    const nextNested = result.find((task) => task.parentId === nextChild.id)!;
+
+    assert.equal(nextParent.status, 'open');
+    assert.equal(nextChild.title, 'Checklist item');
+    assert.equal(nextChild.plannedAt, NOW + DAY + 1_000);
+    assert.equal(nextNested.title, 'Nested item');
+    assert.equal(nextNested.dueAt, NOW + DAY + 2_000);
+    assert.equal(nextChild.recurrence, null);
+  });
+});
+
+test('delete undo restores a task subtree and the active task', () => {
+  withService((service, store) => {
+    const [parent] = service.createTask({ title: 'Parent' }, NOW);
+    const child = store.createTask({ title: 'Child', parentId: parent.id }, NOW);
+    service.setActiveTask(child.id, NOW);
+
+    service.deleteTask(parent.id, NOW + 1_000);
+    assert.equal(service.getTasks().length, 0);
+    const undo = service.getUndoState(NOW + 2_000)!;
+    service.undo(undo.operationId, NOW + 2_000);
+
+    assert.equal(service.getTasks().length, 2);
+    assert.equal(service.getTask(child.id)?.parentId, parent.id);
+    assert.equal(service.getActiveTaskId(), child.id);
+  });
+});
+
+test('completion undo removes its generated recurring tree', () => {
+  withService((service, store) => {
+    const [parent] = service.createTask({
+      title: 'Recurring',
+      plannedAt: NOW,
+      recurrence: { type: 'daily', interval: 1 }
+    }, NOW);
+    store.createTask({ title: 'Child', parentId: parent.id }, NOW);
+    service.setTaskStatus(parent.id, 'done', NOW + 1_000);
+    assert.equal(service.getTasks().length, 4);
+
+    const undo = service.getUndoState(NOW + 2_000)!;
+    service.undo(undo.operationId, NOW + 2_000);
+    const restored = service.getTasks();
+    assert.equal(restored.length, 2);
+    assert.equal(restored.find((task) => task.id === parent.id)?.status, 'open');
+  });
+});
+
+test('manual movement atomically reorders only the selected inbox scope', () => {
+  withService((service) => {
+    const [first] = service.createTask({ title: 'First' }, NOW);
+    const second = service.createTask({ title: 'Second' }, NOW + 1).find((task) => task.title === 'Second')!;
+    const project = service.createProject({ name: 'Project' }, NOW)[0];
+    const projectTask = service.createTask({ title: 'Project task', projectId: project.id }, NOW + 2)
+      .find((task) => task.projectId === project.id)!;
+
+    const moved = service.moveTask({
+      taskId: second.id,
+      beforeTaskId: first.id,
+      scope: { type: 'inbox' }
+    }, NOW + 3);
+    const inbox = moved.filter((task) => task.projectId === null).sort((a, b) => a.sortOrder - b.sortOrder);
+    assert.deepEqual(inbox.map((task) => task.title), ['Second', 'First']);
+    assert.equal(moved.find((task) => task.projectId === project.id)?.sortOrder, projectTask.sortOrder);
+  });
+});
+
 // ── migrateFromTodos ───────────────────────────────────────────────────────────
 
 test('migrateFromTodos converts each TodoItem into a Task', () => {
@@ -267,7 +346,7 @@ test('migrateFromTodos converts each TodoItem into a Task', () => {
 
     const a = tasks.find((t) => t.id === 'a')!;
     assert.equal(a.title, '喝水');
-    assert.equal(a.status, 'inbox');
+    assert.equal(a.status, 'open');
     assert.equal(a.priority, 'important');
     assert.equal(a.context, 'desk');
     assert.equal(a.projectId, null);

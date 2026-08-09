@@ -93,6 +93,8 @@ const pet = await evaluate(
     bridge: typeof window.eyeProtect === 'object',
     petShell: Boolean(document.querySelector('.pet-shell')),
     character: Boolean(document.querySelector('.pet-character')),
+    proceduralSvg: Boolean(document.querySelector('.pet-character .procedural-character svg')),
+    collection: await window.eyeProtect.getCharacterCollection(),
     runtime: await window.eyeProtect.getRuntimeInfo(),
     settings: await window.eyeProtect.getSettings()
   }))()`
@@ -102,14 +104,25 @@ if (
   !pet?.bridge ||
   !pet.petShell ||
   !pet.character ||
+  !pet.proceduralSvg ||
+  !pet.collection?.candidate ||
   pet.runtime?.appVersion !== expectedVersion
 ) {
   throw new Error(`Pet renderer smoke check failed: ${JSON.stringify(pet)}`);
 }
 
-await evaluate(petTarget, 'window.eyeProtect.openSettings()');
+await evaluate(petTarget, "window.eyeProtect.openWorkbench('collection')");
 const workbenchTarget = await waitForTarget('#workbench');
 await delay(500);
+const collection = await evaluate(workbenchTarget, `(() => ({
+  page: Boolean(document.querySelector('.collection-page')),
+  candidate: Boolean(document.querySelector('.candidate-card .procedural-character svg'))
+}))()`);
+if (!collection?.page || !collection.candidate) {
+  throw new Error(`Character collection smoke check failed: ${JSON.stringify(collection)}`);
+}
+await evaluate(petTarget, "window.eyeProtect.openWorkbench('settings')");
+await delay(300);
 const workbench = await evaluate(
   workbenchTarget,
   `(async () => {
@@ -144,6 +157,7 @@ console.log(
   JSON.stringify(
     {
       pet,
+      collection,
       workbench
     },
     null,

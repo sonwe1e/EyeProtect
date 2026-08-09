@@ -32,6 +32,8 @@ type EmergencyAction = 'complete' | 'snooze' | 'skip';
 export class ReminderSurfaceManager {
   private emergencyWindow: BrowserWindow | null = null;
   private presentationSequence = 0;
+  private primaryWebContentsId: number | null = null;
+  private surfaceState: 'idle' | 'loading' | 'primary' | 'emergency' | 'notification' = 'idle';
 
   constructor(
     /** Shows the pretty primary alert; returns false if it could not be shown. */
@@ -40,7 +42,9 @@ export class ReminderSurfaceManager {
      *  can record it and reschedule. */
     private readonly onAction: (action: EmergencyAction, reminderId: string) => void,
     private readonly openWorkbench: () => void = () => {},
-    private readonly trace: (event: string, data?: Record<string, unknown>) => void = () => {}
+    private readonly trace: (event: string, data?: Record<string, unknown>) => void = () => {},
+    private readonly getPrimaryWebContentsId: () => number | null = () => null,
+    private readonly isPrimaryHealthy: () => boolean = () => false
   ) {}
 
   /**
@@ -52,23 +56,34 @@ export class ReminderSurfaceManager {
     active: ActiveReminder
   ): Promise<'primary' | 'emergency' | 'notification' | 'none'> {
     const sequence = ++this.presentationSequence;
+    this.surfaceState = 'loading';
     const result = await runReminderSurfaceFallback({
       isCurrent: () => sequence === this.presentationSequence,
       primary: async () => {
         this.trace('window-create', { reminderId: active.id, kind: active.kind, surface: 'primary' });
         const shown = await this.showPrimary(active);
-        if (shown) this.trace('shown', { reminderId: active.id, surface: 'primary' });
+        if (shown) {
+          this.primaryWebContentsId = this.getPrimaryWebContentsId();
+          this.surfaceState = 'primary';
+          this.trace('shown', { reminderId: active.id, surface: 'primary' });
+        }
         return shown;
       },
       emergency: async () => {
         this.trace('window-create', { reminderId: active.id, surface: 'emergency' });
         const shown = await this.showEmergency(active);
-        if (shown) this.trace('shown', { reminderId: active.id, surface: 'emergency' });
+        if (shown) {
+          this.surfaceState = 'emergency';
+          this.trace('shown', { reminderId: active.id, surface: 'emergency' });
+        }
         return shown;
       },
       notification: () => {
         const shown = this.showNotification(active);
-        if (shown) this.trace('shown', { reminderId: active.id, surface: 'notification' });
+        if (shown) {
+          this.surfaceState = 'notification';
+          this.trace('shown', { reminderId: active.id, surface: 'notification' });
+        }
         return shown;
       },
       onError: (surface, error) => console.error(`[surface] ${surface} surface failed, falling back:`, error)
@@ -84,8 +99,15 @@ export class ReminderSurfaceManager {
    * was on screen. Swap in the emergency surface so the reminder does not
    * silently disappear.
    */
-  handleRendererGone(active: ActiveReminder | null): void {
+  handleRendererGone(active: ActiveReminder | null, webContentsId?: number): void {
     if (!active) {
+      return;
+    }
+    if (webContentsId !== undefined && webContentsId !== this.primaryWebContentsId) {
+      return;
+    }
+    if (webContentsId === undefined && this.surfaceState === 'primary' && this.isPrimaryHealthy()) {
+      this.trace('renderer-loss-ignored', { reminderId: active.id, reason: 'primary-healthy' });
       return;
     }
     if (this.emergencyWindow && !this.emergencyWindow.isDestroyed()) {
@@ -98,6 +120,8 @@ export class ReminderSurfaceManager {
   /** Tear down any emergency surface (e.g. when the reminder ends). */
   destroy(): void {
     this.presentationSequence += 1;
+    this.primaryWebContentsId = null;
+    this.surfaceState = 'idle';
     this.destroyEmergencyWindow();
   }
 
@@ -113,6 +137,7 @@ export class ReminderSurfaceManager {
   private async presentEmergencyFallback(active: ActiveReminder): Promise<void> {
     try {
       if (await this.showEmergency(active)) {
+        this.surfaceState = 'emergency';
         this.trace('shown', { reminderId: active.id, surface: 'emergency', reason: 'renderer-gone' });
         return;
       }
@@ -120,6 +145,7 @@ export class ReminderSurfaceManager {
       console.error('[surface] emergency surface failed after renderer loss:', error);
     }
     const shown = this.showNotification(active);
+    this.surfaceState = shown ? 'notification' : 'idle';
     this.trace(shown ? 'shown' : 'surface-failed', {
       reminderId: active.id,
       surface: shown ? 'notification' : 'none',

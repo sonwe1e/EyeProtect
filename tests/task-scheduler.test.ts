@@ -33,7 +33,7 @@ const task = (over: Partial<Task>): Task =>
     id: 't1',
     title: '提醒我',
     notes: null,
-    status: 'inbox',
+    status: 'open',
     priority: 'normal',
     projectId: null,
     parentId: null,
@@ -209,7 +209,7 @@ test('dispose unsubscribes from the kernel and clears deadlines', () => {
   kernel.stop();
 });
 
-test('fired occurrence stays consumed across restart and recurrence keeps its configured time', () => {
+test('fired occurrence is consumed only after delivery acknowledgement and stays consumed across restart', () => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-task-occurrence-'));
   const clock = makeClock();
   try {
@@ -227,8 +227,7 @@ test('fired occurrence stays consumed across restart and recurrence keeps its co
       clock.now,
       {
         isConsumed: (entry) =>
-          entry.reminderAt !== null && store.isTaskReminderConsumed(entry.id, entry.reminderAt),
-        acknowledge: (entry, fireAt) => store.consumeTaskReminder(entry.id, fireAt)
+          entry.reminderAt !== null && store.isTaskReminderConsumed(entry.id, entry.reminderAt)
       }
     );
 
@@ -242,6 +241,8 @@ test('fired occurrence stays consumed across restart and recurrence keeps its co
     clock.set(reminderAt);
     firstKernel.reconcile();
     assert.equal(service.getTask(created.id)?.reminderAt, reminderAt, 'firing preserves task configuration');
+    assert.equal(store.isTaskReminderConsumed(created.id, reminderAt), false, 'scheduler does not acknowledge before presentation');
+    store.consumeTaskReminder(created.id, reminderAt);
     assert.equal(store.isTaskReminderConsumed(created.id, reminderAt), true);
     first.dispose();
     firstKernel.stop();

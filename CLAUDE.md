@@ -51,5 +51,5 @@ Classic Electron 3-process split, each in its own electron-vite build target:
 
 - The repository has Git history but no CI workflow. Do not commit runtime data or secrets.
 - The tray icon has an inline base64 PNG fallback baked into `src/main/index.ts`.
-- `scripts/strip_pet_bg.py` (numpy + PIL, ROOT hardcoded to this project dir) converts `Pics/statu_*.png` → RGBA `public/assets/pet/pet-*.png`; run only when source artwork changes.
+- Mascots and reminder choreography are rendered as deterministic inline SVG from `src/shared/characters.ts`; only the tray icon remains a required bitmap asset.
 - A more detailed Chinese-language guide exists in `AGENTS.md` — it aligns with this file.

@@ -8,14 +8,17 @@ import { useClock } from '../hooks/useClock';
 import { useActiveTaskId } from '../hooks/useActiveTask';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useTasks } from '../hooks/useTasks';
+import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
+import { ProceduralCharacter } from '../features/characters/ProceduralCharacter';
 
 export default function BubbleView(): JSX.Element {
   const tasks = useTasks();
   const activeTaskId = useActiveTaskId();
   const status = useReminderStatus();
   const now = useClock(1_000);
+  const character = activeCharacterFrom(useCharacterCollection());
   const openTodos = useCallback(() => {
-    void window.eyeProtect.openPanel('todos');
+    void window.eyeProtect.openWorkbench('today');
   }, []);
   const handleBubbleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -43,6 +46,7 @@ export default function BubbleView(): JSX.Element {
     return (
       <div className="bubble-shell bubble-reminder">
         <div className="bubble-card">
+          <div className="bubble-character"><ProceduralCharacter character={character} mood="happy" action={active.kind} compact /></div>
           <div className="bubble-title">
             {active.kind === 'walk' ? <Footprints size={13} /> : <Eye size={13} />}
             <span>{kindLabel}提醒</span>
@@ -101,6 +105,7 @@ export default function BubbleView(): JSX.Element {
     return (
       <div className="bubble-shell bubble-prealert">
         <div className="bubble-card">
+          <div className="bubble-character"><ProceduralCharacter character={character} mood="anticipating" action={status.preAlert.kind} compact /></div>
           <div className="bubble-title">
             <Timer size={13} />
             <span>

@@ -6,12 +6,13 @@ export interface WindowRectangle {
 }
 
 export const ALERT_LAYOUT = {
-  artworkAspect: 1448 / 1086,
   edgeGapRatio: 0.05,
   edgeGapMin: 16,
   edgeGapMax: 64,
-  horizontalPadding: 44,
-  topPadding: 18,
+  targetWidth: 760,
+  targetHeight: 720,
+  minimumWidth: 480,
+  minimumHeight: 440,
   panelReservedSpace: 320
 } as const;
 
@@ -27,14 +28,8 @@ export const getAlertBounds = (workArea: WindowRectangle): WindowRectangle => {
   const margin = getAdaptiveMargin(workArea);
   const availableWidth = Math.max(1, workArea.width - margin * 2);
   const availableHeight = Math.max(1, workArea.height - margin * 2);
-  const verticalChrome = ALERT_LAYOUT.topPadding + ALERT_LAYOUT.panelReservedSpace;
-  const artworkHeight = Math.max(1, availableHeight - verticalChrome);
-  const aspectAwareWidth = Math.round(artworkHeight * ALERT_LAYOUT.artworkAspect + ALERT_LAYOUT.horizontalPadding);
-  const width = Math.min(availableWidth, aspectAwareWidth);
-  const aspectAwareHeight = Math.round(
-    Math.max(1, width - ALERT_LAYOUT.horizontalPadding) / ALERT_LAYOUT.artworkAspect + verticalChrome
-  );
-  const height = Math.min(availableHeight, aspectAwareHeight);
+  const width = Math.min(availableWidth, Math.max(ALERT_LAYOUT.minimumWidth, ALERT_LAYOUT.targetWidth));
+  const height = Math.min(availableHeight, Math.max(ALERT_LAYOUT.minimumHeight, ALERT_LAYOUT.targetHeight));
 
   return {
     x: workArea.x + Math.round((workArea.width - width) / 2),

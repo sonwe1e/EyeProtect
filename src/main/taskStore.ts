@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
   sanitizeProject,
@@ -18,8 +18,11 @@ import {
   type StandaloneReminderInput,
   type Task,
   type TaskInput,
+  type TaskMoveInput,
   type TaskUpdateInput,
   type TaskStatus,
+  type UndoState,
+  type CharacterCollectionState,
   type TodoItem
 } from '../shared/types';
 
@@ -31,6 +34,34 @@ export interface TaskReminderOccurrence {
   taskId: string;
   fireAt: number;
   consumedAt: number | null;
+}
+
+export type DeliverySource = 'task' | 'standalone' | 'timebox';
+export type DeliveryState = 'due' | 'presenting' | 'delivered' | 'clicked' | 'dismissed' | 'failed';
+
+export interface NotificationDelivery {
+  id: string;
+  source: DeliverySource;
+  sourceId: string;
+  occurrenceAt: number;
+  title: string;
+  body: string;
+  state: DeliveryState;
+  attempts: number;
+  firstDueAt: number;
+  lastAttemptAt: number | null;
+  nextAttemptAt: number | null;
+  deliveredAt: number | null;
+}
+
+export interface TaskDatabaseRecovery {
+  readOnly: boolean;
+  snapshotPath: string | null;
+  reason: string | null;
+}
+
+export interface TaskStoreOptions {
+  allowTaskModelReset?: boolean;
 }
 
 interface LegacyTasksFile {
@@ -50,23 +81,31 @@ type SqlRow = Record<string, SqlValue>;
 export class TaskStore extends EventEmitter {
   private static readonly openStores = new Map<string, Set<TaskStore>>();
   private readonly filePath: string;
+  private readonly allowTaskModelReset: boolean;
   private db: DatabaseSync;
+  private recovery: TaskDatabaseRecovery = { readOnly: false, snapshotPath: null, reason: null };
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, options: TaskStoreOptions = {}) {
     super();
     this.filePath = join(dataDir, DATABASE_FILE);
+    this.allowTaskModelReset = options.allowTaskModelReset !== false;
     this.db = this.openDatabase();
     try {
       this.migrateSchema();
-    } catch {
+    } catch (error) {
       // SQLite may accept the file handle before discovering malformed pages.
-      // Quarantine the full database family and start clean only after closing
-      // every handle, so Windows never leaves a locked, half-recovered store.
+      // Preserve the complete database family, then run an ephemeral recovery
+      // session. The original path is never renamed or overwritten here.
       if (this.db.isOpen) {
         this.db.close();
       }
-      this.quarantineDatabase();
-      this.db = new DatabaseSync(this.filePath, { enableForeignKeyConstraints: true });
+      const snapshotPath = this.snapshotDatabase();
+      this.recovery = {
+        readOnly: true,
+        snapshotPath,
+        reason: error instanceof Error ? error.message : '数据库迁移失败'
+      };
+      this.db = new DatabaseSync(':memory:', { enableForeignKeyConstraints: true });
       this.migrateSchema();
     }
     const stores = TaskStore.openStores.get(this.filePath) ?? new Set<TaskStore>();
@@ -81,8 +120,49 @@ export class TaskStore extends EventEmitter {
     }
   }
 
+  static requiresTaskModelReset(dataDir: string): boolean {
+    const path = join(dataDir, DATABASE_FILE);
+    if (!existsSync(path)) return false;
+    let db: DatabaseSync | null = null;
+    try {
+      db = new DatabaseSync(path, { readOnly: true });
+      const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`).get() as
+        | SqlRow
+        | undefined;
+      const sql = typeof row?.sql === 'string' ? row.sql : '';
+      return sql.includes("'inbox'") || sql.includes("'active'");
+    } catch {
+      return false;
+    } finally {
+      if (db?.isOpen) db.close();
+    }
+  }
+
   getDataDir(): string {
     return join(this.filePath, '..');
+  }
+
+  getRecoveryStatus(): TaskDatabaseRecovery {
+    return { ...this.recovery };
+  }
+
+  getCharacterCollectionState(): CharacterCollectionState | null {
+    const row = this.db.prepare('SELECT data_json FROM character_collection_state WHERE id = 1').get() as SqlRow | undefined;
+    if (!row || typeof row.data_json !== 'string') return null;
+    try {
+      return JSON.parse(row.data_json) as CharacterCollectionState;
+    } catch {
+      return null;
+    }
+  }
+
+  replaceCharacterCollectionState(state: CharacterCollectionState): CharacterCollectionState {
+    this.db.prepare(`
+      INSERT INTO character_collection_state(id, data_json, updated_at) VALUES (1, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at
+    `).run(JSON.stringify(state), Date.now());
+    this.emit('character-collection-changed', state);
+    return structuredClone(state);
   }
 
   close(): void {
@@ -145,7 +225,7 @@ export class TaskStore extends EventEmitter {
     return row && typeof row.value === 'string' && this.getTask(row.value) ? row.value : null;
   }
 
-  setActiveTaskId(id: string | null, now: number = Date.now()): string | null {
+  setActiveTaskId(id: string | null, _now: number = Date.now()): string | null {
     const validId = id && this.getTask(id) && !['done', 'archived'].includes(this.getTask(id)?.status ?? '') ? id : null;
     this.transaction(() => {
       if (validId) {
@@ -153,13 +233,8 @@ export class TaskStore extends EventEmitter {
           INSERT INTO app_state(key, value) VALUES ('active_task_id', ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value
         `).run(validId);
-        this.db.prepare("UPDATE tasks SET status = 'inbox', updated_at = ? WHERE status = 'active' AND id <> ?")
-          .run(now, validId);
-        this.db.prepare("UPDATE tasks SET status = 'active', completed_at = NULL, updated_at = ? WHERE id = ?")
-          .run(now, validId);
       } else {
         this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id'").run();
-        this.db.prepare("UPDATE tasks SET status = 'inbox', updated_at = ? WHERE status = 'active'").run(now);
       }
     });
     return validId;
@@ -232,6 +307,30 @@ export class TaskStore extends EventEmitter {
     return this.updateTask(id, { status }, now);
   }
 
+  moveTask(input: TaskMoveInput, now: number = Date.now()): Task[] {
+    const inScope = (task: Task): boolean =>
+      task.status === 'open' &&
+      (input.scope.type === 'inbox'
+        ? task.projectId === null
+        : task.projectId === input.scope.projectId);
+    const task = this.getTask(input.taskId);
+    if (!task || !inScope(task)) return this.getTasks();
+    const ordered = this.getTasks().filter(inScope).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+    const moving = ordered.find((entry) => entry.id === input.taskId)!;
+    const rest = ordered.filter((entry) => entry.id !== input.taskId);
+    const beforeIndex = input.beforeTaskId === null
+      ? rest.length
+      : rest.findIndex((entry) => entry.id === input.beforeTaskId);
+    if (beforeIndex < 0) return this.getTasks();
+    rest.splice(beforeIndex, 0, moving);
+    this.transaction(() => {
+      const statement = this.db.prepare('UPDATE tasks SET sort_order = ?, updated_at = ? WHERE id = ?');
+      rest.forEach((entry, index) => statement.run(index, now, entry.id));
+    });
+    this.emit('tasks-changed', this.getTasks());
+    return this.getTasks();
+  }
+
   deleteTask(id: string, now: number = Date.now()): boolean {
     if (!this.getTask(id)) {
       return false;
@@ -243,6 +342,102 @@ export class TaskStore extends EventEmitter {
     });
     this.emit('tasks-changed', this.getTasks());
     return true;
+  }
+
+  deleteTaskTree(id: string): Task[] {
+    const tasks = this.getTasks();
+    const ids = new Set<string>([id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const task of tasks) {
+        if (task.parentId && ids.has(task.parentId) && !ids.has(task.id)) {
+          ids.add(task.id);
+          changed = true;
+        }
+      }
+    }
+    const removed = tasks.filter((task) => ids.has(task.id));
+    if (removed.length === 0) return [];
+    this.transaction(() => {
+      for (const taskId of [...ids].reverse()) {
+        this.db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+        this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(taskId);
+      }
+    });
+    this.emit('tasks-changed', this.getTasks());
+    return removed;
+  }
+
+  createUndoOperation(
+    kind: 'complete' | 'delete',
+    taskTitle: string,
+    tasks: Task[],
+    removeIds: string[],
+    activeTaskId: string | null,
+    now: number = Date.now()
+  ): UndoState {
+    this.purgeExpiredUndo(now);
+    const operation: UndoState = { operationId: randomUUID(), kind, taskTitle, expiresAt: now + 10_000 };
+    const sessions = tasks.length === 0 ? [] : this.db.prepare(`
+      SELECT * FROM work_sessions WHERE task_id IN (${tasks.map(() => '?').join(',')})
+    `).all(...tasks.map((task) => task.id));
+    this.db.prepare(`
+      INSERT INTO undo_operations(id, kind, task_title, payload_json, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(operation.operationId, kind, taskTitle, JSON.stringify({ tasks, removeIds, activeTaskId, sessions }), operation.expiresAt, now);
+    return operation;
+  }
+
+  getUndoState(now: number = Date.now()): UndoState | null {
+    this.purgeExpiredUndo(now);
+    const row = this.db.prepare(`
+      SELECT id, kind, task_title, expires_at FROM undo_operations
+      WHERE expires_at >= ? ORDER BY created_at DESC LIMIT 1
+    `).get(now) as SqlRow | undefined;
+    return row ? {
+      operationId: String(row.id),
+      kind: String(row.kind) as UndoState['kind'],
+      taskTitle: String(row.task_title),
+      expiresAt: Number(row.expires_at)
+    } : null;
+  }
+
+  undoOperation(operationId: string, now: number = Date.now()): boolean {
+    const row = this.db.prepare(`SELECT payload_json, expires_at FROM undo_operations WHERE id = ?`).get(operationId) as SqlRow | undefined;
+    if (!row || Number(row.expires_at) < now || typeof row.payload_json !== 'string') {
+      this.purgeExpiredUndo(now);
+      return false;
+    }
+    const payload = JSON.parse(row.payload_json) as {
+      tasks: Task[];
+      removeIds: string[];
+      activeTaskId: string | null;
+      sessions: SqlRow[];
+    };
+    const tasks = sanitizeTasks(payload.tasks, now);
+    this.transaction(() => {
+      for (const id of payload.removeIds ?? []) this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+      for (const task of tasks) {
+        this.upsertTask(task);
+        this.writeTaskTags(task.id, task.tags);
+      }
+      for (const session of payload.sessions ?? []) {
+        this.db.prepare(`INSERT OR IGNORE INTO work_sessions(id, task_id, started_at, ended_at, active_ms) VALUES (?, ?, ?, ?, ?)`)
+          .run(session.id, session.task_id, session.started_at, session.ended_at, session.active_ms);
+      }
+      if (payload.activeTaskId && this.getTask(payload.activeTaskId)) {
+        this.db.prepare(`INSERT INTO app_state(key, value) VALUES ('active_task_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+          .run(payload.activeTaskId);
+      }
+      this.db.prepare('DELETE FROM undo_operations WHERE id = ?').run(operationId);
+    });
+    this.emit('tasks-changed', this.getTasks());
+    return true;
+  }
+
+  private purgeExpiredUndo(now: number): void {
+    this.db.prepare('DELETE FROM undo_operations WHERE expires_at < ?').run(now);
   }
 
   createProject(input: ProjectInput, now: number = Date.now()): Project {
@@ -432,7 +627,7 @@ export class TaskStore extends EventEmitter {
       }
       this.db.prepare(`
         DELETE FROM app_state WHERE key = 'active_task_id' AND value NOT IN (
-          SELECT id FROM tasks WHERE status = 'active'
+          SELECT id FROM tasks WHERE status = 'open'
         )
       `).run();
       this.db.prepare(`
@@ -560,6 +755,129 @@ export class TaskStore extends EventEmitter {
     `).run(consumedAt, taskId, fireAt);
   }
 
+  enqueueDelivery(
+    source: DeliverySource,
+    sourceId: string,
+    occurrenceAt: number,
+    title: string,
+    body: string,
+    now: number = Date.now()
+  ): NotificationDelivery {
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO reminder_delivery(
+        id, source, source_id, occurrence_at, title, body, state, attempts,
+        first_due_at, next_attempt_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'due', 0, ?, ?)
+      ON CONFLICT(source, source_id, occurrence_at) DO NOTHING
+    `).run(id, source, sourceId, occurrenceAt, title, body, now, now);
+    return this.getDeliveryByOccurrence(source, sourceId, occurrenceAt)!;
+  }
+
+  getDueDeliveries(now: number = Date.now()): NotificationDelivery[] {
+    return (this.db.prepare(`
+      SELECT * FROM reminder_delivery
+      WHERE (state = 'due' AND next_attempt_at <= ?)
+         OR (state = 'presenting' AND last_attempt_at <= ?)
+      ORDER BY first_due_at, id
+    `).all(now, now - 30_000) as SqlRow[]).map(rowToDelivery);
+  }
+
+  beginDelivery(id: string, now: number = Date.now()): NotificationDelivery | null {
+    this.db.prepare(`
+      UPDATE reminder_delivery
+      SET state = 'presenting', attempts = attempts + 1, last_attempt_at = ?, next_attempt_at = NULL
+      WHERE id = ? AND state IN ('due', 'presenting')
+    `).run(now, id);
+    return this.getDelivery(id);
+  }
+
+  markDeliveryDelivered(id: string, now: number = Date.now()): void {
+    this.db.prepare(`UPDATE reminder_delivery SET state = 'delivered', delivered_at = ?, next_attempt_at = NULL WHERE id = ?`)
+      .run(now, id);
+  }
+
+  markDeliveryOutcome(id: string, state: 'clicked' | 'dismissed'): void {
+    this.db.prepare(`UPDATE reminder_delivery SET state = ? WHERE id = ? AND state = 'delivered'`).run(state, id);
+  }
+
+  failDelivery(id: string, now: number = Date.now()): NotificationDelivery | null {
+    const delivery = this.getDelivery(id);
+    if (!delivery) return null;
+    const delays = [30_000, 120_000, 300_000];
+    const retryDelay = delays[delivery.attempts - 1];
+    if (retryDelay === undefined) {
+      this.db.prepare(`UPDATE reminder_delivery SET state = 'failed', next_attempt_at = NULL WHERE id = ?`).run(id);
+    } else {
+      this.db.prepare(`UPDATE reminder_delivery SET state = 'due', next_attempt_at = ? WHERE id = ?`)
+        .run(now + retryDelay, id);
+    }
+    return this.getDelivery(id);
+  }
+
+  getFailedDeliveryCount(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS value FROM reminder_delivery WHERE state = 'failed'`).get() as SqlRow;
+    return Number(row.value);
+  }
+
+  recordWorkSegment(taskId: string, startedAt: number, endedAt: number, activeMs: number): void {
+    if (!this.getTask(taskId) || activeMs <= 0) return;
+    this.db.prepare(`
+      INSERT INTO work_sessions(id, task_id, started_at, ended_at, active_ms)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(randomUUID(), taskId, startedAt, endedAt, Math.round(activeMs));
+  }
+
+  getTaskWorkMs(taskId: string): number {
+    const row = this.db.prepare(`SELECT COALESCE(SUM(active_ms), 0) AS value FROM work_sessions WHERE task_id = ?`)
+      .get(taskId) as SqlRow;
+    return Number(row.value);
+  }
+
+  isTimeboxNotified(taskId: string): boolean {
+    const row = this.db.prepare('SELECT timebox_notified FROM task_work_state WHERE task_id = ?').get(taskId) as SqlRow | undefined;
+    return Number(row?.timebox_notified ?? 0) === 1;
+  }
+
+  setTimeboxNotified(taskId: string, notified: boolean): void {
+    this.db.prepare(`
+      INSERT INTO task_work_state(task_id, timebox_notified) VALUES (?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET timebox_notified = excluded.timebox_notified
+    `).run(taskId, notified ? 1 : 0);
+  }
+
+  getContinuousActiveMs(): number {
+    const row = this.db.prepare("SELECT value FROM app_state WHERE key = 'continuous_active_ms'").get() as SqlRow | undefined;
+    return Math.max(0, Number(row?.value ?? 0));
+  }
+
+  setContinuousActiveMs(value: number): void {
+    this.db.prepare(`
+      INSERT INTO app_state(key, value) VALUES ('continuous_active_ms', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(String(Math.max(0, Math.round(value))));
+  }
+
+  getNextDeliveryAt(): number | null {
+    const row = this.db.prepare(`
+      SELECT MIN(CASE WHEN state = 'presenting' THEN last_attempt_at + 30000 ELSE next_attempt_at END) AS value
+      FROM reminder_delivery WHERE state IN ('due', 'presenting')
+    `).get() as SqlRow;
+    return row.value === null ? null : Number(row.value);
+  }
+
+  private getDelivery(id: string): NotificationDelivery | null {
+    const row = this.db.prepare(`SELECT * FROM reminder_delivery WHERE id = ?`).get(id) as SqlRow | undefined;
+    return row ? rowToDelivery(row) : null;
+  }
+
+  private getDeliveryByOccurrence(source: DeliverySource, sourceId: string, occurrenceAt: number): NotificationDelivery | null {
+    const row = this.db.prepare(`
+      SELECT * FROM reminder_delivery WHERE source = ? AND source_id = ? AND occurrence_at = ?
+    `).get(source, sourceId, occurrenceAt) as SqlRow | undefined;
+    return row ? rowToDelivery(row) : null;
+  }
+
   getTaskReminderOccurrences(): TaskReminderOccurrence[] {
     return (this.db.prepare(`
       SELECT task_id, fire_at, consumed_at FROM task_reminders ORDER BY task_id
@@ -592,22 +910,37 @@ export class TaskStore extends EventEmitter {
 
   private openDatabase(): DatabaseSync {
     try {
-      return new DatabaseSync(this.filePath, { enableForeignKeyConstraints: true });
-    } catch {
-      if (existsSync(this.filePath)) {
-        renameSync(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
+      // Electron's embedded node:sqlite build on Windows can fail with
+      // SQLITE_CANTOPEN when asked to create the first database file itself.
+      // Creating the empty file through Node's filesystem API keeps first-run
+      // packaged installs reliable; SQLite still owns all subsequent content.
+      if (!existsSync(this.filePath)) {
+        mkdirSync(dirname(this.filePath), { recursive: true });
+        closeSync(openSync(this.filePath, 'a'));
       }
       return new DatabaseSync(this.filePath, { enableForeignKeyConstraints: true });
+    } catch (error) {
+      const snapshotPath = this.snapshotDatabase();
+      this.recovery = {
+        readOnly: true,
+        snapshotPath,
+        reason: error instanceof Error ? error.message : '无法打开任务数据库'
+      };
+      return new DatabaseSync(':memory:', { enableForeignKeyConstraints: true });
     }
   }
 
-  private quarantineDatabase(): void {
-    const suffix = `.corrupt-${Date.now()}`;
+  private snapshotDatabase(kind: 'recovery' | 'pre-model-reset' = 'recovery'): string | null {
+    const suffix = `.${kind}-${Date.now()}`;
+    let snapshotPath: string | null = null;
     for (const path of [this.filePath, `${this.filePath}-wal`, `${this.filePath}-shm`]) {
       if (existsSync(path)) {
-        renameSync(path, `${path}${suffix}`);
+        const target = `${path}${suffix}`;
+        copyFileSync(path, target);
+        if (path === this.filePath) snapshotPath = target;
       }
     }
+    return snapshotPath;
   }
 
   private migrateSchema(): void {
@@ -632,7 +965,7 @@ export class TaskStore extends EventEmitter {
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         notes TEXT,
-        status TEXT NOT NULL CHECK(status IN ('inbox','active','done','archived')),
+        status TEXT NOT NULL CHECK(status IN ('open','done','archived')),
         priority TEXT NOT NULL CHECK(priority IN ('normal','important','urgent')),
         project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
         parent_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
@@ -685,7 +1018,49 @@ export class TaskStore extends EventEmitter {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS reminder_delivery (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL CHECK(source IN ('task','standalone','timebox')),
+        source_id TEXT NOT NULL,
+        occurrence_at INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('due','presenting','delivered','clicked','dismissed','failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        first_due_at INTEGER NOT NULL,
+        last_attempt_at INTEGER,
+        next_attempt_at INTEGER,
+        delivered_at INTEGER,
+        UNIQUE(source, source_id, occurrence_at)
+      );
+      CREATE INDEX IF NOT EXISTS reminder_delivery_due ON reminder_delivery(state, next_attempt_at);
+      CREATE TABLE IF NOT EXISTS work_sessions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER NOT NULL,
+        active_ms INTEGER NOT NULL CHECK(active_ms >= 0)
+      );
+      CREATE INDEX IF NOT EXISTS work_sessions_task ON work_sessions(task_id, started_at);
+      CREATE TABLE IF NOT EXISTS task_work_state (
+        task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+        timebox_notified INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS undo_operations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('complete','delete')),
+        task_title TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS character_collection_state (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        data_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
+    this.migrateTaskStatusModel();
     const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
     if (!taskColumns.some((column) => column.name === 'remind_on_break')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN remind_on_break INTEGER NOT NULL DEFAULT 0');
@@ -702,6 +1077,59 @@ export class TaskStore extends EventEmitter {
 
   private migrationCompleted(): boolean {
     return Boolean(this.db.prepare('SELECT 1 AS ok FROM schema_migrations WHERE version = 1001').get());
+  }
+
+  private migrateTaskStatusModel(): void {
+    const row = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`).get() as
+      | SqlRow
+      | undefined;
+    const sql = typeof row?.sql === 'string' ? row.sql : '';
+    if (!sql.includes("'inbox'") && !sql.includes("'active'")) return;
+    if (!this.allowTaskModelReset) {
+      throw new Error('用户取消了任务模型迁移；数据库以恢复模式打开');
+    }
+    this.snapshotDatabase('pre-model-reset');
+
+    this.db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE tasks_v2 (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            notes TEXT,
+            status TEXT NOT NULL CHECK(status IN ('open','done','archived')),
+            priority TEXT NOT NULL CHECK(priority IN ('normal','important','urgent')),
+            project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+            parent_id TEXT REFERENCES tasks_v2(id) ON DELETE SET NULL,
+            planned_at INTEGER,
+            due_at INTEGER,
+            reminder_at INTEGER,
+            recurrence_json TEXT,
+            context TEXT NOT NULL CHECK(context IN ('desk','away','any')),
+            remind_on_break INTEGER NOT NULL DEFAULT 0,
+            estimate_minutes INTEGER,
+            sort_order INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            completed_at INTEGER
+          );
+          INSERT INTO tasks_v2
+          SELECT id, title, notes,
+            CASE WHEN status IN ('inbox','active') THEN 'open' ELSE status END,
+            priority, project_id, parent_id, planned_at, due_at, reminder_at,
+            recurrence_json, context, remind_on_break, estimate_minutes,
+            sort_order, created_at, updated_at, completed_at
+          FROM tasks;
+          DROP TABLE tasks;
+          ALTER TABLE tasks_v2 RENAME TO tasks;
+          CREATE INDEX tasks_status_sort ON tasks(status, sort_order);
+          CREATE INDEX tasks_reminder ON tasks(reminder_at) WHERE reminder_at IS NOT NULL;
+        `);
+      });
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON');
+    }
   }
 
   private transaction(action: () => void): void {
@@ -913,7 +1341,7 @@ const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({
   id: todo.id,
   title: todo.text,
   notes: null,
-  status: todo.completed ? 'done' : 'inbox',
+  status: todo.completed ? 'done' : 'open',
   priority: todo.priority,
   projectId: null,
   parentId: null,
@@ -929,6 +1357,21 @@ const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({
   createdAt: todo.createdAt,
   updatedAt: now,
   completedAt: todo.completed ? todo.completedAt ?? todo.createdAt : null
+});
+
+const rowToDelivery = (row: SqlRow): NotificationDelivery => ({
+  id: String(row.id),
+  source: String(row.source) as DeliverySource,
+  sourceId: String(row.source_id),
+  occurrenceAt: Number(row.occurrence_at),
+  title: String(row.title),
+  body: String(row.body),
+  state: String(row.state) as DeliveryState,
+  attempts: Number(row.attempts),
+  firstDueAt: Number(row.first_due_at),
+  lastAttemptAt: row.last_attempt_at === null ? null : Number(row.last_attempt_at),
+  nextAttemptAt: row.next_attempt_at === null ? null : Number(row.next_attempt_at),
+  deliveredAt: row.delivered_at === null ? null : Number(row.delivered_at)
 });
 
 const nextLegacyAlarmFireAt = (alarm: Alarm, now: number): number => {

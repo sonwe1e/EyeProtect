@@ -4,6 +4,7 @@ import {
   sanitizeProject,
   sanitizeStandaloneReminder,
   sanitizeTask,
+  type CharacterCollectionState,
   type Project,
   type ReminderEvent,
   type Settings,
@@ -12,7 +13,7 @@ import {
 } from '../shared/types';
 import type { TaskReminderOccurrence } from './taskStore';
 
-const BACKUP_SCHEMA_VERSION = 3;
+const BACKUP_SCHEMA_VERSION = 4;
 type PreferenceSettings = Omit<Settings, 'todos' | 'alarms' | 'activeTaskId'>;
 
 export interface BackupDomainData {
@@ -21,10 +22,11 @@ export interface BackupDomainData {
   standaloneReminders: StandaloneReminder[];
   activeTaskId: string | null;
   taskReminderOccurrences: TaskReminderOccurrence[];
+  characterCollection: CharacterCollectionState | null;
 }
 
 export interface EyeProtectBackup extends BackupDomainData {
-  version: 3;
+  version: 4;
   createdAt: number;
   appVersion: string;
   settings: PreferenceSettings;
@@ -36,11 +38,13 @@ const emptyDomain = (): BackupDomainData => ({
   projects: [],
   standaloneReminders: [],
   activeTaskId: null,
-  taskReminderOccurrences: []
+  taskReminderOccurrences: [],
+  characterCollection: null
 });
 
-type BackupDomainInput = Omit<BackupDomainData, 'taskReminderOccurrences'> & {
+type BackupDomainInput = Omit<BackupDomainData, 'taskReminderOccurrences' | 'characterCollection'> & {
   taskReminderOccurrences?: TaskReminderOccurrence[];
+  characterCollection?: CharacterCollectionState | null;
 };
 
 const preferenceSettings = (settings: Settings): PreferenceSettings => {
@@ -61,13 +65,14 @@ export const createBackup = (
   settings: preferenceSettings(settings),
   reminderHistory: [...reminderHistory],
   ...domain,
-  taskReminderOccurrences: domain.taskReminderOccurrences ?? []
+  taskReminderOccurrences: domain.taskReminderOccurrences ?? [],
+  characterCollection: domain.characterCollection ?? null
 } satisfies EyeProtectBackup, null, 2)}\n`;
 
 export const parseBackup = (text: string): EyeProtectBackup => {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (
-    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
+    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
     !Number.isFinite(parsed.createdAt) ||
     typeof parsed.appVersion !== 'string' ||
     !parsed.settings || typeof parsed.settings !== 'object' ||
@@ -95,7 +100,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         id: todo.id,
         title: todo.text,
         notes: null,
-        status: todo.completed ? 'done' as const : 'inbox' as const,
+        status: todo.completed ? 'done' as const : 'open' as const,
         priority: todo.priority,
         projectId: null,
         parentId: null,
@@ -149,6 +154,9 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         }];
       })
     : [];
+  const characterCollection = parsed.characterCollection && typeof parsed.characterCollection === 'object'
+    ? parsed.characterCollection as CharacterCollectionState
+    : null;
   return {
     version: BACKUP_SCHEMA_VERSION,
     createdAt: parsed.createdAt as number,
@@ -159,6 +167,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
     projects,
     standaloneReminders,
     taskReminderOccurrences,
+    characterCollection,
     activeTaskId: typeof (parsed.activeTaskId ?? legacyActiveTaskId) === 'string' &&
       tasks.some((task) => task.id === (parsed.activeTaskId ?? legacyActiveTaskId))
       ? (parsed.activeTaskId ?? legacyActiveTaskId) as string

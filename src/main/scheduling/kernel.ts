@@ -28,6 +28,13 @@ export interface ScheduledEvent {
   /** Epoch ms at which this deadline fires. */
   fireAt: number
   /**
+   * Wall events follow the civil clock. Elapsed events retain the amount of
+   * active-use time that remained when they were registered and are immune to
+   * wall-clock corrections. Omitted for backwards compatibility with the
+   * existing wall-clock services.
+   */
+  clock?: 'wall' | 'elapsed'
+  /**
    * Bumped every time the service re-registers the same id. Lets the kernel
    * ignore a wake that targets a deadline the service has already superseded.
    */
@@ -61,7 +68,7 @@ export interface SchedulerKernelOptions {
 }
 
 interface RegisteredEvent extends ScheduledEvent {
-  /** Absolute monotonic ms at which fireAt occurs, for drift comparison. */
+  /** Absolute monotonic ms used by elapsed-domain deadlines. */
   monotonicFireAt: number
 }
 
@@ -83,6 +90,8 @@ export class SchedulerKernel extends EventEmitter {
   private running = false;
   /** When suspended, set()/clear() mutate state but never re-arm the timer. */
   private suspended = false;
+  /** Monotonic instant at which active-use time was frozen. */
+  private elapsedPausedAt: number | null = null;
 
   /** Baseline for drift detection, refreshed on every arm and watchdog tick. */
   private lastWall = 0;
@@ -164,6 +173,7 @@ export class SchedulerKernel extends EventEmitter {
   suspend(): void {
     this.disarm();
     this.suspended = true;
+    this.pauseElapsed();
     this.trace('kernel suspend');
   }
 
@@ -174,8 +184,36 @@ export class SchedulerKernel extends EventEmitter {
    */
   resume(idleMs: number): void {
     this.suspended = false;
+    this.resumeElapsed();
     this.trace('kernel resume', { idleMs });
     this.reconcile();
+  }
+
+  /** Freeze elapsed-domain deadlines while leaving wall events eligible. */
+  pauseElapsed(): void {
+    if (this.elapsedPausedAt !== null) {
+      return;
+    }
+    this.elapsedPausedAt = this.clock.monotonic();
+    this.trace('kernel elapsed pause');
+    this.arm();
+  }
+
+  /** Continue elapsed deadlines without counting the frozen duration. */
+  resumeElapsed(): void {
+    if (this.elapsedPausedAt === null) {
+      return;
+    }
+    const pausedFor = Math.max(0, this.clock.monotonic() - this.elapsedPausedAt);
+    for (const event of this.events) {
+      if (event.clock === 'elapsed') {
+        event.monotonicFireAt += pausedFor;
+        event.fireAt += pausedFor;
+      }
+    }
+    this.elapsedPausedAt = null;
+    this.trace('kernel elapsed resume', { pausedFor });
+    this.arm();
   }
 
   /**
@@ -197,7 +235,13 @@ export class SchedulerKernel extends EventEmitter {
     // can detect when wall and monotonic diverge.
     const monotonicFireAt =
       this.clock.monotonic() + Math.max(0, fireAt - this.clock.now());
-    return { ...event, monotonicFireAt };
+    return { ...event, clock: event.clock ?? 'wall', monotonicFireAt };
+  }
+
+  private remaining(event: RegisteredEvent): number {
+    return event.clock === 'elapsed'
+      ? event.monotonicFireAt - (this.elapsedPausedAt ?? this.clock.monotonic())
+      : event.fireAt - this.clock.now();
   }
 
   /** Arm (or re-arm) the single timer to the nearest due deadline. */
@@ -209,14 +253,17 @@ export class SchedulerKernel extends EventEmitter {
     if (this.suspended || !this.running || this.events.length === 0) {
       return;
     }
-    const now = this.clock.now();
-    let nearest = Infinity;
+    let delay = Infinity;
     for (const event of this.events) {
-      if (event.fireAt < nearest) {
-        nearest = event.fireAt;
+      if (event.clock === 'elapsed' && this.elapsedPausedAt !== null) {
+        continue;
       }
+      delay = Math.min(delay, Math.max(0, this.remaining(event)));
     }
-    const delay = Math.min(MAX_TIMEOUT_MS, Math.max(0, nearest - now));
+    if (delay === Infinity) {
+      return;
+    }
+    delay = Math.min(MAX_TIMEOUT_MS, delay);
     this.timer = setTimeout(() => {
       this.timer = null;
       this.fireDue();
@@ -241,13 +288,13 @@ export class SchedulerKernel extends EventEmitter {
     if (!this.running || this.events.length === 0) {
       return;
     }
-    const now = this.clock.now();
     const due: RegisteredEvent[] = [];
     const remaining: RegisteredEvent[] = [];
     for (const event of this.events) {
       // Past deadlines (including ones the wall clock jumped past) always fire;
       // a service that no longer cares for one drops it on its next set().
-      if (event.fireAt <= now) {
+      const elapsedFrozen = event.clock === 'elapsed' && this.elapsedPausedAt !== null;
+      if (!elapsedFrozen && this.remaining(event) <= 0) {
         due.push(event);
       } else {
         remaining.push(event);
@@ -320,12 +367,14 @@ export class SchedulerKernel extends EventEmitter {
     // No drift, but guard against a timer that should have fired by now (e.g. a
     // deadline landed in the gap between ticks). If the nearest deadline is
     // already past, the exact timer is either late or disarmed — reconcile.
-    const nearest = this.events.reduce(
-      (min, event) => Math.min(min, event.fireAt),
-      Infinity
-    );
-    if (nearest !== Infinity && nearest < wall) {
-      this.trace('kernel missed deadline', { nearest, now: wall });
+    const nearestDelay = this.events.reduce((min, event) => {
+      if (event.clock === 'elapsed' && this.elapsedPausedAt !== null) {
+        return min;
+      }
+      return Math.min(min, this.remaining(event));
+    }, Infinity);
+    if (nearestDelay < 0) {
+      this.trace('kernel missed deadline', { nearestDelay, now: wall });
       this.reconcile();
     }
   }

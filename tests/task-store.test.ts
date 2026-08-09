@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'nod
 import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { TaskStore } from '../src/main/taskStore';
 import {
   PROJECT_NAME_MAX,
@@ -30,7 +31,7 @@ const sampleTask = (over: Partial<Task> = {}): Task =>
     id: 't1',
     title: '写论文',
     notes: null,
-    status: 'inbox',
+    status: 'open',
     priority: 'normal',
     projectId: null,
     parentId: null,
@@ -102,7 +103,7 @@ test('createTask sanitizes the title and fills defaults', () => {
 
     assert.equal(task.title, '喝水');
     assert.equal(task.notes, 'with lemon');
-    assert.equal(task.status, 'inbox');
+    assert.equal(task.status, 'open');
     assert.equal(task.priority, 'urgent');
     assert.equal(task.tags.length, 2, 'duplicates dropped');
     assert.ok(task.tags[0].length <= 24);
@@ -191,8 +192,8 @@ test('setTaskStatus transitions and emits once', () => {
     const events: Task[][] = [];
     store.on('tasks-changed', (tasks) => events.push(tasks));
 
-    const result = store.setTaskStatus(task.id, 'active', NOW + 1);
-    assert.equal(result!.status, 'active');
+    const result = store.setTaskStatus(task.id, 'done', NOW + 1);
+    assert.equal(result!.status, 'done');
     assert.equal(events.length, 1);
   });
 });
@@ -384,20 +385,78 @@ test('legacy migration merges into an existing database and tasks.json wins id c
   });
 });
 
-test('a malformed SQLite database is quarantined before a clean store is created', () => {
+test('a malformed SQLite database is preserved and opens an ephemeral recovery store', () => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-corrupt-db-'));
   try {
     writeFileSync(join(dir, 'eyeprotect.db'), 'this is not sqlite', 'utf8');
     const store = new TaskStore(dir);
     assert.deepEqual(store.getTasks(), []);
+    assert.equal(store.getRecoveryStatus().readOnly, true);
+    assert.ok(store.getRecoveryStatus().snapshotPath?.includes('.recovery-'));
     store.close();
     assert.ok(
       existsSync(join(dir, 'eyeprotect.db')),
-      'a clean replacement database is available'
+      'the original malformed database is not overwritten'
     );
     const quarantined = readdirSync(dir)
-      .some((name: string) => name.startsWith('eyeprotect.db.corrupt-'));
+      .some((name: string) => name.startsWith('eyeprotect.db.recovery-'));
     assert.equal(quarantined, true);
+  } finally {
+    TaskStore.closeAllForDirectory(dir);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('legacy status migration requires permission and preserves a pre-reset snapshot', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-status-reset-'));
+  const path = join(dir, 'eyeprotect.db');
+  try {
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT,
+        status TEXT NOT NULL CHECK(status IN ('inbox','active','done','archived')),
+        priority TEXT NOT NULL, project_id TEXT, parent_id TEXT, planned_at INTEGER,
+        due_at INTEGER, reminder_at INTEGER, recurrence_json TEXT, context TEXT NOT NULL,
+        remind_on_break INTEGER NOT NULL DEFAULT 0, estimate_minutes INTEGER,
+        sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL, completed_at INTEGER
+      );
+    `);
+    legacy.close();
+    assert.equal(TaskStore.requiresTaskModelReset(dir), true);
+
+    const store = new TaskStore(dir);
+    assert.equal(store.getRecoveryStatus().readOnly, false);
+    store.close();
+    assert.equal(TaskStore.requiresTaskModelReset(dir), false);
+    assert.equal(readdirSync(dir).some((name) => name.includes('.pre-model-reset-')), true);
+  } finally {
+    TaskStore.closeAllForDirectory(dir);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('declining legacy status migration keeps the original database untouched', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-status-decline-'));
+  const path = join(dir, 'eyeprotect.db');
+  try {
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT,
+      status TEXT NOT NULL CHECK(status IN ('inbox','active','done','archived')),
+      priority TEXT NOT NULL, project_id TEXT, parent_id TEXT, planned_at INTEGER,
+      due_at INTEGER, reminder_at INTEGER, recurrence_json TEXT, context TEXT NOT NULL,
+      remind_on_break INTEGER NOT NULL DEFAULT 0, estimate_minutes INTEGER,
+      sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL, completed_at INTEGER
+    );`);
+    legacy.close();
+
+    const store = new TaskStore(dir, { allowTaskModelReset: false });
+    assert.equal(store.getRecoveryStatus().readOnly, true);
+    store.close();
+    assert.equal(TaskStore.requiresTaskModelReset(dir), true);
   } finally {
     TaskStore.closeAllForDirectory(dir);
     rmSync(dir, { recursive: true, force: true });
@@ -448,7 +507,7 @@ test('a migrated TodoItem becomes a Task with the expected mapping', () => {
     const loaded = store.getTask('legacy-1');
     assert.ok(loaded);
     assert.equal(loaded!.title, '接一杯水');
-    assert.equal(loaded!.status, 'inbox');
+    assert.equal(loaded!.status, 'open');
     assert.equal(loaded!.priority, 'important');
     assert.equal(loaded!.context, 'desk');
     assert.equal(loaded!.projectId, null);
@@ -462,9 +521,9 @@ test('active task state is exclusive and survives reopening the database', () =>
     const second = store.createTask({ title: '第二项' }, NOW + 1);
     assert.equal(store.setActiveTaskId(first.id, NOW + 2), first.id);
     assert.equal(store.setActiveTaskId(second.id, NOW + 3), second.id);
-    assert.equal(store.getTask(first.id)?.status, 'inbox');
-    assert.equal(store.getTask(second.id)?.status, 'active');
-    assert.equal(store.getTasks().filter((task) => task.status === 'active').length, 1);
+    assert.equal(store.getTask(first.id)?.status, 'open');
+    assert.equal(store.getTask(second.id)?.status, 'open');
+    assert.equal(store.getTasks().filter((task) => task.status === 'open').length, 2);
 
     store.close();
     const reopened = new TaskStore(dir);
@@ -517,7 +576,7 @@ const migrateShape = (todo: TodoItem): Task => ({
   id: todo.id,
   title: todo.text,
   notes: null,
-  status: todo.completed ? 'done' : 'inbox',
+  status: todo.completed ? 'done' : 'open',
   priority: todo.priority,
   projectId: null,
   parentId: null,

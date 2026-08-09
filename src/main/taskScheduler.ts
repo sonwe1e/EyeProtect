@@ -26,7 +26,6 @@ export class TaskScheduler extends EventEmitter {
   private readonly consumed = new Map<string, number>();
   private readonly persist: (events: PersistedScheduledEvent[]) => void;
   private readonly isConsumed: (task: Task) => boolean;
-  private readonly acknowledge: (task: Task, fireAt: number) => void;
   private readonly onWake: (owner: string, events: ScheduledEvent[]) => void;
 
   constructor(kernel: SchedulerKernel, getTasks: () => Task[], now: () => number = Date.now, options: TaskSchedulerOptions = {}) {
@@ -36,7 +35,6 @@ export class TaskScheduler extends EventEmitter {
     this.now = now;
     this.persist = options.persist ?? (() => undefined);
     this.isConsumed = options.isConsumed ?? (() => false);
-    this.acknowledge = options.acknowledge ?? (() => undefined);
     this.onWake = (owner, events) => {
       if (owner !== 'task') {
         return;
@@ -120,9 +118,6 @@ export class TaskScheduler extends EventEmitter {
         if (task.reminderAt !== null) {
           this.consumed.set(`task-reminder-${task.id}`, task.reminderAt);
         }
-      }
-      for (const task of due) {
-        this.acknowledge(task, task.reminderAt!);
       }
       this.emit('task-reminder', due);
     }

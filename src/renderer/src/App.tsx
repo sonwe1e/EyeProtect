@@ -1,10 +1,9 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
+import { useSettings } from './hooks/useSettings';
 
 const AlertView = lazy(() => import('./views/AlertView'));
 const BubbleView = lazy(() => import('./views/BubbleView'));
-const PanelView = lazy(() => import('./views/PanelView'));
 const PetView = lazy(() => import('./views/PetView'));
-const SettingsView = lazy(() => import('./views/SettingsView'));
 const WorkbenchView = lazy(() => import('./views/WorkbenchView'));
 
 const route = window.location.hash.replace('#', '') || 'pet';
@@ -16,9 +15,8 @@ const resolveView = () => {
     case 'bubble':
       return BubbleView;
     case 'panel':
-      return PanelView;
     case 'settings':
-      return SettingsView;
+      return WorkbenchView;
     case 'workbench':
       return WorkbenchView;
     default:
@@ -28,6 +26,12 @@ const resolveView = () => {
 
 export function App(): JSX.Element {
   const View = resolveView();
+  const { settings } = useSettings();
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+    document.documentElement.dataset.density = settings.density;
+    document.documentElement.style.colorScheme = settings.theme === 'system' ? 'light dark' : settings.theme;
+  }, [settings.theme, settings.density]);
   return (
     <Suspense fallback={null}>
       <View />

@@ -27,8 +27,8 @@ EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、
 | 主进程到渲染端的新能力/API | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | 先定义 `EyeProtectApi`，再在 preload 调用 IPC，最后在 main 注册 handler。三处通道名保持一致。 |
 | 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
 | 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。 |
-| 桌宠图片、皮肤选择和低频动作 | `src/renderer/src/features/pet/PetCharacter.tsx`、`public/assets/pet/` | 默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
-| 托盘图标、桌宠或提醒资源 | `public/assets/tray-icon.png`、`public/assets/pet/`、`public/assets/reminders/` | 资源必须继续包含在 portable 包中；修改后运行 `npm run package`。 |
+| 公仔生成、收藏、材质、配饰和低频动作 | `src/shared/characters.ts`、`src/main/characterService.ts`、`src/renderer/src/features/characters/` | 角色由种子确定性生成；用户改名/材质/配饰不能改变角色指纹。默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
+| 托盘图标或程序化提醒视觉 | `public/assets/tray-icon.png`、`src/renderer/src/features/reminders/ReminderArtwork.tsx` | 托盘图标必须继续包含在 portable 包中；公仔与提醒为内联 SVG，不依赖旧固定 PNG。修改后运行 `npm run package`。 |
 | 打包配置、产物名称、Windows portable 目标 | `package.json` | 修改 `build` 字段；默认输出目录是 `release/`。 |
 | electron-vite 入口、renderer public 目录 | `electron.vite.config.ts` | main、preload、renderer 的入口都在这里声明。 |
 

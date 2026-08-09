@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 import { pickActivityIds } from '../shared/breakActivities';
 import type { ScheduledEvent, SchedulerKernel } from './scheduling/kernel';
@@ -19,13 +18,6 @@ import type {
 
 type ReminderChangedPayload = ReminderStatus;
 
-/** Structural shape of Electron's Notification — avoids a top-level electron
- * import so this module still loads under the pure-Node tsx test runner. */
-interface ElectronNotificationConstructor {
-  isSupported(): boolean;
-  new (options: { title: string; body: string; silent?: boolean }): { show(): void };
-}
-
 const MINUTE = 60_000;
 const COMBINE_WINDOW_MS = 60_000;
 /** Pre-alert "give me a moment" defers the deadline by this long. */
@@ -39,8 +31,6 @@ const MAX_TIMEOUT_MS = 2 ** 31 - 1;
  * overdue reminders wait this long before forcing a window on screen.
  */
 const SYSTEM_GRACE_MS = 60_000;
-/** Ten minutes away counts as a natural break and restarts both cycles. */
-const NATURAL_BREAK_MIN_MS = 10 * MINUTE;
 /** Restore sanity bound: anything scheduled further out than this is corrupt. */
 const MAX_SCHEDULE_AHEAD_MS = 48 * 60 * MINUTE;
 /**
@@ -192,6 +182,7 @@ export class ReminderScheduler extends EventEmitter {
           this.reconcile();
         }
       });
+      this.kernel.on('drift', (delta: number) => this.handleWallClockDrift(delta));
     }
   }
 
@@ -233,19 +224,10 @@ export class ReminderScheduler extends EventEmitter {
   }
 
   updateSettings(settings: Settings, previous: Settings): ReminderStatus {
-    const now = this.now();
-    const previousIntervals = this.effectiveIntervals(previous);
+    void previous;
     this.settings = settings;
-    const nextIntervals = this.effectiveIntervals(settings);
-
-    if (!this.status.activeReminder) {
-      if (nextIntervals.eyeMinutes !== previousIntervals.eyeMinutes) {
-        this.status.nextEyeAt = now + nextIntervals.eyeMinutes * MINUTE;
-      }
-      if (nextIntervals.walkMinutes !== previousIntervals.walkMinutes) {
-        this.status.nextWalkAt = now + nextIntervals.walkMinutes * MINUTE;
-      }
-    }
+    // A cycle is fixed when it starts. Interval edits are preferences for the
+    // next complete cycle; restartCycle() is the explicit "apply now" action.
     // Deadlines may have moved (or the lead time changed): any pending
     // pre-alert refers to an old schedule.
     this.activePreAlert = null;
@@ -482,11 +464,17 @@ export class ReminderScheduler extends EventEmitter {
    * cycle counts as a natural break rather than a backlog of reminders.
    */
   handleSystemResume(idleSeconds: number): ReminderStatus {
-    const now = this.now();
     const idleMs = Math.max(0, idleSeconds) * 1_000;
+    return this.handleActivityResume(idleMs);
+  }
+
+  /** Continue after idle/lock/suspend without counting inactive time. */
+  handleActivityResume(inactiveMs: number): ReminderStatus {
+    const now = this.now();
+    const safeInactiveMs = Math.max(0, inactiveMs);
     const intervals = this.effectiveIntervals();
 
-    if (!this.status.pausedUntil && idleMs >= NATURAL_BREAK_MIN_MS) {
+    if (safeInactiveMs >= (this.settings.naturalBreakMinutes ?? 5) * MINUTE) {
       const eyeDue = this.status.nextEyeAt <= now;
       const walkDue = this.status.nextWalkAt <= now;
       const naturalKind: ReminderKind =
@@ -519,6 +507,17 @@ export class ReminderScheduler extends EventEmitter {
       this.activePreAlert = null;
       this.cancelPendingGate();
       this.status.contextDeferral = null;
+      this.status.pausedUntil = null;
+      this.frozen = null;
+    } else if (!this.status.activeReminder && safeInactiveMs > 0) {
+      this.status.nextEyeAt += safeInactiveMs;
+      this.status.nextWalkAt += safeInactiveMs;
+      if (this.status.pausedUntil !== null) {
+        this.status.pausedUntil += safeInactiveMs;
+      }
+      if (this.activePreAlert) {
+        this.activePreAlert.forAt += safeInactiveMs;
+      }
     }
 
     this.quietUntil = now + SYSTEM_GRACE_MS;
@@ -526,6 +525,31 @@ export class ReminderScheduler extends EventEmitter {
     this.persist();
     this.armTimer();
     return this.getStatus();
+  }
+
+  /** Keep renderer-facing epoch timestamps aligned when the civil clock jumps. */
+  private handleWallClockDrift(delta: number): void {
+    if (!Number.isFinite(delta) || delta === 0) {
+      return;
+    }
+    this.status.nextEyeAt += delta;
+    this.status.nextWalkAt += delta;
+    if (this.status.pausedUntil !== null) {
+      this.status.pausedUntil += delta;
+    }
+    if (this.activePreAlert) {
+      this.activePreAlert.forAt += delta;
+    }
+    if (this.status.activeReminder) {
+      this.status.activeReminder.startedAt += delta;
+      this.status.activeReminder.scheduledAt += delta;
+      this.status.activeReminder.unlockAt += delta;
+      this.status.activeReminder.snoozeAllowedAt += delta;
+    }
+    this.quietUntil += delta;
+    this.emitChanged();
+    this.persist();
+    this.armTimer();
   }
 
   /** Screen unlocked: give the user a grace period before forcing a reminder. */
@@ -733,6 +757,7 @@ export class ReminderScheduler extends EventEmitter {
         id: 'break-next',
         owner: 'break',
         type: 'deadline',
+        clock: 'elapsed',
         fireAt: deadline,
         revision: ++this.kernelRevision
       });
@@ -1111,38 +1136,10 @@ export class ReminderScheduler extends EventEmitter {
           windows.broadcastReminderStatus(this.getStatus());
         }
       }
-      this.notifyTaskReminder(due);
       return;
     }
     // No in-flight break (or an eye-only break): surface via native
     // notification so we never pop a window over the user's current work.
-    this.notifyTaskReminder(due);
-  }
-
-  private notifyTaskReminder(due: Task[]): void {
-    // Electron's Notification is required lazily: its CJS entry throws when
-    // loaded outside the Electron runtime, as happens under the tsx test runner
-    // (the same constraint settings.ts works around for app.getPath). The
-    // constructor shape is typed structurally so this file needs no top-level
-    // electron import (which would break the pure-Node test runs).
-    const require = createRequire(import.meta.url);
-    let NotificationCtor: ElectronNotificationConstructor;
-    try {
-      NotificationCtor = require('electron').Notification as ElectronNotificationConstructor;
-    } catch {
-      return;
-    }
-    if (!NotificationCtor.isSupported()) {
-      return;
-    }
-    const titles = due.slice(0, 3).map((task) => task.title).join('、');
-    const body =
-      due.length === 1 ? `该处理：「${titles}」` : `你有 ${due.length} 项任务到期：${titles}`;
-    new NotificationCtor({
-      title: 'EyeProtect · 任务提醒',
-      body,
-      silent: true
-    }).show();
   }
 
   private intervalFor(kind: SingleReminderKind): number {

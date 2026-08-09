@@ -78,7 +78,20 @@ export class RuntimeStateStore {
         return null;
       }
       this.lastExitAt = isFiniteNumber(parsed.lastExitAt) ? parsed.lastExitAt : null;
-      return sanitizeSnapshot(parsed.reminder);
+      const snapshot = sanitizeSnapshot(parsed.reminder);
+      if (!snapshot || this.lastExitAt === null || snapshot.pausedUntil !== null) {
+        return snapshot;
+      }
+      // Break and snooze deadlines live in the active-use clock domain. A
+      // cleanly closed application cannot observe activity, so keep the exact
+      // remaining duration instead of treating offline wall time as work.
+      const offlineMs = Math.max(0, now() - this.lastExitAt);
+      return {
+        ...snapshot,
+        nextEyeAt: snapshot.nextEyeAt + offlineMs,
+        nextWalkAt: snapshot.nextWalkAt + offlineMs,
+        active: offlineMs > 0 ? null : snapshot.active
+      };
     } catch {
       // Unreadable/corrupt: preserve the evidence, then start fresh.
       this.quarantine(now());

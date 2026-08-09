@@ -32,3 +32,28 @@
   --motion-standard: 220ms;
   --motion-slow: 360ms;
 }
+
+:root[data-theme='dark'] {
+  --color-text: #e7f0ed;
+  --color-text-muted: #9eb0aa;
+  --surface-base: #18211f;
+  --surface-raised: #222d2a;
+  color: var(--color-text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    --color-text: #e7f0ed;
+    --color-text-muted: #9eb0aa;
+    --surface-base: #18211f;
+    --surface-raised: #222d2a;
+    color: var(--color-text);
+  }
+}
+
+:root[data-density='compact'] {
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-6: 18px;
+}

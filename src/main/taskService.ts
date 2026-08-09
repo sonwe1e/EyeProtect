@@ -9,9 +9,11 @@ import type {
   RecurrenceRule,
   Task,
   TaskInput,
+  TaskMoveInput,
   TaskStatus,
   TaskUpdateInput,
-  TodoItem
+  TodoItem,
+  UndoState
 } from '../shared/types';
 
 /**
@@ -69,11 +71,7 @@ export class TaskService extends EventEmitter {
     this.store.updateTask(id, fields, now);
     const updated = this.store.getTask(id);
     if (status !== undefined && updated && status !== before?.status) {
-      if (status === 'active') {
-        this.store.setActiveTaskId(id, now);
-      } else {
-        this.store.setTaskStatus(id, status, now);
-      }
+      this.store.setTaskStatus(id, status, now);
       if (status === 'done' && updated.recurrence) {
         this.rolloverRecurrence(updated, now);
       }
@@ -85,7 +83,7 @@ export class TaskService extends EventEmitter {
 
   /**
    * Transition a task's status. When a recurring task is marked `done`, the
-   * next occurrence is spawned as a fresh `inbox` instance anchored to the next
+   * next occurrence is spawned as a fresh `open` instance anchored to the next
    * fire time; the just-completed instance stays `done`. Emits `tasks-changed`
    * exactly once with the full resulting list (completed task + new instance).
    */
@@ -96,14 +94,17 @@ export class TaskService extends EventEmitter {
       return this.store.getTasks();
     }
 
-    if (status === 'active') {
-      this.store.setActiveTaskId(id, now);
-    } else {
-      this.store.setTaskStatus(id, status, now);
-    }
+    const beforeIds = new Set(this.store.getTasks().map((entry) => entry.id));
+    const previousActive = this.store.getActiveTaskId();
+    this.store.setTaskStatus(id, status, now);
 
     if (status === 'done' && task.recurrence) {
       this.rolloverRecurrence(task, now);
+    }
+    if (status === 'done' && task.status !== 'done') {
+      const generated = this.store.getTasks().filter((entry) => !beforeIds.has(entry.id)).map((entry) => entry.id);
+      const operation = this.store.createUndoOperation('complete', task.title, [task], generated, previousActive, now);
+      this.emit('undo-changed', operation);
     }
 
     this.emit('active-task-changed', this.store.getActiveTaskId());
@@ -112,10 +113,34 @@ export class TaskService extends EventEmitter {
   }
 
   deleteTask(id: string, now: number = Date.now()): Task[] {
-    this.store.deleteTask(id, now);
+    const task = this.store.getTask(id);
+    if (!task) return this.store.getTasks();
+    const previousActive = this.store.getActiveTaskId();
+    const removed = this.store.deleteTaskTree(id);
+    const operation = this.store.createUndoOperation('delete', task.title, removed, [], previousActive, now);
+    this.emit('undo-changed', operation);
     this.emit('active-task-changed', this.store.getActiveTaskId());
     this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
+  }
+
+  getUndoState(now: number = Date.now()): UndoState | null {
+    return this.store.getUndoState(now);
+  }
+
+  undo(operationId: string, now: number = Date.now()): Task[] {
+    if (this.store.undoOperation(operationId, now)) {
+      this.emit('active-task-changed', this.store.getActiveTaskId());
+      this.emit('tasks-changed', this.store.getTasks());
+    }
+    this.emit('undo-changed', this.store.getUndoState(now));
+    return this.store.getTasks();
+  }
+
+  moveTask(input: TaskMoveInput, now: number = Date.now()): Task[] {
+    const tasks = this.store.moveTask(input, now);
+    this.emit('tasks-changed', tasks);
+    return tasks;
   }
 
   // ── Project operations ────────────────────────────────────────────────────
@@ -183,7 +208,7 @@ export class TaskService extends EventEmitter {
     const delta = nextFire - anchor;
     const hasScheduledField =
       task.plannedAt !== null || task.dueAt !== null || task.reminderAt !== null;
-    this.store.createTask(
+    const nextRoot = this.store.createTask(
       {
         title: task.title,
         notes: task.notes,
@@ -207,5 +232,45 @@ export class TaskService extends EventEmitter {
       },
       now
     );
+
+    // A recurring parent is a checklist template: clone its complete descendant
+    // tree into the next occurrence, reset every child to open, and shift any
+    // explicit dates by the same delta. Descendant recurrence is intentionally
+    // cleared so one tree has exactly one recurrence owner.
+    const descendants = this.descendantsOf(task.id);
+    const idMap = new Map<string, string>([[task.id, nextRoot.id]]);
+    for (const child of descendants) {
+      const clone = this.store.createTask({
+        title: child.title,
+        notes: child.notes,
+        priority: child.priority,
+        projectId: child.projectId,
+        parentId: child.parentId ? idMap.get(child.parentId) ?? nextRoot.id : nextRoot.id,
+        tags: child.tags,
+        plannedAt: child.plannedAt === null ? null : child.plannedAt + delta,
+        dueAt: child.dueAt === null ? null : child.dueAt + delta,
+        reminderAt: child.reminderAt === null ? null : child.reminderAt + delta,
+        recurrence: null,
+        context: child.context,
+        remindOnBreak: child.remindOnBreak,
+        estimateMinutes: child.estimateMinutes
+      }, now);
+      idMap.set(child.id, clone.id);
+    }
+  }
+
+  private descendantsOf(parentId: string): Task[] {
+    const tasks = this.store.getTasks();
+    const result: Task[] = [];
+    let frontier = tasks.filter((task) => task.parentId === parentId);
+    while (frontier.length > 0) {
+      const next: Task[] = [];
+      for (const task of frontier.sort((a, b) => a.sortOrder - b.sortOrder)) {
+        result.push(task);
+        next.push(...tasks.filter((candidate) => candidate.parentId === task.id));
+      }
+      frontier = next;
+    }
+    return result;
   }
 }

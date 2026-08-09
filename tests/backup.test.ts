@@ -13,13 +13,13 @@ const event: ReminderEvent = {
   mode: 'guided'
 };
 
-test('complete v3 backup round-trips Task Core, occurrences and reminder history', () => {
+test('complete v4 backup round-trips Task Core, characters, occurrences and reminder history', () => {
   const settings = {
     ...DEFAULT_SETTINGS,
     eyeIntervalMinutes: 35
   };
   const task: Task = {
-    id: 'task-1', title: '接水', notes: null, status: 'inbox', priority: 'important',
+    id: 'task-1', title: '接水', notes: null, status: 'open', priority: 'important',
     projectId: null, parentId: null, tags: [], plannedAt: null, dueAt: null,
     reminderAt: 50, recurrence: null, context: 'away', remindOnBreak: true, estimateMinutes: null,
     sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null
@@ -32,7 +32,11 @@ test('complete v3 backup round-trips Task Core, occurrences and reminder history
       enabled: true, createdAt: 1, updatedAt: 1
     }],
     activeTaskId: task.id,
-    taskReminderOccurrences: [{ taskId: task.id, fireAt: 50, consumedAt: 60 }]
+    taskReminderOccurrences: [{ taskId: task.id, fireAt: 50, consumedAt: 60 }],
+    characterCollection: {
+      installSalt: 'install', characters: [], candidate: null, appearanceMode: 'daily-random',
+      pinnedCharacterId: null, activeCharacterId: 'character-starter'
+    }
   });
   const restored = parseBackup(text);
 
@@ -45,6 +49,7 @@ test('complete v3 backup round-trips Task Core, occurrences and reminder history
   assert.equal(restored.standaloneReminders[0].schedule.type, 'daily');
   assert.equal(restored.activeTaskId, 'task-1');
   assert.deepEqual(restored.taskReminderOccurrences, [{ taskId: task.id, fireAt: 50, consumedAt: 60 }]);
+  assert.equal(restored.characterCollection?.installSalt, 'install');
   assert.deepEqual(restored.reminderHistory, [event]);
 });
 

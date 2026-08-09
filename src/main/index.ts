@@ -20,8 +20,11 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  CharacterAppearanceMode,
+  CharacterMaterial,
   HotkeyAction,
   HotkeyStatus,
+  PetAccessory,
   PreAlertAction,
   ProjectInput,
   ProjectUpdateInput,
@@ -31,6 +34,7 @@ import type {
   StandaloneReminderInput,
   Task,
   TaskInput,
+  TaskMoveInput,
   TaskStatus,
   TaskUpdateInput
 } from '../shared/types';
@@ -52,6 +56,10 @@ import { TaskStore } from './taskStore';
 import { TaskService } from './taskService';
 import { TaskScheduler } from './taskScheduler';
 import { StandaloneReminderService } from './standaloneReminders';
+import { ActivityMonitor, type ActivityResume } from './activityMonitor';
+import { NotificationDeliveryQueue } from './notificationDelivery';
+import { TaskWorkTracker } from './taskWorkTracker';
+import { CharacterService } from './characterService';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const rendererIndexPath = join(moduleDir, '../renderer/index.html');
@@ -156,8 +164,8 @@ const createTray = (
           ]),
       { type: 'separator' },
       { label: `待办：${pendingTodos} 项未完成`, enabled: false },
-      { label: '打开工作台', click: (): void => windows.showWorkbenchWindow() },
-      { label: '打开快速面板', click: (): void => void windows.openPanel('todos') },
+      { label: '打开工作台', click: (): void => void windows.showWorkbenchWindow('today') },
+      { label: '公仔收藏', click: (): void => windows.showWorkbenchWindow('collection') },
       { label: '打开设置', click: (): void => windows.showWorkbenchWindow('settings') },
       { type: 'separator' },
       { label: '测试护眼提醒', click: (): void => void scheduler.triggerTest('eye') },
@@ -337,18 +345,53 @@ app.whenReady().then(async () => {
   // v1.1 Task Core (USERPLAN §二): SQLite keeps task/project/reminder state
   // independent from settings.json. Task deadlines share the kernel so they
   // participate in the same suspend/resume reconciliation as breaks.
-  const taskStore = new TaskStore(settingsStore.getDataDir());
+  let allowTaskModelReset = true;
+  if (TaskStore.requiresTaskModelReset(settingsStore.getDataDir())) {
+    const confirmation = await dialog.showMessageBox({
+      type: 'warning',
+      title: '升级任务数据模型',
+      message: 'EyeProtect 1.1 需要升级任务状态模型。',
+      detail: '继续前会在数据目录保留数据库快照。取消后应用会进入不写回原数据库的恢复模式。',
+      buttons: ['取消并进入恢复模式', '创建快照并升级'],
+      defaultId: 1,
+      cancelId: 0,
+      noLink: true
+    });
+    allowTaskModelReset = confirmation.response === 1;
+  }
+  const taskStore = new TaskStore(settingsStore.getDataDir(), { allowTaskModelReset });
+  const requireWritableTaskDatabase = <T>(action: () => T): T => {
+    if (taskStore.getRecoveryStatus().readOnly) {
+      throw new Error('任务数据库处于恢复模式；原数据库未被修改');
+    }
+    return action();
+  };
   const taskService = new TaskService(taskStore);
+  const characterService = new CharacterService(taskStore);
+  characterService.getState();
+  const taskWorkTracker = new TaskWorkTracker(taskStore, (id) => taskService.getTask(id));
   const taskScheduler = new TaskScheduler(kernel, () => taskService.getTasks(), Date.now, {
     persist: (events) => taskStore.replaceScheduledEvents('task', events),
     isConsumed: (task) =>
-      task.reminderAt !== null && taskStore.isTaskReminderConsumed(task.id, task.reminderAt),
-    acknowledge: (task, fireAt) => taskStore.consumeTaskReminder(task.id, fireAt)
+      task.reminderAt !== null && taskStore.isTaskReminderConsumed(task.id, task.reminderAt)
   });
+  const activityMonitor = new ActivityMonitor({
+    getIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+    naturalBreakMs: () => settingsStore.get().naturalBreakMinutes * 60_000
+  });
+  activityMonitor.on('inactive', () => kernel.pauseElapsed());
+  activityMonitor.on('inactive', () => taskWorkTracker.pause());
+  activityMonitor.on('active', ({ inactiveMs }: ActivityResume) => {
+    kernel.resumeElapsed();
+    scheduler.handleActivityResume(inactiveMs);
+  });
+  activityMonitor.on('active', ({ naturalBreak }: ActivityResume) => taskWorkTracker.resume(naturalBreak));
   // Migration happens before any scheduler is armed so imported task and alarm
   // deadlines are visible during the first startup reconciliation.
-  taskService.migrateFromTodos(settingsStore.get().todos, Date.now(), settingsStore.get().alarms);
-  settingsStore.clearLegacyTaskData();
+  if (!taskStore.getRecoveryStatus().readOnly) {
+    taskService.migrateFromTodos(settingsStore.get().todos, Date.now(), settingsStore.get().alarms);
+    settingsStore.clearLegacyTaskData();
+  }
   scheduler.updateTasks(taskService.getTasks());
   const standaloneReminders = new StandaloneReminderService(taskStore, kernel);
   taskScheduler.arm();
@@ -365,8 +408,32 @@ app.whenReady().then(async () => {
         : windows.showReminderOnPrimary(active),
     (action, reminderId) => scheduler.handleAction(action, reminderId),
     () => windows.showWorkbenchWindow('today'),
-    (event, data) => reminderTrace.append({ t: Date.now(), src: 'surface', event, data })
+    (event, data) => reminderTrace.append({ t: Date.now(), src: 'surface', event, data }),
+    () => windows.getReminderSurfaceWebContentsId(),
+    () => windows.isReminderSurfaceHealthy()
   );
+  const deliveryQueue = new NotificationDeliveryQueue(taskStore, {
+    onDelivered: (delivery) => {
+      if (delivery.source === 'task') {
+        taskStore.consumeTaskReminder(delivery.sourceId, delivery.occurrenceAt);
+        taskScheduler.arm();
+      }
+    },
+    onClick: (delivery) => {
+      void windows.showWorkbenchWindow(delivery.source === 'standalone' ? 'reminders' : 'today');
+    },
+    onFailed: () => void windows.showWorkbenchWindow('reminders')
+  });
+  taskWorkTracker.on('timebox', (task: Task) => {
+    deliveryQueue.enqueue(
+      'timebox',
+      task.id,
+      Date.now(),
+      'EyeProtect · 预计时间已到',
+      `「${task.title}」已达到预计用时，可以决定继续或完成。`
+    );
+  });
+  taskWorkTracker.on('changed', (summary) => windows.broadcastTaskWork(summary));
   let hotkeyStatus: HotkeyStatus = {
     enabled: settingsStore.get().hotkeysEnabled,
     registered: [],
@@ -390,10 +457,10 @@ app.whenReady().then(async () => {
           }
         },
         'todo-add': () => {
-          void windows.openQuickTodo();
+          void windows.showWorkbenchWindow('today');
         },
         todos: () => {
-          void windows.openPanel('todos');
+          void windows.showWorkbenchWindow('today');
         },
         'pet-toggle': () => {
           windows.togglePetVisibility();
@@ -432,18 +499,21 @@ app.whenReady().then(async () => {
   // previously ran an independent timer outside this loop, now wake alongside
   // the break scheduler (fixes the "alarm ignores suspend/resume" gap).
   powerMonitor.on('suspend', () => {
+    activityMonitor.suspend();
     kernel.suspend();
     scheduler.suspend();
     taskScheduler.suspend();
     standaloneReminders.suspend();
   });
   powerMonitor.on('resume', () => {
-    scheduler.handleSystemResume(powerMonitor.getSystemIdleTime());
+    activityMonitor.resume(powerMonitor.getSystemIdleTime());
     kernel.resume(powerMonitor.getSystemIdleTime() * 1000);
     taskScheduler.resume();
     standaloneReminders.resume();
   });
+  powerMonitor.on('lock-screen', () => activityMonitor.lock());
   powerMonitor.on('unlock-screen', () => {
+    activityMonitor.unlock();
     scheduler.handleScreenUnlock();
     kernel.reconcile();
     taskScheduler.arm();
@@ -459,14 +529,14 @@ app.whenReady().then(async () => {
   // an invisible, un-dismissable reminder. 'render-process-gone' covers crashes
   // and OOM kills; 'child-process-gone' covers GPU-process losses that also
   // blank a window.
-  const onRendererGone = () => {
+  const onRendererGone = (webContentsId?: number) => {
     const active = scheduler.getStatus().activeReminder;
     if (active) {
-      reminderSurface.handleRendererGone(active);
+      reminderSurface.handleRendererGone(active, webContentsId);
     }
   };
-  app.on('render-process-gone', onRendererGone);
-  app.on('child-process-gone', onRendererGone);
+  app.on('render-process-gone', (_event, webContents) => onRendererGone(webContents.id));
+  app.on('child-process-gone', () => onRendererGone());
 
   // Domain-scoped reactions: a preference save only touches the subsystems
   // whose inputs actually changed. Todo/alarm mutations never reach this
@@ -477,6 +547,7 @@ app.whenReady().then(async () => {
       settings.eyeIntervalMinutes !== previous.eyeIntervalMinutes ||
       settings.walkIntervalMinutes !== previous.walkIntervalMinutes ||
       settings.snoozeMinutes !== previous.snoozeMinutes ||
+      settings.naturalBreakMinutes !== previous.naturalBreakMinutes ||
       settings.reminderMode !== previous.reminderMode ||
       settings.preAlertSeconds !== previous.preAlertSeconds ||
       settings.adaptiveEnabled !== previous.adaptiveEnabled ||
@@ -511,7 +582,6 @@ app.whenReady().then(async () => {
     }
     if (
       settings.petScale !== previous.petScale ||
-      settings.petSkin !== previous.petSkin ||
       settings.dimDesktop !== previous.dimDesktop
     ) {
       windows.applyPetSettings(settings);
@@ -523,6 +593,11 @@ app.whenReady().then(async () => {
   scheduler.onChanged((status) => {
     windows.broadcastReminderStatus(status);
     const active = status.activeReminder;
+    if (active) {
+      taskWorkTracker.pause();
+    } else if (activityMonitor.getState() === 'active') {
+      taskWorkTracker.resume(false);
+    }
     if (!active) {
       presentedReminderId = null;
       reminderSurface.destroy();
@@ -537,14 +612,13 @@ app.whenReady().then(async () => {
   standaloneReminders.on('changed', (reminders) => windows.broadcastStandaloneReminders(reminders));
   standaloneReminders.on('fired', (reminder) => {
     windows.broadcastStandaloneReminderFired(reminder);
-    if (Notification.isSupported()) {
-      const notification = new Notification({
-        title: reminder.label || 'EyeProtect 提醒',
-        body: '时间到了。点击打开工作台查看。'
-      });
-      notification.on('click', () => windows.showWorkbenchWindow('reminders'));
-      notification.show();
-    }
+    deliveryQueue.enqueue(
+      'standalone',
+      reminder.id,
+      Date.now(),
+      reminder.label || 'EyeProtect 提醒',
+      '时间到了。点击打开工作台查看。'
+    );
   });
   historyStore.onChanged(broadcastHistory);
 
@@ -559,8 +633,11 @@ app.whenReady().then(async () => {
     windows.broadcastProjects(projects);
   });
   taskService.on('active-task-changed', (id: string | null) => {
+    taskWorkTracker.setActiveTask(id);
     windows.broadcastActiveTask(id);
   });
+  taskService.on('undo-changed', (state) => windows.broadcastUndo(state));
+  characterService.on('changed', (state) => windows.broadcastCharacterCollection(state));
 
   scheduler.on('action', ({ action, isTest }: { action: ReminderAction; isTest: boolean }) => {
     if (action !== 'complete' || isTest) {
@@ -591,6 +668,15 @@ app.whenReady().then(async () => {
         task.remindOnBreak && (task.context === 'away' || task.context === 'any')
       )
     );
+    for (const task of due) {
+      deliveryQueue.enqueue(
+        'task',
+        task.id,
+        task.reminderAt!,
+        'EyeProtect · 任务提醒',
+        `该处理：「${task.title}」`
+      );
+    }
   });
 
   const publishApplicationState = (): void => {
@@ -604,6 +690,7 @@ app.whenReady().then(async () => {
     windows.broadcastProjects(taskService.getProjects());
     windows.broadcastActiveTask(taskService.getActiveTaskId());
     windows.broadcastStandaloneReminders(standaloneReminders.list());
+    windows.broadcastCharacterCollection(characterService.getState());
     windows.broadcastHotkeyStatus(hotkeyStatus);
     broadcastHistory();
   };
@@ -612,6 +699,40 @@ app.whenReady().then(async () => {
   // renderers are trusted code, but IPC payloads are still an external input.
   handleIpc('settings:get', () => settingsStore.get());
   handleIpc('settings:save', (payload) => settingsStore.save(asPartialSettings(payload)));
+  handleIpc('character:get', () => characterService.getState());
+  handleIpc('character:collect', () =>
+    requireWritableTaskDatabase(() => characterService.collectCandidate())
+  );
+  handleIpc('character:discard', () =>
+    requireWritableTaskDatabase(() => characterService.discardCandidate())
+  );
+  handleIpc('character:rename', (id, name) =>
+    requireWritableTaskDatabase(() => characterService.rename(asString(id), asString(name)))
+  );
+  handleIpc('character:delete', (id) =>
+    requireWritableTaskDatabase(() => characterService.delete(asString(id)))
+  );
+  handleIpc('character:favorite', (id, favorite) =>
+    requireWritableTaskDatabase(() => characterService.setFavorite(asString(id), favorite === true))
+  );
+  handleIpc('character:appearance', (mode, id) => {
+    const normalizedMode: CharacterAppearanceMode = mode === 'pinned' ? 'pinned' : 'daily-random';
+    return requireWritableTaskDatabase(() =>
+      characterService.setAppearance(normalizedMode, typeof id === 'string' ? id : null)
+    );
+  });
+  handleIpc('character:material', (id, material) => {
+    const normalized: CharacterMaterial =
+      material === 'glow' || material === 'plush' || material === 'candy' || material === 'cosmic'
+        ? material
+        : 'paper';
+    return requireWritableTaskDatabase(() => characterService.setMaterial(asString(id), normalized));
+  });
+  handleIpc('character:accessory', (id, accessory) => {
+    const normalized: PetAccessory =
+      accessory === 'cup' || accessory === 'glasses' || accessory === 'leaf' ? accessory : 'none';
+    return requireWritableTaskDatabase(() => characterService.setAccessory(asString(id), normalized));
+  });
   handleIpc('runtime:get', () => getRuntimeInfo(settingsStore));
   handleIpc('reminder:status', () => scheduler.getStatus());
   handleIpc('reminder:action', (action, reminderId) => {
@@ -630,22 +751,21 @@ app.whenReady().then(async () => {
   handleIpc('reminder:pause', (minutes) => scheduler.pause(asNumber(minutes, 60)));
   handleIpc('reminder:resume', () => scheduler.resume());
   handleIpc('reminder:restart', () => scheduler.restartCycle());
-  handleIpc('window:settings:open', () => windows.showWorkbenchWindow('settings'));
-  handleIpc('window:settings:close', () => windows.closeWorkbenchWindow());
-  handleIpc('window:panel:open', (tab) => windows.openPanel(tab === 'alarms' ? 'alarms' : 'todos'));
-  handleIpc('window:panel:quick-add', () => windows.openQuickTodo());
-  handleIpc('window:panel:close', () => windows.closePanel());
-  handleIpc('window:panel:tab', () => windows.getPanelTab());
-  handleIpc('window:panel:consume-quick-add', () => windows.consumeQuickAddRequest());
   handleIpc('standalone-reminder:list', () => standaloneReminders.list());
   handleIpc('standalone-reminder:create', (input) => {
     const normalized = asStandaloneReminderInput(input);
-    return normalized ? standaloneReminders.create(normalized) : standaloneReminders.list();
+    return normalized
+      ? requireWritableTaskDatabase(() => standaloneReminders.create(normalized))
+      : standaloneReminders.list();
   });
   handleIpc('standalone-reminder:update', (id, input) => {
-    return standaloneReminders.update(asString(id), asStandaloneReminderUpdate(input));
+    return requireWritableTaskDatabase(() =>
+      standaloneReminders.update(asString(id), asStandaloneReminderUpdate(input))
+    );
   });
-  handleIpc('standalone-reminder:delete', (id) => standaloneReminders.remove(asString(id)));
+  handleIpc('standalone-reminder:delete', (id) =>
+    requireWritableTaskDatabase(() => standaloneReminders.remove(asString(id)))
+  );
   handleIpc('history:report', () => getWeeklyReport());
   handleIpc('history:care', () => getCareStatus());
   handleIpc('history:clear', () => {
@@ -688,7 +808,8 @@ app.whenReady().then(async () => {
         projects: taskService.getProjects(),
         standaloneReminders: standaloneReminders.list(),
         activeTaskId: taskService.getActiveTaskId(),
-        taskReminderOccurrences: taskStore.getTaskReminderOccurrences()
+        taskReminderOccurrences: taskStore.getTaskReminderOccurrences(),
+        characterCollection: characterService.getState()
       }),
       'utf8'
     );
@@ -722,15 +843,48 @@ app.whenReady().then(async () => {
       if (confirmation.response !== 1) {
         return { success: false, message: '已取消导入' };
       }
-      const next = settingsStore.save(backup.settings);
-      historyStore.replaceEvents(backup.reminderHistory, next);
-      taskStore.replaceProjects(backup.projects);
-      taskStore.replaceAll(backup.tasks);
-      taskStore.replaceTaskReminderOccurrences(backup.taskReminderOccurrences);
-      taskStore.replaceStandaloneReminders(backup.standaloneReminders);
-      taskStore.setActiveTaskId(backup.activeTaskId);
+      requireWritableTaskDatabase(() => undefined);
+      const currentBackupText = createBackup(
+        settingsStore.get(),
+        historyStore.getEvents(),
+        app.getVersion(),
+        Date.now(),
+        {
+          tasks: taskService.getTasks(),
+          projects: taskService.getProjects(),
+          standaloneReminders: standaloneReminders.list(),
+          activeTaskId: taskService.getActiveTaskId(),
+          taskReminderOccurrences: taskStore.getTaskReminderOccurrences(),
+          characterCollection: characterService.getState()
+        }
+      );
+      const rollbackPath = join(settingsStore.getDataDir(), `import-rollback-${Date.now()}.json`);
+      writeFileSync(rollbackPath, currentBackupText, 'utf8');
+      const previous = parseBackup(currentBackupText);
+      const applyBackup = (candidate: typeof backup): void => {
+        // Apply the relational domain before preferences/history. If any step
+        // rejects, the catch below restores the complete pre-import snapshot.
+        taskStore.replaceProjects(candidate.projects);
+        taskStore.replaceAll(candidate.tasks);
+        taskStore.replaceTaskReminderOccurrences(candidate.taskReminderOccurrences);
+        taskStore.replaceStandaloneReminders(candidate.standaloneReminders);
+        taskStore.setActiveTaskId(candidate.activeTaskId);
+        characterService.replaceState(candidate.characterCollection);
+        const next = settingsStore.save(candidate.settings);
+        historyStore.replaceEvents(candidate.reminderHistory, next);
+      };
+      try {
+        applyBackup(backup);
+      } catch (importError) {
+        try {
+          applyBackup(previous);
+        } catch {
+          throw new Error(`导入失败，自动回滚也失败；请保留 ${rollbackPath}`);
+        }
+        throw importError;
+      }
       publishApplicationState();
-      return { success: true, message: '备份已导入，设置已经生效' };
+      return { success: true, message: '备份已导入，设置已经生效；导入前快照已保留' };
     } catch (error) {
       const message = error instanceof Error ? error.message : '无法读取备份文件';
       await dialog.showMessageBox({
@@ -756,11 +910,13 @@ app.whenReady().then(async () => {
     if (confirmation.response !== 1) {
       return { success: false, message: '已取消恢复' };
     }
+    requireWritableTaskDatabase(() => undefined);
     settingsStore.save(DEFAULT_SETTINGS);
     taskStore.replaceAll([]);
     taskStore.replaceProjects([]);
     taskStore.replaceStandaloneReminders([]);
     taskStore.setActiveTaskId(null);
+    characterService.replaceState(null);
     publishApplicationState();
     return { success: true, message: '已恢复默认设置' };
   });
@@ -776,10 +932,10 @@ app.whenReady().then(async () => {
     const dataDir = settingsStore.getDataDir();
     const corruptBackups = existsSync(dataDir)
       ? readdirSync(dataDir)
-          .filter((name) => name.includes('.corrupt-'))
+          .filter((name) => name.includes('.corrupt-') || name.includes('.recovery-') || name.includes('.pre-model-reset-'))
           .sort()
       : [];
-    return { dataDir, corruptBackups };
+    return { dataDir, corruptBackups, taskDatabase: taskStore.getRecoveryStatus() };
   });
 
   // ── v1.1 Task Core IPC (USERPLAN §二) ───────────────────────────────────────
@@ -840,8 +996,7 @@ app.whenReady().then(async () => {
       }
     }
     if (
-      candidate.status === 'inbox' || candidate.status === 'active' ||
-      candidate.status === 'done' || candidate.status === 'archived'
+      candidate.status === 'open' || candidate.status === 'done' || candidate.status === 'archived'
     ) {
       input.status = candidate.status;
     }
@@ -862,33 +1017,61 @@ app.whenReady().then(async () => {
 
   handleIpc('task:list', () => taskService.getTasks());
   handleIpc('task:get', (id) => taskService.getTask(asString(id)));
-  handleIpc('task:create', (input) => taskService.createTask(asTaskInput(input)));
+  handleIpc('task:create', (input) =>
+    requireWritableTaskDatabase(() => taskService.createTask(asTaskInput(input)))
+  );
   handleIpc('task:update', (id, input) =>
-    taskService.updateTask(asString(id), asTaskUpdateInput(input))
+    requireWritableTaskDatabase(() => taskService.updateTask(asString(id), asTaskUpdateInput(input)))
   );
   handleIpc('task:set-status', (id, status) =>
-    taskService.setTaskStatus(
+    requireWritableTaskDatabase(() => taskService.setTaskStatus(
       asString(id),
-      status === 'inbox' || status === 'active' || status === 'done' || status === 'archived'
+      status === 'open' || status === 'done' || status === 'archived'
         ? (status as TaskStatus)
-        : 'inbox'
-    )
+        : 'open'
+    ))
   );
   handleIpc('task:delete', (id) => {
-    return taskService.deleteTask(asString(id));
+    return requireWritableTaskDatabase(() => taskService.deleteTask(asString(id)));
   });
+  handleIpc('task:undo:get', () => taskService.getUndoState());
+  handleIpc('task:undo', (operationId) =>
+    requireWritableTaskDatabase(() => taskService.undo(asString(operationId)))
+  );
   handleIpc('task:active:get', () => taskService.getActiveTaskId());
-  handleIpc('task:active:set', (id) => taskService.setActiveTask(typeof id === 'string' ? id : null));
+  handleIpc('task:active:set', (id) =>
+    requireWritableTaskDatabase(() => taskService.setActiveTask(typeof id === 'string' ? id : null))
+  );
+  handleIpc('task:work-summary', () => taskWorkTracker.getSummary());
   handleIpc('project:list', () => taskService.getProjects());
   handleIpc('project:get', (id) => taskService.getProject(asString(id)));
-  handleIpc('project:create', (input) => taskService.createProject(asProjectInput(input)));
+  handleIpc('project:create', (input) =>
+    requireWritableTaskDatabase(() => taskService.createProject(asProjectInput(input)))
+  );
   handleIpc('project:update', (id, input) =>
-    taskService.updateProject(asString(id), asProjectInput(input) as ProjectUpdateInput)
+    requireWritableTaskDatabase(() =>
+      taskService.updateProject(asString(id), asProjectInput(input) as ProjectUpdateInput)
+    )
   );
-  handleIpc('project:delete', (id) => taskService.deleteProject(asString(id)));
+  handleIpc('project:delete', (id) =>
+    requireWritableTaskDatabase(() => taskService.deleteProject(asString(id)))
+  );
   handleIpc('window:workbench:open', (section) =>
-    windows.showWorkbenchWindow(section === 'settings' || section === 'reminders' ? section : 'today')
+    windows.showWorkbenchWindow(
+      section === 'settings' || section === 'reminders' || section === 'collection' ? section : 'today'
+    )
   );
+  handleIpc('task:move', (input) => {
+    const candidate = (input && typeof input === 'object' ? input : {}) as Partial<TaskMoveInput>;
+    const scope = candidate.scope?.type === 'project' && typeof candidate.scope.projectId === 'string'
+      ? { type: 'project' as const, projectId: candidate.scope.projectId }
+      : { type: 'inbox' as const };
+    return requireWritableTaskDatabase(() => taskService.moveTask({
+      taskId: asString(candidate.taskId),
+      beforeTaskId: typeof candidate.beforeTaskId === 'string' ? candidate.beforeTaskId : null,
+      scope
+    }));
+  });
   handleIpc('window:workbench:close', () => windows.closeWorkbenchWindow());
   handleIpc('window:workbench:section', () => windows.getWorkbenchSection());
 
@@ -897,12 +1080,18 @@ app.whenReady().then(async () => {
   createTray(windows, scheduler, settingsStore, () => taskService.getTasks());
   kernel.start();
   scheduler.start();
+  activityMonitor.start();
+  deliveryQueue.start();
+  taskWorkTracker.start(taskService.getActiveTaskId());
   syncStartupShortcut(settingsStore.get());
   startDiagnostics();
 
   // Persist on the way out so a restart resumes the running countdowns
   // instead of silently resetting (or bypassing) them.
   app.on('before-quit', () => {
+    activityMonitor.stop();
+    deliveryQueue.stop();
+    taskWorkTracker.stop();
     runtimeStateStore.markExiting();
     runtimeStateStore.save(scheduler.serialize());
     taskScheduler.dispose();

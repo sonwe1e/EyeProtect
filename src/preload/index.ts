@@ -1,11 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   CareStatus,
+  CharacterAppearanceMode,
+  CharacterCollectionState,
+  CharacterMaterial,
   DataActionResult,
   DataRecoveryInfo,
   EyeProtectApi,
   HotkeyStatus,
-  PanelTab,
+  PetAccessory,
   PreAlertAction,
   Project,
   ProjectInput,
@@ -19,7 +22,10 @@ import type {
   StandaloneReminderInput,
   Task,
   TaskInput,
+  TaskMoveInput,
   TaskStatus,
+  TaskWorkSummary,
+  UndoState,
   TaskUpdateInput,
   WeeklyReport
 } from '../shared/types';
@@ -44,17 +50,6 @@ const api: EyeProtectApi = {
   pause: (minutes: number) => ipcRenderer.invoke('reminder:pause', minutes) as Promise<ReminderStatus>,
   resume: () => ipcRenderer.invoke('reminder:resume') as Promise<ReminderStatus>,
   restartCycle: () => ipcRenderer.invoke('reminder:restart') as Promise<ReminderStatus>,
-  openSettings: () => ipcRenderer.invoke('window:settings:open') as Promise<void>,
-  closeSettings: () => ipcRenderer.invoke('window:settings:close') as Promise<void>,
-  openPanel: (tab: PanelTab) => ipcRenderer.invoke('window:panel:open', tab) as Promise<void>,
-  openQuickTodo: () => ipcRenderer.invoke('window:panel:quick-add') as Promise<void>,
-  closePanel: () => ipcRenderer.invoke('window:panel:close') as Promise<void>,
-  getPanelTab: () => ipcRenderer.invoke('window:panel:tab') as Promise<PanelTab>,
-  consumeQuickAddTodo: () =>
-    ipcRenderer.invoke('window:panel:consume-quick-add') as Promise<boolean>,
-  onPanelTab: (callback) => on<PanelTab>('panel:tab', callback),
-  onPanelBlur: (callback) => on<void>('panel:blur', callback),
-  onQuickAddTodo: (callback) => on<void>('panel:quick-add', callback),
   onSettingsChanged: (callback) => on<Settings>('settings:changed', callback),
   onReminderChanged: (callback) => on<ReminderStatus>('reminder:changed', callback),
   getTasks: () => ipcRenderer.invoke('task:list') as Promise<Task[]>,
@@ -62,9 +57,13 @@ const api: EyeProtectApi = {
   createTask: (input: TaskInput) => ipcRenderer.invoke('task:create', input) as Promise<Task[]>,
   updateTask: (id: string, input: TaskUpdateInput) =>
     ipcRenderer.invoke('task:update', id, input) as Promise<Task[]>,
+  moveTask: (input: TaskMoveInput) => ipcRenderer.invoke('task:move', input) as Promise<Task[]>,
   setTaskStatus: (id: string, status: TaskStatus) =>
     ipcRenderer.invoke('task:set-status', id, status) as Promise<Task[]>,
   deleteTask: (id: string) => ipcRenderer.invoke('task:delete', id) as Promise<Task[]>,
+  getUndoState: () => ipcRenderer.invoke('task:undo:get') as Promise<UndoState | null>,
+  undoTaskOperation: (operationId: string) => ipcRenderer.invoke('task:undo', operationId) as Promise<Task[]>,
+  onUndoChanged: (callback) => on<UndoState | null>('task:undo-changed', callback),
   onTasksChanged: (callback) => on<Task[]>('task:changed', callback),
   getProjects: () => ipcRenderer.invoke('project:list') as Promise<Project[]>,
   getProject: (id: string) => ipcRenderer.invoke('project:get', id) as Promise<Project | null>,
@@ -76,6 +75,8 @@ const api: EyeProtectApi = {
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),
+  getTaskWorkSummary: () => ipcRenderer.invoke('task:work-summary') as Promise<TaskWorkSummary>,
+  onTaskWorkChanged: (callback) => on<TaskWorkSummary>('task:work-changed', callback),
   getStandaloneReminders: () =>
     ipcRenderer.invoke('standalone-reminder:list') as Promise<StandaloneReminder[]>,
   createStandaloneReminder: (input: StandaloneReminderInput) =>
@@ -88,13 +89,33 @@ const api: EyeProtectApi = {
     on<StandaloneReminder[]>('standalone-reminder:changed', callback),
   onStandaloneReminderFired: (callback) =>
     on<StandaloneReminder>('standalone-reminder:fired', callback),
+  getCharacterCollection: () =>
+    ipcRenderer.invoke('character:get') as Promise<CharacterCollectionState>,
+  collectDailyCharacter: () =>
+    ipcRenderer.invoke('character:collect') as Promise<CharacterCollectionState>,
+  discardDailyCharacter: () =>
+    ipcRenderer.invoke('character:discard') as Promise<CharacterCollectionState>,
+  renameCharacter: (id: string, name: string) =>
+    ipcRenderer.invoke('character:rename', id, name) as Promise<CharacterCollectionState>,
+  deleteCharacter: (id: string) =>
+    ipcRenderer.invoke('character:delete', id) as Promise<CharacterCollectionState>,
+  setCharacterFavorite: (id: string, favorite: boolean) =>
+    ipcRenderer.invoke('character:favorite', id, favorite) as Promise<CharacterCollectionState>,
+  setCharacterAppearance: (mode: CharacterAppearanceMode, id: string | null = null) =>
+    ipcRenderer.invoke('character:appearance', mode, id) as Promise<CharacterCollectionState>,
+  setCharacterMaterial: (id: string, material: CharacterMaterial) =>
+    ipcRenderer.invoke('character:material', id, material) as Promise<CharacterCollectionState>,
+  setCharacterAccessory: (id: string, accessory: PetAccessory) =>
+    ipcRenderer.invoke('character:accessory', id, accessory) as Promise<CharacterCollectionState>,
+  onCharacterCollectionChanged: (callback) =>
+    on<CharacterCollectionState>('character:changed', callback),
   openWorkbench: (section = 'today') =>
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders'>,
+    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection'>,
   onWorkbenchNavigate: (callback) =>
-    on<'today' | 'settings' | 'reminders'>('workbench:navigate', callback),
+    on<'today' | 'settings' | 'reminders' | 'collection'>('workbench:navigate', callback),
   getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
   getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
   clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,

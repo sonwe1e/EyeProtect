@@ -20,7 +20,6 @@ const baseSettings: Settings = {
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,
@@ -154,7 +153,7 @@ test('persistence happens on transitions, not per tick', () => {
     { ...baseSettings }
   );
   assert.equal(saves.length, 5);
-  assert.equal(saves[4].nextEyeAt, clock() + 25 * MINUTE);
+  assert.equal(saves[4].nextEyeAt, clock() + 20 * MINUTE, 'interval edits wait for the next cycle');
 });
 
 test('a corrupt state file is quarantined and defaults are used', () => {
@@ -233,6 +232,26 @@ test('lastExitAt round-trips through the store', () => {
     assert.equal(parsed.version, 1);
     assert.equal(parsed.lastExitAt, T0 + 1234);
     assert.equal(parsed.savedAt, T0 + 1235);
+  });
+});
+
+test('cleanly closed application time does not consume active-use deadlines', () => {
+  withTempDir((dir) => {
+    const store = new RuntimeStateStore(dir);
+    store.markExiting(() => T0);
+    store.save({
+      nextEyeAt: T0 + 10 * MINUTE,
+      nextWalkAt: T0 + 20 * MINUTE,
+      pausedUntil: null,
+      snoozeCount: 0,
+      frozenEyeMs: null,
+      frozenWalkMs: null,
+      active: null
+    }, () => T0);
+
+    const restored = new RuntimeStateStore(dir).load(() => T0 + 60 * MINUTE)!;
+    assert.equal(restored.nextEyeAt, T0 + 70 * MINUTE);
+    assert.equal(restored.nextWalkAt, T0 + 80 * MINUTE);
   });
 });
 

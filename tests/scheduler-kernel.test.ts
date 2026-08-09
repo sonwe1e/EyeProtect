@@ -40,7 +40,6 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,
@@ -157,6 +156,56 @@ test('past deadlines fire immediately on reconcile (wall-clock jump)', () => {
   clock.set(5000);
   kernel.reconcile();
   assert.deepEqual(seen, ['svc:a'], 'missed deadline fires on reconcile');
+});
+
+test('elapsed deadlines ignore wall-clock jumps', () => {
+  let wall = 0;
+  let mono = 0;
+  const kernel = new SchedulerKernel({
+    clock: { now: () => wall, monotonic: () => mono },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const seen: string[] = [];
+  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry) => entry.id)));
+  kernel.set('break', [{ ...event('eye', 'break', 1_000), clock: 'elapsed' }]);
+  kernel.start();
+
+  wall = 3_600_000;
+  mono = 500;
+  kernel.reconcile();
+  assert.deepEqual(seen, []);
+  mono = 1_000;
+  kernel.reconcile();
+  assert.deepEqual(seen, ['eye']);
+});
+
+test('pausing elapsed time freezes only elapsed deadlines', () => {
+  let wall = 0;
+  let mono = 0;
+  const kernel = new SchedulerKernel({
+    clock: { now: () => wall, monotonic: () => mono },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const seen: string[] = [];
+  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry) => entry.id)));
+  kernel.set('svc', [
+    event('wall', 'svc', 1_000),
+    { ...event('elapsed', 'svc', 1_000), clock: 'elapsed' }
+  ]);
+  kernel.start();
+  mono = 400;
+  wall = 400;
+  kernel.pauseElapsed();
+  mono = 1_400;
+  wall = 1_400;
+  kernel.reconcile();
+  assert.deepEqual(seen, ['wall']);
+
+  kernel.resumeElapsed();
+  mono = 2_000;
+  wall = 2_000;
+  kernel.reconcile();
+  assert.deepEqual(seen, ['wall', 'elapsed']);
 });
 
 test('multiple due deadlines fire grouped by owner', () => {

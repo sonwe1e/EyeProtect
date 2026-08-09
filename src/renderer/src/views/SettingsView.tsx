@@ -246,7 +246,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           <button
             className="icon-button"
             title="关闭设置"
-            onClick={() => void window.eyeProtect.closeSettings()}
+            onClick={() => void window.eyeProtect.closeWorkbench()}
           >
             <X size={20} />
           </button>
@@ -328,6 +328,15 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           suffix="分钟"
           icon={<Clock3 size={18} />}
           onCommit={(value) => void update({ snoozeMinutes: value })}
+        />
+        <NumberField
+          label="自然休息阈值"
+          value={settings.naturalBreakMinutes}
+          min={SETTINGS_LIMITS.naturalBreakMinutes.min}
+          max={SETTINGS_LIMITS.naturalBreakMinutes.max}
+          suffix="分钟"
+          icon={<Footprints size={18} />}
+          onCommit={(value) => void update({ naturalBreakMinutes: value })}
         />
         <NumberField
           label="提前预告"
@@ -511,6 +520,8 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
 
       <section className="settings-section">
         <h2>桌宠</h2>
+        <label className="detail-field"><span>主题</span><select value={settings.theme} onChange={(event) => void update({ theme: event.currentTarget.value as typeof settings.theme })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        <label className="detail-field"><span>信息密度</span><select value={settings.density} onChange={(event) => void update({ density: event.currentTarget.value as typeof settings.density })}><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
         <NumberField
           label="桌宠缩放"
           value={Math.round(settings.petScale * 100)}
@@ -727,15 +738,21 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           </button>
         </div>
         {dataMessage ? <div className="data-message" role="status">{dataMessage}</div> : null}
-        {recoveryInfo && recoveryInfo.corruptBackups.length > 0 ? (
+        {recoveryInfo?.taskDatabase.readOnly ? (
+          <div className="recovery-notice" role="alert">
+            <strong>任务数据库正在恢复模式运行</strong>
+            <span>原数据库未被覆盖；本次会话中的任务修改不会写回磁盘。请先导出诊断信息或打开数据目录保留快照。</span>
+            <small>{recoveryInfo.taskDatabase.snapshotPath ?? recoveryInfo.taskDatabase.reason ?? '数据库恢复快照不可用'}</small>
+          </div>
+        ) : recoveryInfo && recoveryInfo.corruptBackups.length > 0 ? (
           <div className="recovery-notice">
-            <strong>检测到 {recoveryInfo.corruptBackups.length} 个损坏配置备份</strong>
-            <span>原文件已隔离保留，可打开数据目录手动取回或导入其他备份。</span>
+            <strong>检测到 {recoveryInfo.corruptBackups.length} 个恢复快照</strong>
+            <span>原文件或副本已保留，可打开数据目录手动取回或导入其他备份。</span>
             <small>{recoveryInfo.corruptBackups.slice(-3).join(' · ')}</small>
           </div>
         ) : (
           <small className="data-path-note">
-            配置损坏时会自动隔离原文件，并在这里显示恢复入口。
+            配置或数据库异常时会保留原文件快照，并在这里显示恢复入口。
           </small>
         )}
       </section>
