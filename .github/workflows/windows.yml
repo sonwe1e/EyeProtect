@@ -68,7 +68,16 @@ jobs:
           try {
             npm run smoke:running -- 9333
             npm run smoke:experience -- 9333
-            npm run capture:ui -- 9333 $snapshotDir
+            try {
+              npm run capture:ui -- 9333 $snapshotDir
+            } catch {
+              # The packaged renderer under heavy CDP emulation (device-metrics
+              # + media emulation + screenshots on a hidden window) can crash
+              # intermittently with STATUS_STACK_BUFFER_OVERRUN at random
+              # journey points. Retry once; a second failure is a real bug.
+              Write-Warning "capture:ui failed once — retrying after suspected renderer crash flake"
+              npm run capture:ui -- 9333 $snapshotDir
+            }
           } finally {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }

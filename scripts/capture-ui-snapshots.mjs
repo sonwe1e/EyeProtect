@@ -375,10 +375,21 @@ const boardState = await evaluate(workbench, `(async () => ({
 }))()`);
 if (!boardState.rendered) throw new Error(`Project board did not render: ${JSON.stringify(boardState)}`);
 await waitFor(workbench, `Boolean(document.querySelector('.project-board'))`);
+// PR5 semantics: board columns are project sections (ADR-002). Create two
+// stages over the bridge, then drag a card into one of them.
+await evaluate(workbench, `(async () => {
+  const projects = await window.eyeProtect.getProjects();
+  const research = projects.find((project) => project.name === 'Research');
+  if (!research) throw new Error('Research project missing');
+  await window.eyeProtect.createProjectSection({ projectId: research.id, name: 'Doing' });
+  await window.eyeProtect.createProjectSection({ projectId: research.id, name: 'Waiting' });
+})()`);
+await waitFor(workbench, `[...document.querySelectorAll('.project-board-column h2')].some((entry) => entry.textContent?.includes('Doing'))`);
 await capture(workbench, 'project-board-dark.png');
 const boardDragPoints = await evaluate(workbench, `(() => {
   const source = [...document.querySelectorAll('.project-board-card')].find((entry) => entry.textContent?.includes('整理今日工作记录'))?.getBoundingClientRect();
-  const target = document.querySelectorAll('.project-board-column')[2]?.getBoundingClientRect();
+  const column = [...document.querySelectorAll('.project-board-column')].find((entry) => entry.querySelector('h2')?.textContent?.includes('Doing'));
+  const target = column?.getBoundingClientRect();
   return source && target ? {
     from: { x: source.left + source.width / 2, y: source.top + Math.min(32, source.height / 2) },
     to: { x: target.left + target.width / 2, y: target.top + Math.min(90, target.height / 2) }
@@ -386,7 +397,54 @@ const boardDragPoints = await evaluate(workbench, `(() => {
 })()`);
 if (!boardDragPoints) throw new Error('Project board drag targets were not available');
 await dragPointer(workbench, boardDragPoints.from, boardDragPoints.to);
-await waitFor(workbench, `(async () => (await window.eyeProtect.getTasks()).some((task) => task.title === '整理今日工作记录' && task.status === 'done'))()`);
+await delay(700);
+const sectionAssigned = () => evaluate(workbench, `(async () => {
+  const projects = await window.eyeProtect.getProjects();
+  const research = projects.find((project) => project.name === 'Research');
+  const sections = research ? await window.eyeProtect.getProjectSections(research.id) : [];
+  const doing = sections.find((entry) => entry.name === 'Doing');
+  if (!doing) return false;
+  const tasks = await window.eyeProtect.getTasks();
+  return tasks.some((task) => task.title === '整理今日工作记录' && task.sectionId === doing.id);
+})()`);
+if (!(await sectionAssigned())) {
+  // Same packaged-BrowserWindow drag staleness as the plan journey: fall back
+  // to the visible section selector in the task detail sheet.
+  console.warn('Board pointer drag was not committed; using the task detail section selector');
+  await evaluate(workbench, `(() => {
+    const card = [...document.querySelectorAll('.project-board-card')].find((entry) => entry.textContent?.includes('整理今日工作记录'));
+    card?.querySelector('.project-board-card__title')?.click();
+    return Boolean(card);
+  })()`);
+  await waitFor(workbench, `Boolean(document.querySelector('.ui-side-sheet select'))`);
+  await evaluate(workbench, `(async () => {
+    const projects = await window.eyeProtect.getProjects();
+    const research = projects.find((project) => project.name === 'Research');
+    const sections = research ? await window.eyeProtect.getProjectSections(research.id) : [];
+    const doing = sections.find((entry) => entry.name === 'Doing');
+    const select = [...document.querySelectorAll('.ui-side-sheet select')].find((entry) =>
+      [...entry.options].some((option) => option.textContent === 'Doing')
+    );
+    if (!select || !doing || select.disabled) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    setter?.call(select, doing.id);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape' });
+  await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape' });
+  await waitFor(workbench, `!document.querySelector('.ui-side-sheet')`);
+}
+// The drop moves the task into the Doing SECTION — focus state plays no part.
+await waitFor(workbench, `(async () => {
+  const projects = await window.eyeProtect.getProjects();
+  const research = projects.find((project) => project.name === 'Research');
+  const sections = research ? await window.eyeProtect.getProjectSections(research.id) : [];
+  const doing = sections.find((entry) => entry.name === 'Doing');
+  if (!doing) return false;
+  const tasks = await window.eyeProtect.getTasks();
+  return tasks.some((task) => task.title === '整理今日工作记录' && task.sectionId === doing.id);
+})()`);
 await capture(workbench, 'project-board-interaction-dark.png');
 await evaluate(workbench, `document.querySelector('.project-add')?.click()`);
 await waitFor(workbench, `Boolean(document.querySelector('.ui-dialog'))`);

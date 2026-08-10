@@ -1623,6 +1623,7 @@ export class TaskStore extends EventEmitter {
       INSERT INTO project_sections(id, project_id, name, sort_order, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(section.id, section.projectId, section.name, section.sortOrder, section.createdAt, section.updatedAt);
+    this.emit('project-sections-changed', { projectId: section.projectId });
     return section;
   }
 
@@ -1636,6 +1637,7 @@ export class TaskStore extends EventEmitter {
       return current;
     }
     this.db.prepare('UPDATE project_sections SET name = ?, updated_at = ? WHERE id = ?').run(next.name, now, id);
+    this.emit('project-sections-changed', { projectId: current.projectId });
     return this.getProjectSection(id);
   }
 
@@ -1658,11 +1660,13 @@ export class TaskStore extends EventEmitter {
       const statement = this.db.prepare('UPDATE project_sections SET sort_order = ?, updated_at = ? WHERE id = ?');
       rest.forEach((section, index) => statement.run(index, now, section.id));
     });
+    this.emit('project-sections-changed', { projectId: moving.projectId });
     return this.getProjectSections(moving.projectId);
   }
 
   deleteProjectSection(id: string, now: number = Date.now()): boolean {
     // FK ON DELETE SET NULL detaches member tasks; they are never deleted.
+    const section = this.getProjectSection(id);
     const detached = this.getTasks().filter((task) => task.sectionId === id);
     const result = this.db.prepare('DELETE FROM project_sections WHERE id = ?').run(id);
     if (Number(result.changes) === 1) {
@@ -1671,6 +1675,7 @@ export class TaskStore extends EventEmitter {
         const fresh = this.getTask(task.id);
         if (fresh) this.emit('task-upserted', fresh);
       }
+      this.emit('project-sections-changed', { projectId: section?.projectId ?? null });
       return true;
     }
     return false;
@@ -1710,6 +1715,7 @@ export class TaskStore extends EventEmitter {
         }
       }
     });
+    this.emit('project-sections-changed', { projectId: null });
     return this.getAllProjectSections();
   }
 

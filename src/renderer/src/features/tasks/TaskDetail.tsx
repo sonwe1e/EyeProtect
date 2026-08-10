@@ -12,6 +12,7 @@ import {
 } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
 import { useCommand } from '../../hooks/useCommand';
+import { useProjectSections } from '../../hooks/useProjectSections';
 import { commands } from '../../lib/commands';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
@@ -173,6 +174,8 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const statusCommand = useCommand((next: TaskStatus) => commands.tasks.setStatus(task.id, next));
   const activeCommand = useCommand((id: string | null) => commands.tasks.setActive(id));
   const deleteCommand = useCommand(() => commands.tasks.delete(task.id));
+  const sectionCommand = useCommand((sectionId: string | null) => commands.tasks.setSection(task.id, sectionId));
+  const { sections: taskSections } = useProjectSections(task.projectId ?? '');
   const recurrenceCommand = useCommand(
     (rule: RecurrenceRule | null) => commands.tasks.update(task.id, { recurrence: rule })
   );
@@ -389,6 +392,23 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="detail-field">
+        <span>项目分组</span>
+        <select
+          value={task.sectionId ?? ''}
+          disabled={!task.projectId || taskSections.length === 0 || sectionCommand.isPending}
+          onChange={(event) => void sectionCommand.run(event.currentTarget.value || null).then((result) => {
+            if (!result.ok) setSaveError(result.message);
+          })}
+        >
+          <option value="">未分组</option>
+          {taskSections.map((section) => (
+            <option key={section.id} value={section.id}>{section.name}</option>
+          ))}
+        </select>
+        {sectionCommand.error ? <small className="detail-field-error">{sectionCommand.error.message}</small> : null}
       </label>
 
       <label className="detail-field">

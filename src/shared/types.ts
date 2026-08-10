@@ -380,6 +380,8 @@ export interface TimeBlockInput {
  * A named stage/column inside a project (Todoist sections). Board columns
  * ARE sections — never derived from the global active/focus task (ADR-002).
  */
+export const SECTION_TEMPLATE = ['Backlog', 'Next', 'Doing', 'Waiting'] as const;
+
 export interface ProjectSection {
   id: string;
   projectId: string;
@@ -782,6 +784,14 @@ export interface EyeProtectApi {
    *  means every date may have changed. */
   onTimeBlocksChanged: (callback: () => void) => () => void;
   onDailyPlansChanged: (callback: (payload: { localDate: string | null }) => void) => () => void;
+  /** Project sections (USERPLAN 1.2 PR5): Board columns are sections. */
+  getProjectSections: (projectId: string) => Promise<ProjectSection[]>;
+  createProjectSection: (input: ProjectSectionInput) => Promise<ProjectSection>;
+  updateProjectSection: (id: string, input: { name: string }) => Promise<ProjectSection>;
+  moveProjectSection: (id: string, beforeSectionId: string | null) => Promise<ProjectSection[]>;
+  deleteProjectSection: (id: string) => Promise<boolean>;
+  onProjectSectionsChanged: (callback: (payload: { projectId: string | null }) => void) => () => void;
+  setTaskSection: (taskId: string, sectionId: string | null) => Promise<Task>;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;

@@ -16,6 +16,8 @@ import type {
   PreAlertAction,
   Project,
   ProjectInput,
+  ProjectSection,
+  ProjectSectionInput,
   ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
@@ -100,6 +102,19 @@ const api: EyeProtectApi = {
   deleteTimeBlock: (id: string) => ipcRenderer.invoke('timeblock:delete', id) as Promise<boolean>,
   onTimeBlocksChanged: (callback) => on<null>('timeblock:changed', callback),
   onDailyPlansChanged: (callback) => on<{ localDate: string | null }>('plan:changed', callback),
+  getProjectSections: (projectId: string) =>
+    ipcRenderer.invoke('section:list', projectId) as Promise<ProjectSection[]>,
+  createProjectSection: (input: ProjectSectionInput) =>
+    ipcRenderer.invoke('section:create', input) as Promise<ProjectSection>,
+  updateProjectSection: (id: string, input: { name: string }) =>
+    ipcRenderer.invoke('section:update', id, input) as Promise<ProjectSection>,
+  moveProjectSection: (id: string, beforeSectionId: string | null) =>
+    ipcRenderer.invoke('section:move', id, beforeSectionId) as Promise<ProjectSection[]>,
+  deleteProjectSection: (id: string) =>
+    ipcRenderer.invoke('section:delete', id) as Promise<boolean>,
+  onProjectSectionsChanged: (callback) => on<{ projectId: string | null }>('section:changed', callback),
+  setTaskSection: (taskId: string, sectionId: string | null) =>
+    ipcRenderer.invoke('task:set-section', taskId, sectionId) as Promise<Task>,
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),

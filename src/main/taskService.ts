@@ -39,6 +39,9 @@ export class TaskService extends EventEmitter {
     store.on('daily-plans-changed', (payload: { localDate: string | null }) =>
       this.emit('daily-plans-changed', payload)
     );
+    store.on('project-sections-changed', (payload: { projectId: string | null }) =>
+      this.emit('project-sections-changed', payload)
+    );
   }
 
   // ── Read pass-throughs ─────────────────────────────────────────────────────

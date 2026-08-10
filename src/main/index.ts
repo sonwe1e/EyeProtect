@@ -744,6 +744,9 @@ app.whenReady().then(async () => {
   taskService.on('daily-plans-changed', (payload: { localDate: string | null }) => {
     windows.broadcastToWorkbench('plan:changed', payload);
   });
+  taskService.on('project-sections-changed', (payload: { projectId: string | null }) => {
+    windows.broadcastToWorkbench('section:changed', payload);
+  });
   taskService.on('active-task-changed', (id: string | null) => {
     taskWorkTracker.setActiveTask(id);
     windows.broadcastActiveTask(id);
@@ -1323,6 +1326,60 @@ app.whenReady().then(async () => {
   );
   handleIpc('timeblock:delete', (id) =>
     requireWritableTaskDatabase(() => taskStore.deleteTimeBlock(asString(id)))
+  );
+
+  // ── Project sections (USERPLAN 1.2 PR5) ────────────────────────────────────
+  // Board columns ARE sections — workflow stages owned by the project, never
+  // derived from the global focus/active task (ADR-002).
+  const asSectionInput = (value: unknown): { projectId: string; name: string } => {
+    if (!value || typeof value !== 'object') {
+      throw new Error('无效的分组输入');
+    }
+    const candidate = value as { projectId?: unknown; name?: unknown };
+    if (typeof candidate.projectId !== 'string' || !candidate.projectId || typeof candidate.name !== 'string') {
+      throw new Error('无效的分组输入');
+    }
+    return { projectId: candidate.projectId, name: candidate.name };
+  };
+  handleIpc('section:list', (projectId) => taskStore.getProjectSections(asString(projectId)));
+  handleIpc('section:create', (input) =>
+    requireWritableTaskDatabase(() => taskStore.createProjectSection(asSectionInput(input)))
+  );
+  handleIpc('section:update', (id, input) =>
+    requireWritableTaskDatabase(() => {
+      const name = input && typeof input === 'object' ? (input as { name?: unknown }).name : undefined;
+      if (typeof name !== 'string') {
+        throw new Error('无效的分组输入');
+      }
+      const result = taskStore.updateProjectSection(asString(id), { name });
+      if (!result) {
+        throw new Error('分组不存在');
+      }
+      return result;
+    })
+  );
+  handleIpc('section:move', (id, beforeSectionId) =>
+    requireWritableTaskDatabase(() =>
+      taskStore.moveProjectSection(
+        asString(id),
+        typeof beforeSectionId === 'string' && beforeSectionId ? beforeSectionId : null
+      )
+    )
+  );
+  handleIpc('section:delete', (id) =>
+    requireWritableTaskDatabase(() => taskStore.deleteProjectSection(asString(id)))
+  );
+  handleIpc('task:set-section', (taskId, sectionId) =>
+    requireWritableTaskDatabase(() => {
+      const result = taskStore.setTaskSection(
+        asString(taskId),
+        typeof sectionId === 'string' && sectionId ? sectionId : null
+      );
+      if (!result) {
+        throw new Error('任务不存在');
+      }
+      return result;
+    })
   );
   handleIpc('window:workbench:open', (section) =>
     windows.showWorkbenchWindow(

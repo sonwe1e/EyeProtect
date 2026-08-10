@@ -19,6 +19,8 @@ import type {
   FailedDeliveryNotice,
   Project,
   ProjectInput,
+  ProjectSection,
+  ProjectSectionInput,
   ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
@@ -54,6 +56,8 @@ export const commands = {
       run<Task[]>(() => window.eyeProtect.setTaskStatus(id, status)),
     delete: (id: string) =>
       run<Task[]>(() => window.eyeProtect.deleteTask(id)),
+    setSection: (taskId: string, sectionId: string | null) =>
+      run<Task>(() => window.eyeProtect.setTaskSection(taskId, sectionId)),
     move: (input: TaskMoveInput) =>
       run<Task[]>(() => window.eyeProtect.moveTask(input)),
     undo: (operationId: string) =>
@@ -90,6 +94,18 @@ export const commands = {
       run<TimeBlock>(() => window.eyeProtect.updateTimeBlock(id, input)),
     remove: (id: string) =>
       run<boolean>(() => window.eyeProtect.deleteTimeBlock(id))
+  },
+
+  // ── Project sections (USERPLAN 1.2 PR5) ─────────────────────────────────
+  sections: {
+    create: (input: ProjectSectionInput) =>
+      run<ProjectSection>(() => window.eyeProtect.createProjectSection(input)),
+    rename: (id: string, name: string) =>
+      run<ProjectSection>(() => window.eyeProtect.updateProjectSection(id, { name })),
+    move: (id: string, beforeSectionId: string | null) =>
+      run<ProjectSection[]>(() => window.eyeProtect.moveProjectSection(id, beforeSectionId)),
+    remove: (id: string) =>
+      run<boolean>(() => window.eyeProtect.deleteProjectSection(id))
   },
 
   // ── Characters ─────────────────────────────────────────────────────────────

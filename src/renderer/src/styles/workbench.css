@@ -413,3 +413,41 @@
 .workbench-v2 .plan-timeline-hint { margin: 10px 0 0; color: var(--fg-tertiary); font-size: 11.5px; line-height: 1.5; }
 .workbench-v2 .timeline-health-marker--walk { color: var(--warning); background: var(--warning-subtle); }
 .workbench-v2 .timeline-health-marker--walk::after { border-top-color: var(--warning); }
+
+/* ── Project sections (USERPLAN 1.2 PR5) ─────────────────────────────────── */
+.workbench-v2 .project-section-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
+.workbench-v2 .project-section-input {
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--fg-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.workbench-v2 .project-section-header { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.workbench-v2 .project-section-header h2 { margin: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-v2 .project-section-tools { display: inline-flex; gap: 2px; align-items: center; margin-left: auto; }
+.workbench-v2 .project-section-count { color: var(--fg-tertiary); font-size: 11.5px; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.workbench-v2 .project-section-tools button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--fg-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+.workbench-v2 .project-section-tools button:hover:not(:disabled) { color: var(--fg-primary); background: var(--surface-hover); }
+.workbench-v2 .project-section-tools button:disabled { opacity: 0.35; }
+.workbench-v2 .project-section-rename {
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--fg-primary);
+  background: var(--surface);
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+}
+.workbench-v2 .project-empty-hint { margin: 6px 0; color: var(--fg-tertiary); font-size: 12px; }
+.workbench-v2 .detail-field-error { color: var(--danger); font-size: 11.5px; }
