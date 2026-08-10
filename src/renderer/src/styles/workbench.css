@@ -220,6 +220,9 @@
 
 .workbench-v2 .task-row:hover { background: var(--surface-hover); }
 .workbench-v2 .task-row.is-selected { background: var(--brand-subtle); border-color: transparent; }
+/* Drag-reorder feedback (USERPLAN 1.2 PR0: drag must visibly do something). */
+.workbench-v2 .task-row.is-dragging { opacity: 0.45; }
+.workbench-v2 .task-row.is-drag-over { box-shadow: inset 0 2px 0 var(--brand); }
 .workbench-v2 .task-checkbox {
   position: relative;
   width: 36px;

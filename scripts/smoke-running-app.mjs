@@ -171,12 +171,36 @@ if (
   throw new Error(`Workbench renderer smoke check failed: ${JSON.stringify(workbench)}`);
 }
 
+// Theme runtime authority audit (USERPLAN 1.2 PR0). Emits every theme
+// authority in one place — settings, DOM dataset, inline style, computed
+// CSS, media query — so a mismatch can be diagnosed as product bug vs CDP
+// emulation artifact without guessing.
+const themeAudit = await evaluate(workbenchTarget, `(async () => {
+  const settings = await window.eyeProtect.getSettings();
+  const root = document.documentElement;
+  return {
+    settingsTheme: settings.theme,
+    datasetTheme: root.dataset.theme ?? null,
+    inlineColorScheme: root.style.colorScheme || null,
+    computedColorScheme: getComputedStyle(root).colorScheme,
+    prefersDark: matchMedia('(prefers-color-scheme: dark)').matches,
+    appBackgroundColor: getComputedStyle(document.body).backgroundColor
+  };
+})()`);
+
+// The renderer owns dataset.theme and derives it from settings — a mismatch
+// here is a deterministic product bug, never an emulation artifact.
+if (!themeAudit || themeAudit.datasetTheme !== themeAudit.settingsTheme) {
+  throw new Error(`Theme authority mismatch: ${JSON.stringify(themeAudit)}`);
+}
+
 console.log(
   JSON.stringify(
     {
       pet,
       collection,
-      workbench
+      workbench,
+      themeAudit
     },
     null,
     2

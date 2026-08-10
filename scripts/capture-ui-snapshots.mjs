@@ -63,6 +63,46 @@ const call = async (target, method, params = {}) => {
     socket.close();
   }
 };
+
+/**
+ * Persistent CDP session. `Emulation.setEmulatedMedia` state is scoped to the
+ * DevTools session that set it: closing the socket reverts the emulation
+ * (verified against the packaged build — the OS media value returns the
+ * moment the session closes). Every call that mutates session state and the
+ * audits/screenshots that depend on it must therefore share ONE socket.
+ */
+const openSession = async (target) => {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolveOpen, reject) => {
+    socket.addEventListener('open', resolveOpen, { once: true });
+    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
+  });
+  let nextId = 0;
+  const pending = new Map();
+  socket.addEventListener('message', (event) => {
+    const message = JSON.parse(String(event.data));
+    if (!message.id || !pending.has(message.id)) return;
+    const { resolveMessage, rejectMessage, timeout } = pending.get(message.id);
+    pending.delete(message.id);
+    clearTimeout(timeout);
+    if (message.error) rejectMessage(new Error(message.error.message));
+    else resolveMessage(message.result);
+  });
+  return {
+    call(method, params = {}) {
+      const id = ++nextId;
+      const promise = new Promise((resolveMessage, rejectMessage) => {
+        const timeout = setTimeout(() => rejectMessage(new Error(`${method} timed out`)), 12_000);
+        pending.set(id, { resolveMessage, rejectMessage, timeout });
+      });
+      socket.send(JSON.stringify({ id, method, params }));
+      return promise;
+    },
+    close() {
+      socket.close();
+    }
+  };
+};
 const callSequence = async (target, steps) => {
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolveOpen, reject) => {
@@ -375,25 +415,32 @@ for (const [width, height, file] of [
 
 await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: hostScale, mobile: false });
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'system' })`);
-await call(workbench, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
-await waitFor(workbench, `document.documentElement.dataset.theme === 'system'`);
-await auditComputedTheme(workbench, 'dark', [
-  ['system app shell', '.workbench-v2'],
-  ['system selected navigation', '.app-nav-item.is-active']
-]);
-await capture(workbench, 'today-system-dark.png');
-await call(workbench, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
-await auditComputedTheme(workbench, 'light', [
-  ['system app shell', '.workbench-v2'],
-  ['system selected navigation', '.app-nav-item.is-active']
-]);
-await capture(workbench, 'today-system-light.png');
-await call(workbench, 'Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'active' }] });
-await capture(workbench, 'today-forced-colors.png');
-await call(workbench, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-await capture(workbench, 'today-reduced-motion.png');
-
-await call(workbench, 'Emulation.setEmulatedMedia', { features: [] });
+// Emulated media features live on the CDP session that sets them. One
+// persistent session spans every set → audit → capture step below; closing
+// it reverts the emulation automatically (USERPLAN 1.2 PR0 theme audit).
+const mediaSession = await openSession(workbench);
+try {
+  await mediaSession.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+  await waitFor(workbench, `document.documentElement.dataset.theme === 'system'`);
+  await auditComputedTheme(workbench, 'dark', [
+    ['system app shell', '.workbench-v2'],
+    ['system selected navigation', '.app-nav-item.is-active']
+  ]);
+  await capture(workbench, 'today-system-dark.png');
+  await mediaSession.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await auditComputedTheme(workbench, 'light', [
+    ['system app shell', '.workbench-v2'],
+    ['system selected navigation', '.app-nav-item.is-active']
+  ]);
+  await capture(workbench, 'today-system-light.png');
+  await mediaSession.call('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'active' }] });
+  await capture(workbench, 'today-forced-colors.png');
+  await mediaSession.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await capture(workbench, 'today-reduced-motion.png');
+  await mediaSession.call('Emulation.setEmulatedMedia', { features: [] });
+} finally {
+  mediaSession.close();
+}
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
 await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
 await evaluate(pet, `window.eyeProtect.testReminder('combined')`);

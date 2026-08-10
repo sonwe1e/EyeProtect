@@ -30,7 +30,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.density = settings.density;
-    document.documentElement.style.colorScheme = settings.theme === 'system' ? 'light dark' : settings.theme;
+    // Theme authority lives in ONE place: styles/theme.css maps
+    // [data-theme] (including the `system` media query) to `color-scheme`
+    // and the token set. Setting `style.colorScheme` here created a second
+    // authority that could disagree with the computed CSS value (USERPLAN
+    // 1.2 PR0: theme runtime authority).
   }, [settings.theme, settings.density]);
   return (
     <Suspense fallback={null}>

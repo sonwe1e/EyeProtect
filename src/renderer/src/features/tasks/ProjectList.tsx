@@ -16,6 +16,7 @@ function ProjectItem({ project, count, isActive, onSelect }: {
 }): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameText, setRenameText] = useState(project.name);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const rename = useCommand((name: string) => commands.projects.update(project.id, { name }));
   const remove = useCommand(() => commands.projects.remove(project.id));
 
@@ -28,6 +29,12 @@ function ProjectItem({ project, count, isActive, onSelect }: {
     if (name && name !== project.name) void rename.run(name);
     setIsRenaming(false);
   };
+
+  const closeConfirm = useCallback(() => {
+    if (remove.isPending) return;
+    setConfirmDeleteOpen(false);
+    remove.reset();
+  }, [remove.isPending, remove.reset]);
 
   return (
     <li className={`project-item ${isActive ? 'is-active' : ''}`.trim()} style={{ ['--chip-color' as string]: project.color ?? '#718078' }} onClick={() => onSelect(project.id)}>
@@ -51,7 +58,20 @@ function ProjectItem({ project, count, isActive, onSelect }: {
         <span className="project-item-name" title={`${project.name}（双击重命名）`} onDoubleClick={(event) => { event.stopPropagation(); setIsRenaming(true); }}>{project.name}</span>
       )}
       <span className="project-item-count">{count}</span>
-      <CommandButton className="project-item-remove" state={remove.state} errorReason={remove.error?.message} aria-label={`删除项目「${project.name}」`} onClick={(event) => { event.stopPropagation(); void remove.run(); }}><Trash2 size={14} /></CommandButton>
+      <CommandButton className="project-item-remove" state={remove.state} errorReason={remove.error?.message} aria-label={`删除项目「${project.name}」`} onClick={(event) => { event.stopPropagation(); setConfirmDeleteOpen(true); }}><Trash2 size={14} /></CommandButton>
+      <Dialog
+        open={confirmDeleteOpen}
+        title={`删除项目「${project.name}」`}
+        description="删除是不可撤销的破坏性操作。"
+        onClose={closeConfirm}
+        footer={<><Button onClick={closeConfirm}>取消</Button><CommandButton variant="danger" state={remove.state} errorReason={remove.error?.message} disabled={remove.isPending} onClick={() => void remove.run().then((result) => { if (result.ok) setConfirmDeleteOpen(false); })}>确认删除</CommandButton></>}
+      >
+        <p className="project-delete-warning">
+          {count > 0
+            ? `项目下还有 ${count} 个未完成任务。删除项目后这些任务会保留，但会失去项目分组。`
+            : '删除后项目分组将立即消失，此操作无法撤销。'}
+        </p>
+      </Dialog>
     </li>
   );
 }

@@ -1316,7 +1316,8 @@ export const matchesTaskView = (
       if (!isActiveStatus(task.status)) {
         return false;
       }
-      const horizon = endOfDay(now + 7 * 86_400_000);
+      // Calendar-day horizon: +7 calendar days, not +7*24h (DST-safe, §二十一).
+      const horizon = endOfDay(addCalendarDays(now, 7));
       const futureStart = endOfDay(now) + 1;
       const planned =
         task.plannedAt !== null && task.plannedAt >= futureStart && task.plannedAt <= horizon;

@@ -517,9 +517,20 @@ export class AppWindows {
   /** Keep the native window fill in lockstep with CSS when the OS theme changes. */
   refreshWorkbenchTheme(settings = this.settingsStore.get()): void {
     if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
-      this.workbenchWindow.setBackgroundColor(
-        getWorkbenchBackgroundColor(settings.theme, nativeTheme.shouldUseDarkColors)
-      );
+      const backgroundColor = getWorkbenchBackgroundColor(settings.theme, nativeTheme.shouldUseDarkColors);
+      this.workbenchWindow.setBackgroundColor(backgroundColor);
+      if (process.env.EYEPROTECT_SMOKE === '1') {
+        // Main-process side of the theme authority audit (USERPLAN 1.2 PR0).
+        // The packaged smoke script logs the renderer side; together they
+        // expose every authority at once instead of guessing which one lied.
+        console.log(
+          `[theme-audit] main ${JSON.stringify({
+            settingsTheme: settings.theme,
+            nativeShouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+            workbenchBackgroundColor: backgroundColor
+          })}`
+        );
+      }
     }
   }
 

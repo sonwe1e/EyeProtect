@@ -65,6 +65,25 @@ const toLocalInputValue = (timestamp: number): string => {
 const parseRecurrenceType = (rule: RecurrenceRule | null): RecurrenceType =>
   rule ? (rule.type as RecurrenceType) : 'none';
 
+/**
+ * True when an autosave draft carries no change relative to the persisted
+ * task. Used to skip no-op flushes on blur/unmount so closing the detail
+ * pane never fires a redundant write.
+ */
+const draftEqualsTask = (draft: TaskUpdateInput, source: Task): boolean =>
+  draft.title === source.title &&
+  (draft.notes ?? null) === (source.notes ?? null) &&
+  draft.priority === source.priority &&
+  draft.context === source.context &&
+  draft.remindOnBreak === source.remindOnBreak &&
+  draft.projectId === source.projectId &&
+  draft.parentId === source.parentId &&
+  draft.plannedAt === source.plannedAt &&
+  draft.dueAt === source.dueAt &&
+  draft.reminderAt === source.reminderAt &&
+  draft.estimateMinutes === source.estimateMinutes &&
+  JSON.stringify(draft.tags ?? []) === JSON.stringify(source.tags);
+
 const buildRecurrence = (
   type: RecurrenceType,
   interval: number,
@@ -118,6 +137,9 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const initialSyncRef = useRef(true);
+  const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskRef = useRef(task);
+  taskRef.current = task;
   const latestDraftRef = useRef<TaskUpdateInput>({});
   latestDraftRef.current = {
     title: title.trim() || task.title,
@@ -213,9 +235,51 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
 
   useEffect(() => {
     if (initialSyncRef.current) return;
-    const timer = setTimeout(() => persist({ notes: notes.trim() || null }), 500);
-    return () => clearTimeout(timer);
+    notesTimerRef.current = setTimeout(() => {
+      notesTimerRef.current = null;
+      persist({ notes: notes.trim() || null });
+    }, 500);
+    return () => {
+      if (notesTimerRef.current !== null) {
+        clearTimeout(notesTimerRef.current);
+        notesTimerRef.current = null;
+      }
+    };
   }, [notes, persist]);
+
+  /**
+   * Flush the latest draft without touching component state.
+   *
+   * USERPLAN 1.2 P0: closing the side sheet unmounts TaskDetail and cancels
+   * the pending debounce timers, which used to lose up to 500ms of note
+   * edits. The flush is enqueued on the SAME serialized save queue as the
+   * debounced writes, so it always lands after them — the newest revision
+   * wins and a stale autosave can never overwrite it.
+   */
+  const flushDraft = useCallback((): void => {
+    const source = taskRef.current;
+    const draft = { ...latestDraftRef.current };
+    if (draftEqualsTask(draft, source)) return;
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      const result = await commands.tasks.update(source.id, draft);
+      if (!result.ok) {
+        // The component is usually unmounted at this point, so surface the
+        // failure on the console instead of a dead setState.
+        console.error(`[TaskDetail] draft flush failed for task ${source.id}: ${result.message}`);
+      }
+    });
+  }, []);
+
+  // Flush on unmount (side-sheet close) and on blur of the free-text fields.
+  useEffect(() => flushDraft, [flushDraft]);
+
+  const flushNotes = useCallback((): void => {
+    if (notesTimerRef.current !== null) {
+      clearTimeout(notesTimerRef.current);
+      notesTimerRef.current = null;
+    }
+    flushDraft();
+  }, [flushDraft]);
 
   return (
     <form className="detail-card" onSubmit={(event) => event.preventDefault()}>
@@ -226,6 +290,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           value={title}
           maxLength={TASK_TITLE_MAX}
           onChange={(event) => setTitle(event.currentTarget.value)}
+          onBlur={flushDraft}
         />
         <span className={`detail-save-state ${saveError ? 'is-error' : ''}`}>{saveError ?? '自动保存'}</span>
       </div>
@@ -238,6 +303,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           rows={3}
           placeholder="添加备注..."
           onChange={(event) => setNotes(event.currentTarget.value)}
+          onBlur={flushNotes}
         />
       </label>
 
@@ -326,6 +392,9 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
                   if (result.ok) {
                     setSaveError(null);
                   } else {
+                    // Roll back the optimistic flip: the store stayed at the
+                    // old status, so the UI must not keep lying about it.
+                    setStatus(taskRef.current.status);
                     setSaveError(result.message);
                   }
                 });

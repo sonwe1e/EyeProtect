@@ -13,6 +13,7 @@ import {
 import { CommandButton } from '../../components/CommandButton';
 import { useCommand } from '../../hooks/useCommand';
 import { commands } from '../../lib/commands';
+import { resolveSiblingDrop } from './taskReorder';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
@@ -80,8 +81,12 @@ function TaskRow({
   index,
   siblingIndex,
   siblingCount,
+  isDragging,
   onSelect,
-  onMove
+  onMove,
+  onDragStartRow,
+  onDropOnRow,
+  onDragEndRow
 }: {
   task: Task;
   view: TaskView;
@@ -94,12 +99,16 @@ function TaskRow({
   index: number;
   siblingIndex: number;
   siblingCount: number;
+  isDragging: boolean;
   onSelect: (id: string) => void;
   onMove: (index: number, direction: -1 | 1) => void;
+  onDragStartRow: (id: string) => void;
+  onDropOnRow: (targetId: string) => void;
+  onDragEndRow: () => void;
 }): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [isDropTarget, setIsDropTarget] = useState(false);
 
   const toggleStatus = useCommand((status: TaskStatus) => commands.tasks.setStatus(task.id, status));
   const cyclePriority = useCommand((priority: TodoPriority) => commands.tasks.update(task.id, { priority }));
@@ -141,17 +150,34 @@ function TaskRow({
 
   return (
     <li
-      className={`task-row ${isSelected ? 'is-selected' : ''} ${task.status === 'done' ? 'is-done' : ''}`.trim()}
+      className={`task-row ${isSelected ? 'is-selected' : ''} ${task.status === 'done' ? 'is-done' : ''} ${isDragging ? 'is-dragging' : ''} ${isDropTarget ? 'is-drag-over' : ''}`.trim()}
       style={{ ['--task-depth' as string]: depth }}
       onClick={() => onSelect(task.id)}
       draggable={canReorder}
-      onDragStart={() => setDraggingId(task.id)}
-      onDragOver={(event) => canReorder && event.preventDefault()}
+      onDragStart={(event) => {
+        if (!canReorder) return;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', task.id);
+        onDragStartRow(task.id);
+      }}
+      onDragOver={(event) => {
+        if (canReorder) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setIsDropTarget(true);
+        }
+      }}
+      onDragLeave={() => setIsDropTarget(false)}
       onDrop={(event) => {
         event.preventDefault();
-        setDraggingId(null);
+        event.stopPropagation();
+        setIsDropTarget(false);
+        onDropOnRow(task.id);
       }}
-      onDragEnd={() => setDraggingId(null)}
+      onDragEnd={() => {
+        setIsDropTarget(false);
+        onDragEndRow();
+      }}
     >
       <CommandButton
         type="button"
@@ -294,6 +320,11 @@ export function TaskList({
     return map;
   }, [projects]);
 
+  // Drag state lives at list level so the drop handler knows which row was
+  // grabbed — a per-row `draggingId` (the old implementation) is invisible
+  // to every other row.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
   const { orderedTasks, depthById } = useMemo(() => {
     const ids = new Set(tasks.map((task) => task.id));
     const children = new Map<string, Task[]>();
@@ -336,12 +367,37 @@ export function TaskList({
     onMove(task.id, beforeTaskId);
   }, [orderedTasks, onMove]);
 
+  /**
+   * HTML5 drag & drop reorder (USERPLAN 1.2 PR0: the old `onDrop` only
+   * cleared local state and never called `onMove`, so dragging looked
+   * functional but persisted nothing). Dropping on a row inserts the dragged
+   * task ABOVE the target within the same sibling group; dropping on the
+   * list background moves it to the end.
+   */
+  const handleDropOnRow = useCallback((targetId: string, sourceId: string | null) => {
+    if (!sourceId || !onMove) return;
+    const beforeTaskId = resolveSiblingDrop(orderedTasks, sourceId, targetId);
+    if (beforeTaskId === undefined) return;
+    onMove(sourceId, beforeTaskId);
+  }, [orderedTasks, onMove]);
+
   if (tasks.length === 0) {
     return <p className="task-empty empty-state">这里还没有任务，添加一件吧。</p>;
   }
 
   return (
-    <ul className={`task-list task-list--${view}`}>
+    <ul
+      className={`task-list task-list--${view}`}
+      onDragOver={(event) => { if (onMove) event.preventDefault(); }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const sourceId = draggingId;
+        setDraggingId(null);
+        if (!sourceId || !onMove) return;
+        // Drop on the list background: move to the end of its sibling group.
+        onMove(sourceId, null);
+      }}
+    >
       {orderedTasks.map((task, index) => {
         const siblings = orderedTasks.filter((entry) => entry.parentId === task.parentId);
         const siblingIndex = siblings.findIndex((entry) => entry.id === task.id);
@@ -363,8 +419,16 @@ export function TaskList({
             index={index}
             siblingIndex={siblingIndex}
             siblingCount={siblings.length}
+            isDragging={draggingId === task.id}
             onSelect={onSelect}
             onMove={handleMove}
+            onDragStartRow={setDraggingId}
+            onDropOnRow={(targetId) => {
+              const sourceId = draggingId;
+              setDraggingId(null);
+              handleDropOnRow(targetId, sourceId);
+            }}
+            onDragEndRow={() => setDraggingId(null)}
           />
         );
       })}

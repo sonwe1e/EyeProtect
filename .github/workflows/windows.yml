@@ -74,11 +74,12 @@ jobs:
           }
 
       - name: Upload UI snapshots
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: EyeProtect-UI-snapshots
           path: ${{ runner.temp }}/eyeprotect-ui-snapshots/*.png
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Capture Windows scale-factor matrix
         shell: pwsh
@@ -105,11 +106,12 @@ jobs:
           }
 
       - name: Upload scale-factor snapshots
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: EyeProtect-UI-scale-snapshots
           path: ${{ runner.temp }}/eyeprotect-ui-snapshots/*scale-*.png
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Smoke test emergency reminder fallback
         shell: pwsh
@@ -146,10 +148,11 @@ jobs:
           }
 
       - name: Upload installer
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: EyeProtect-Windows-x64
           path: |
             release/EyeProtect-Setup-1.1.0-win-x64.exe
             release/EyeProtect-1.1.0-win-x64-portable.exe
-          if-no-files-found: error
+          if-no-files-found: warn

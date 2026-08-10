@@ -24,6 +24,9 @@
 .root :global(.timeline-blocks) { position: absolute; inset: 0; pointer-events: none; }
 .root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 26px minmax(0, 1fr); grid-template-rows: auto auto 6px; min-height: 30px; padding: 7px 10px 0 4px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: 8px; box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); pointer-events: auto; overflow: hidden; }
 .root :global(.timeline-block.is-error) { border-color: var(--danger); }
+/* Unestimated task: dashed border signals the block height is a visual
+   minimum, not a planned-duration fact (USERPLAN 1.2 PR0). */
+.root :global(.timeline-block.is-unestimated) { border-style: dashed; background: color-mix(in srgb, var(--brand-subtle) 55%, var(--bg-app)); }
 .root :global(.timeline-block-drag) { display: grid; grid-row: 1 / 3; width: 26px; min-height: 28px; place-items: center; color: var(--brand); background: transparent; cursor: grab; touch-action: none; }
 .root :global(.timeline-block-drag:active) { cursor: grabbing; }
 .root :global(.timeline-block-title) { min-width: 0; color: var(--fg-primary); font-weight: 650; text-align: left; background: transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
