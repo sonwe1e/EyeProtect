@@ -157,6 +157,16 @@ export const parseBackup = (text: string): EyeProtectBackup => {
   const characterCollection = parsed.characterCollection && typeof parsed.characterCollection === 'object'
     ? parsed.characterCollection as CharacterCollectionState
     : null;
+
+  // Tasks and projects each form their own parent forest. A backup must be a
+  // DAG: reject multi-node cycles (A->B->A) that the per-row self-check misses.
+  if (hasParentCycle(tasks)) {
+    throw new Error('备份文件包含循环的任务关系');
+  }
+  if (hasParentCycle(projects)) {
+    throw new Error('备份文件包含循环的项目关系');
+  }
+
   return {
     version: BACKUP_SCHEMA_VERSION,
     createdAt: parsed.createdAt as number,
@@ -173,6 +183,32 @@ export const parseBackup = (text: string): EyeProtectBackup => {
       ? (parsed.activeTaskId ?? legacyActiveTaskId) as string
       : null
   };
+};
+
+/**
+ * Detect a cycle in a parent-linked forest (O(V+E)). For each entry that has a
+ * parentId, walk up the ancestors; if we ever return to the start node, the
+ * graph is not a DAG. A per-start-node visited set bounds traversal and keeps
+ * the check linear even when several nodes share ancestors.
+ */
+const hasParentCycle = <T extends { id: string; parentId: string | null }>(entries: T[]): boolean => {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  for (const start of entries) {
+    if (!start.parentId) continue;
+    const visited = new Set<string>();
+    let cursor: string | null = start.parentId;
+    while (cursor && byId.has(cursor)) {
+      if (cursor === start.id) {
+        return true;
+      }
+      if (visited.has(cursor)) {
+        break;
+      }
+      visited.add(cursor);
+      cursor = byId.get(cursor)?.parentId ?? null;
+    }
+  }
+  return false;
 };
 
 const nextLegacyAlarmFireAt = (hour: number, minute: number, now: number = Date.now()): number => {

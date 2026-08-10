@@ -33,6 +33,8 @@ export class ReminderSurfaceManager {
   private emergencyWindow: BrowserWindow | null = null;
   private presentationSequence = 0;
   private primaryWebContentsId: number | null = null;
+  private emergencyWebContentsId: number | null = null;
+  private currentReminderId: string | null = null;
   private surfaceState: 'idle' | 'loading' | 'primary' | 'emergency' | 'notification' = 'idle';
 
   constructor(
@@ -44,7 +46,14 @@ export class ReminderSurfaceManager {
     private readonly openWorkbench: () => void = () => {},
     private readonly trace: (event: string, data?: Record<string, unknown>) => void = () => {},
     private readonly getPrimaryWebContentsId: () => number | null = () => null,
-    private readonly isPrimaryHealthy: () => boolean = () => false
+    private readonly isPrimaryHealthy: () => boolean = () => false,
+    /**
+     * Invoked when present() returns 'none' for the current sequence: every
+     * surface failed so the dim masks (if any) must be torn down to honor the
+     * invariant "an active focused reminder always has an actionable surface or
+     * its dim masks are destroyed". Defaults to a no-op.
+     */
+    private readonly onFailOpen: () => void = () => {}
   ) {}
 
   /**
@@ -56,6 +65,7 @@ export class ReminderSurfaceManager {
     active: ActiveReminder
   ): Promise<'primary' | 'emergency' | 'notification' | 'none'> {
     const sequence = ++this.presentationSequence;
+    this.currentReminderId = active.id;
     this.surfaceState = 'loading';
     const result = await runReminderSurfaceFallback({
       isCurrent: () => sequence === this.presentationSequence,
@@ -79,6 +89,10 @@ export class ReminderSurfaceManager {
         return shown;
       },
       notification: () => {
+        // A native notification is visible but is not itself the complete /
+        // snooze / skip controller. Remove focused dim masks before relying on
+        // it, then let a click recreate the actionable emergency card.
+        this.onFailOpen();
         const shown = this.showNotification(active);
         if (shown) {
           this.surfaceState = 'notification';
@@ -89,7 +103,10 @@ export class ReminderSurfaceManager {
       onError: (surface, error) => console.error(`[surface] ${surface} surface failed, falling back:`, error)
     });
     if (result === 'none' && sequence === this.presentationSequence) {
+      // Every surface failed: tear down any dim masks so the user is never left
+      // with a dimmed desktop and no actionable UI. This is the fail-open path.
       this.trace('surface-failed', { reminderId: active.id, surface: 'none' });
+      this.onFailOpen();
     }
     return result;
   }
@@ -103,7 +120,27 @@ export class ReminderSurfaceManager {
     if (!active) {
       return;
     }
-    if (webContentsId !== undefined && webContentsId !== this.primaryWebContentsId) {
+    this.currentReminderId = active.id;
+    // A crash of any webcontents we neither own nor track is someone else's
+    // concern. Note an undefined id (a generic render-process-gone) is never
+    // "unrelated" — it is handled by the fallbacks below.
+    const unrelatedId =
+      webContentsId !== undefined &&
+      webContentsId !== this.primaryWebContentsId &&
+      webContentsId !== this.emergencyWebContentsId;
+    if (unrelatedId) {
+      return;
+    }
+    if (
+      webContentsId !== undefined &&
+      webContentsId === this.emergencyWebContentsId &&
+      this.surfaceState === 'emergency'
+    ) {
+      // The emergency surface crashed: degrade to native notification so the
+      // reminder is still user-visible.
+      console.warn('[surface] emergency surface renderer gone; falling back to native notification');
+      this.destroyEmergencyWindow();
+      this.presentNotificationFallback(active, 'emergency-renderer-gone');
       return;
     }
     if (webContentsId === undefined && this.surfaceState === 'primary' && this.isPrimaryHealthy()) {
@@ -121,6 +158,8 @@ export class ReminderSurfaceManager {
   destroy(): void {
     this.presentationSequence += 1;
     this.primaryWebContentsId = null;
+    this.emergencyWebContentsId = null;
+    this.currentReminderId = null;
     this.surfaceState = 'idle';
     this.destroyEmergencyWindow();
   }
@@ -130,6 +169,7 @@ export class ReminderSurfaceManager {
       this.emergencyWindow.destroy();
     }
     this.emergencyWindow = null;
+    this.emergencyWebContentsId = null;
   }
 
   // ── Emergency surface ────────────────────────────────────────────────────────
@@ -144,13 +184,7 @@ export class ReminderSurfaceManager {
     } catch (error) {
       console.error('[surface] emergency surface failed after renderer loss:', error);
     }
-    const shown = this.showNotification(active);
-    this.surfaceState = shown ? 'notification' : 'idle';
-    this.trace(shown ? 'shown' : 'surface-failed', {
-      reminderId: active.id,
-      surface: shown ? 'notification' : 'none',
-      reason: 'renderer-gone'
-    });
+    this.presentNotificationFallback(active, 'renderer-gone');
   }
 
   private async showEmergency(active: ActiveReminder): Promise<boolean> {
@@ -195,10 +229,12 @@ export class ReminderSurfaceManager {
     window.on('closed', () => {
       if (this.emergencyWindow === window) {
         this.emergencyWindow = null;
+        this.emergencyWebContentsId = null;
       }
     });
 
     this.emergencyWindow = window;
+    this.emergencyWebContentsId = window.webContents.id;
     try {
       await this.loadEmergencyHtml(window, title);
       if (window.isDestroyed() || this.emergencyWindow !== window) {
@@ -206,6 +242,18 @@ export class ReminderSurfaceManager {
       }
       window.show();
       window.flashFrame(true);
+      // These listeners are attached only after the initial load succeeded;
+      // initial load rejection is already handled by the fallback chain.
+      window.webContents.once('unresponsive', () => {
+        if (this.emergencyWindow === window && this.surfaceState === 'emergency') {
+          this.handleRendererGone(active, window.webContents.id);
+        }
+      });
+      window.webContents.once('did-fail-load', () => {
+        if (this.emergencyWindow === window && this.surfaceState === 'emergency') {
+          this.handleRendererGone(active, window.webContents.id);
+        }
+      });
       return window.isVisible();
     } catch (error) {
       console.error('[surface] emergency window failed to load:', error);
@@ -238,12 +286,43 @@ export class ReminderSurfaceManager {
         body: '点击打开 EyeProtect 处理这枚提醒。',
         silent: true
       });
-      notification.on('click', this.openWorkbench);
+      notification.on('click', () => {
+        if (this.currentReminderId === active.id && this.surfaceState === 'notification') {
+          void this.recoverFromNotificationClick(active);
+        }
+      });
       notification.show();
       return true;
     } catch (error) {
       console.warn('[surface] notification failed:', error);
       return false;
     }
+  }
+
+  private presentNotificationFallback(active: ActiveReminder, reason: string): void {
+    // Fail open before native/tray fallback: a dimmed desktop must never depend
+    // on a surface that cannot execute reminder actions directly.
+    this.onFailOpen();
+    const shown = this.showNotification(active);
+    this.surfaceState = shown ? 'notification' : 'idle';
+    this.trace(shown ? 'shown' : 'surface-failed', {
+      reminderId: active.id,
+      surface: shown ? 'notification' : 'none',
+      reason
+    });
+  }
+
+  private async recoverFromNotificationClick(active: ActiveReminder): Promise<void> {
+    try {
+      if (await this.showEmergency(active)) {
+        this.surfaceState = 'emergency';
+        this.trace('shown', { reminderId: active.id, surface: 'emergency', reason: 'notification-click' });
+        return;
+      }
+    } catch (error) {
+      console.error('[surface] notification click could not restore emergency surface:', error);
+    }
+    this.onFailOpen();
+    this.openWorkbench();
   }
 }

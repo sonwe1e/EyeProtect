@@ -68,7 +68,7 @@ test('custom recurrence advances by local calendar days and retains its wall-clo
   assert.equal(result.getDate(), 11);
 });
 
-test('a once reminder persists, fires through the shared kernel, then is deleted', () => {
+test('a once reminder is deleted only after delivery acknowledgement', () => {
   withService((service, store, kernel, clock) => {
     let fired: StandaloneReminder | null = null;
     service.on('fired', (reminder: StandaloneReminder) => {
@@ -81,8 +81,33 @@ test('a once reminder persists, fires through the shared kernel, then is deleted
     kernel.reconcile();
 
     assert.equal(fired?.label, '喝水');
+    assert.equal(service.list().length, 1, 'unacknowledged occurrence stays durable');
+    service.acknowledgeDelivery(service.list()[0].id, NOW + 1_000);
     assert.deepEqual(service.list(), []);
     assert.deepEqual(store.getScheduledEvents('standalone'), []);
+  });
+});
+
+test('the fired event carries the scheduled fireAt for crash-replay dedupe', () => {
+  withService((service, store, kernel, clock) => {
+    let firedReminder: StandaloneReminder | null = null;
+    let firedFireAt: number | null = null;
+    service.on('fired', (reminder: StandaloneReminder, fireAt: number) => {
+      firedReminder = reminder;
+      firedFireAt = fireAt;
+    });
+    const scheduledFireAt = NOW + 1_000;
+    service.create({ label: '喝水', schedule: { type: 'once', fireAt: scheduledFireAt } });
+
+    const armed = store.getScheduledEvents('standalone');
+    assert.equal(armed.length, 1);
+    assert.equal(armed[0].fireAt, scheduledFireAt);
+
+    clock.now += 1_000;
+    kernel.reconcile();
+
+    assert.equal(firedReminder?.label, '喝水');
+    assert.equal(firedFireAt, scheduledFireAt, 'fired emits the scheduled fireAt, not Date.now()');
   });
 });
 
@@ -115,6 +140,63 @@ test('a persisted overdue occurrence is reconciled once after restart', () => {
     kernel.reconcile();
     kernel.reconcile();
     assert.equal(fireCount, 1);
+    assert.equal(store.getScheduledEvents('standalone').length, 1, 'unacknowledged occurrence remains replayable');
+    const [reminder] = service.list();
+    service.acknowledgeDelivery(reminder.id, NOW + 1_000);
     assert.deepEqual(store.getScheduledEvents('standalone'), []);
   });
+});
+
+test('adjacent one-shot reminders both fire and acknowledge independently', () => {
+  withService((service, store, kernel, clock) => {
+    const fired: Array<{ id: string; fireAt: number }> = [];
+    service.on('fired', (reminder: StandaloneReminder, fireAt: number) => fired.push({ id: reminder.id, fireAt }));
+    service.create({ label: 'A', schedule: { type: 'once', fireAt: NOW + 1_000 } });
+    service.create({ label: 'B', schedule: { type: 'once', fireAt: NOW + 1_500 } });
+
+    clock.now = NOW + 1_000;
+    kernel.reconcile();
+    assert.equal(fired.length, 1);
+    service.acknowledgeDelivery(fired[0].id, fired[0].fireAt);
+    assert.equal(store.getScheduledEvents('standalone').length, 1, 'acknowledging A preserves adjacent B');
+
+    clock.now = NOW + 1_500;
+    kernel.reconcile();
+    assert.equal(fired.length, 2, 'B is not skipped by A advancement');
+    service.acknowledgeDelivery(fired[1].id, fired[1].fireAt);
+    assert.deepEqual(service.list(), []);
+  });
+});
+
+test('timezone change recomputes civil schedules but preserves absolute one-shots', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-timezone-'));
+  const clock = { now: NOW };
+  const previousTimezone = process.env.TZ;
+  process.env.TZ = 'Asia/Shanghai';
+  const kernel = new SchedulerKernel({
+    clock: { now: () => clock.now, monotonic: () => clock.now },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const store = new TaskStore(dir);
+  const service = new StandaloneReminderService(store, kernel, () => clock.now);
+  try {
+    kernel.start();
+    const [daily] = service.create({ label: 'Daily', schedule: { type: 'daily', hour: 9, minute: 0 } });
+    const [once] = service.create({ label: 'Once', schedule: { type: 'once', fireAt: NOW + 60_000 } })
+      .filter((entry) => entry.label === 'Once');
+    const before = new Map(store.getScheduledEvents('standalone').map((event) => [event.payloadRef, event.fireAt]));
+
+    process.env.TZ = 'Europe/London';
+    (kernel as unknown as { checkDrift(): void }).checkDrift();
+    const after = new Map(store.getScheduledEvents('standalone').map((event) => [event.payloadRef, event.fireAt]));
+    assert.notEqual(after.get(daily.id), before.get(daily.id), 'daily epoch recomputed for new local timezone');
+    assert.equal(after.get(once.id), before.get(once.id), 'absolute one-shot epoch is unchanged');
+  } finally {
+    service.dispose();
+    kernel.stop();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+    if (previousTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimezone;
+  }
 });

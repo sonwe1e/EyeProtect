@@ -10,6 +10,9 @@ import {
   type TaskView,
   type TodoPriority
 } from '../../../../shared/types';
+import { CommandButton } from '../../components/CommandButton';
+import { useCommand } from '../../hooks/useCommand';
+import { commands } from '../../lib/commands';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
@@ -62,17 +65,216 @@ const contextLabel: Record<Task['context'], string> = {
   any: '任意'
 };
 
+/** One task row. Owns its own command state for status toggle, priority cycle,
+ *  inline rename, and delete — so each row's buttons reflect their own
+ *  pending/success/error state independently of the rest of the list. */
+function TaskRow({
+  task,
+  view,
+  now,
+  depth,
+  isSelected,
+  projectName,
+  overdue,
+  canReorder,
+  index,
+  siblingIndex,
+  siblingCount,
+  onSelect,
+  onMove
+}: {
+  task: Task;
+  view: TaskView;
+  now: number;
+  depth: number;
+  isSelected: boolean;
+  projectName: string | undefined;
+  overdue: boolean;
+  canReorder: boolean;
+  index: number;
+  siblingIndex: number;
+  siblingCount: number;
+  onSelect: (id: string) => void;
+  onMove: (index: number, direction: -1 | 1) => void;
+}): JSX.Element {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  const toggleStatus = useCommand((status: TaskStatus) => commands.tasks.setStatus(task.id, status));
+  const cyclePriority = useCommand((priority: TodoPriority) => commands.tasks.update(task.id, { priority }));
+  const rename = useCommand((input: TaskUpdateInput) => commands.tasks.update(task.id, input));
+  const remove = useCommand(() => commands.tasks.delete(task.id));
+
+  const startEdit = useCallback((current: string) => {
+    setEditingId(task.id);
+    setEditText(current);
+  }, [task.id]);
+
+  const commitEdit = useCallback(() => {
+    if (editingId === null) {
+      return;
+    }
+    const text = editText.trim();
+    if (text) {
+      void rename.run({ title: text }).then((result) => {
+        if (result.ok) {
+          setEditingId(null);
+          setEditText('');
+        }
+      });
+    } else {
+      setEditingId(null);
+      setEditText('');
+    }
+  }, [editingId, editText, rename]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setEditText('');
+  }, []);
+
+  const toggle = useCallback(() => {
+    const next: TaskStatus = task.status === 'done' ? 'open' : 'done';
+    void toggleStatus.run(next);
+  }, [task.status, toggleStatus]);
+
+  return (
+    <li
+      className={`task-row ${isSelected ? 'is-selected' : ''} ${task.status === 'done' ? 'is-done' : ''}`.trim()}
+      style={{ ['--task-depth' as string]: depth }}
+      onClick={() => onSelect(task.id)}
+      draggable={canReorder}
+      onDragStart={() => setDraggingId(task.id)}
+      onDragOver={(event) => canReorder && event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDraggingId(null);
+      }}
+      onDragEnd={() => setDraggingId(null)}
+    >
+      <CommandButton
+        type="button"
+        className="task-priority-dot"
+        data-priority={task.priority}
+        state={cyclePriority.state}
+        errorReason={cyclePriority.error?.message}
+        title={`优先级：${PRIORITY_LABELS[task.priority]}（点击切换）`}
+        aria-label={`优先级：${PRIORITY_LABELS[task.priority]}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          void cyclePriority.run(nextTodoPriority(task.priority));
+        }}
+      >
+        <span className="visually-hidden">{PRIORITY_LABELS[task.priority]}</span>
+      </CommandButton>
+      <CommandButton
+        type="button"
+        className="task-checkbox"
+        state={toggleStatus.state}
+        errorReason={toggleStatus.error?.message}
+        title={task.status === 'done' ? '标记为未完成' : '标记为完成'}
+        aria-label={task.status === 'done' ? '标记为未完成' : '标记为完成'}
+        aria-pressed={task.status === 'done'}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggle();
+        }}
+      >
+        {task.status === 'done' ? <Check size={11} /> : null}
+      </CommandButton>
+      <div className="task-main">
+        {editingId === task.id ? (
+          <input
+            className="task-edit-input"
+            type="text"
+            autoFocus
+            value={editText}
+            maxLength={TASK_TITLE_MAX}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setEditText(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitEdit();
+              } else if (event.key === 'Escape') {
+                event.stopPropagation();
+                cancelEdit();
+              }
+            }}
+            onBlur={commitEdit}
+          />
+        ) : (
+          <span
+            className="task-title"
+            title={`${task.title}（双击编辑）`}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              startEdit(task.title);
+            }}
+          >
+            {task.title}
+          </span>
+        )}
+        <div className="task-meta">
+          {task.plannedAt !== null ? (
+            <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
+              ○ {isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
+            </span>
+          ) : null}
+          {task.dueAt !== null ? (
+            <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
+              ◇ {isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
+            </span>
+          ) : null}
+          <span className="context-tag" title={`上下文：${contextLabel[task.context]}`}>
+            {contextIcon(task.context)}
+            <span>{contextLabel[task.context]}</span>
+          </span>
+          {projectName ? (
+            <span className="project-chip" style={{ ['--chip-color' as string]: '#8aa0a6' }}>
+              <span className="project-chip-dot" />
+              <span>{projectName}</span>
+            </span>
+          ) : null}
+          {task.tags.slice(0, 2).map((tag) => (
+            <span key={tag} className="task-tag">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      </div>
+      <span className="task-status-label">{STATUS_LABELS[task.status] ?? task.status}</span>
+      <span className="task-order-controls">
+        <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={!canReorder || siblingIndex === 0} onClick={(event) => { event.stopPropagation(); onMove(index, -1); }}><ArrowUp size={11} /></button>
+        <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={!canReorder || siblingIndex === siblingCount - 1} onClick={(event) => { event.stopPropagation(); onMove(index, 1); }}><ArrowDown size={11} /></button>
+      </span>
+      <CommandButton
+        type="button"
+        className="task-remove"
+        state={remove.state}
+        errorReason={remove.error?.message}
+        title="删除"
+        aria-label={`删除「${task.title}」`}
+        onClick={(event) => {
+          event.stopPropagation();
+          void remove.run();
+        }}
+      >
+        <Trash2 size={13} />
+      </CommandButton>
+    </li>
+  );
+}
+
 export function TaskList({
   tasks,
   view,
   projects,
   now,
   selectedTaskId,
+  scopeProjectId,
   onSelect,
-  onStatusChange,
-  onUpdate,
-  onDelete,
-  onPriorityChange,
   onMove
 }: {
   tasks: Task[];
@@ -80,17 +282,10 @@ export function TaskList({
   projects: Project[];
   now: number;
   selectedTaskId: string | null;
+  scopeProjectId?: string | null;
   onSelect: (id: string) => void;
-  onStatusChange: (id: string, status: TaskStatus) => void;
-  onUpdate: (id: string, input: TaskUpdateInput) => void;
-  onDelete: (id: string) => void;
-  onPriorityChange: (id: string, priority: TodoPriority) => void;
   onMove?: (taskId: string, beforeTaskId: string | null) => void;
 }): JSX.Element {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-
   const projectById = useMemo(() => {
     const map = new Map<string, Project>();
     for (const project of projects) {
@@ -129,45 +324,17 @@ export function TaskList({
     return { orderedTasks: ordered, depthById: depths };
   }, [tasks]);
 
-  const moveTask = useCallback((index: number, direction: -1 | 1) => {
+  const handleMove = useCallback((index: number, direction: -1 | 1) => {
     const task = orderedTasks[index];
-    const neighbor = orderedTasks[index + direction];
-    if (!task || !neighbor) {
+    const siblings = orderedTasks.filter((entry) => entry.parentId === task?.parentId);
+    const siblingIndex = siblings.findIndex((entry) => entry.id === task?.id);
+    const neighbor = siblings[siblingIndex + direction];
+    if (!task || !neighbor || !onMove) {
       return;
     }
-    const beforeTaskId = direction < 0 ? neighbor.id : orderedTasks[index + 2]?.id ?? null;
-    onMove?.(task.id, beforeTaskId);
+    const beforeTaskId = direction < 0 ? neighbor.id : siblings[siblingIndex + 2]?.id ?? null;
+    onMove(task.id, beforeTaskId);
   }, [orderedTasks, onMove]);
-
-  const startEdit = useCallback((task: Task) => {
-    setEditingId(task.id);
-    setEditText(task.title);
-  }, []);
-
-  const commitEdit = useCallback(() => {
-    if (editingId === null) {
-      return;
-    }
-    const text = editText.trim();
-    if (text) {
-      onUpdate(editingId, { title: text });
-    }
-    setEditingId(null);
-    setEditText('');
-  }, [editingId, editText, onUpdate]);
-
-  const cancelEdit = useCallback(() => {
-    setEditingId(null);
-    setEditText('');
-  }, []);
-
-  const toggleStatus = useCallback(
-    (task: Task) => {
-      const next: TaskStatus = task.status === 'done' ? 'open' : 'done';
-      onStatusChange(task.id, next);
-    },
-    [onStatusChange]
-  );
 
   if (tasks.length === 0) {
     return <p className="task-empty empty-state">这里还没有任务，添加一件吧。</p>;
@@ -176,128 +343,29 @@ export function TaskList({
   return (
     <ul className="task-list">
       {orderedTasks.map((task, index) => {
+        const siblings = orderedTasks.filter((entry) => entry.parentId === task.parentId);
+        const siblingIndex = siblings.findIndex((entry) => entry.id === task.id);
         const project = task.projectId ? projectById.get(task.projectId) : undefined;
         const overdue =
           (task.dueAt !== null && task.dueAt < new Date(now).setHours(0, 0, 0, 0)) ||
           (task.plannedAt !== null && task.plannedAt < new Date(now).setHours(0, 0, 0, 0));
         return (
-          <li
+          <TaskRow
             key={task.id}
-            className={`task-row ${selectedTaskId === task.id ? 'is-selected' : ''} ${task.status === 'done' ? 'is-done' : ''}`.trim()}
-            style={{ ['--task-depth' as string]: depthById.get(task.id) ?? 0 }}
-            onClick={() => onSelect(task.id)}
-            draggable={Boolean(onMove)}
-            onDragStart={() => setDraggingId(task.id)}
-            onDragOver={(event) => onMove && event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (draggingId && draggingId !== task.id) onMove?.(draggingId, task.id);
-              setDraggingId(null);
-            }}
-            onDragEnd={() => setDraggingId(null)}
-          >
-            <button
-              type="button"
-              className="task-priority-dot"
-              data-priority={task.priority}
-              title={`优先级：${PRIORITY_LABELS[task.priority]}（点击切换）`}
-              aria-label={`优先级：${PRIORITY_LABELS[task.priority]}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onPriorityChange(task.id, nextTodoPriority(task.priority));
-              }}
-            />
-            <button
-              type="button"
-              className="task-checkbox"
-              title={task.status === 'done' ? '标记为未完成' : '标记为完成'}
-              aria-pressed={task.status === 'done'}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleStatus(task);
-              }}
-            >
-              {task.status === 'done' ? <Check size={11} /> : null}
-            </button>
-            <div className="task-main">
-              {editingId === task.id ? (
-                <input
-                  className="task-edit-input"
-                  type="text"
-                  autoFocus
-                  value={editText}
-                  maxLength={TASK_TITLE_MAX}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => setEditText(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      commitEdit();
-                    } else if (event.key === 'Escape') {
-                      event.stopPropagation();
-                      cancelEdit();
-                    }
-                  }}
-                  onBlur={commitEdit}
-                />
-              ) : (
-                <span
-                  className="task-title"
-                  title={`${task.title}（双击编辑）`}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                    startEdit(task);
-                  }}
-                >
-                  {task.title}
-                </span>
-              )}
-              <div className="task-meta">
-                {task.plannedAt !== null ? (
-                  <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-                    ○ {isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
-                  </span>
-                ) : null}
-                {task.dueAt !== null ? (
-                  <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-                    ◇ {isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
-                  </span>
-                ) : null}
-                <span className="context-tag" title={`上下文：${contextLabel[task.context]}`}>
-                  {contextIcon(task.context)}
-                  <span>{contextLabel[task.context]}</span>
-                </span>
-                {project ? (
-                  <span className="project-chip" style={{ ['--chip-color' as string]: project.color ?? '#8aa0a6' }}>
-                    <span className="project-chip-dot" />
-                    <span>{project.name}</span>
-                  </span>
-                ) : null}
-                {task.tags.slice(0, 2).map((tag) => (
-                  <span key={tag} className="task-tag">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <span className="task-status-label">{STATUS_LABELS[task.status] ?? task.status}</span>
-            <span className="task-order-controls">
-              <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={!onMove || index === 0} onClick={(event) => { event.stopPropagation(); moveTask(index, -1); }}><ArrowUp size={11} /></button>
-              <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={!onMove || index === orderedTasks.length - 1} onClick={(event) => { event.stopPropagation(); moveTask(index, 1); }}><ArrowDown size={11} /></button>
-            </span>
-            <button
-                type="button"
-                className="task-remove"
-                title="删除"
-                aria-label={`删除「${task.title}」`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDelete(task.id);
-                }}
-              >
-                <Trash2 size={13} />
-              </button>
-          </li>
+            task={task}
+            view={view}
+            now={now}
+            depth={depthById.get(task.id) ?? 0}
+            isSelected={selectedTaskId === task.id}
+            projectName={project?.name}
+            overdue={overdue}
+            canReorder={Boolean(onMove)}
+            index={index}
+            siblingIndex={siblingIndex}
+            siblingCount={siblings.length}
+            onSelect={onSelect}
+            onMove={handleMove}
+          />
         );
       })}
     </ul>

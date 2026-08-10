@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Dice5, Gift, Heart, Pin, Sparkles, Trash2 } from 'lucide-react';
 import { CHARACTER_MATERIALS } from '../../../../shared/characters';
 import type { CharacterMaterial, CollectibleCharacter, PetAccessory } from '../../../../shared/types';
+import { commands } from '../../lib/commands';
+import { useCommand } from '../../hooks/useCommand';
+import { CommandButton } from '../../components/CommandButton';
 import { useCharacterCollection } from '../../hooks/useCharacterCollection';
 import { ProceduralCharacter } from './ProceduralCharacter';
 
@@ -25,20 +28,26 @@ export function CharacterCollectionView(): JSX.Element {
   const characters = [...state.characters].sort((left, right) =>
     Number(right.favorite) - Number(left.favorite) || right.createdAt - left.createdAt
   );
+  const collect = useCommand(() => commands.characters.collect());
+  const discard = useCommand(() => commands.characters.discard());
+  const setDailyRandom = useCommand(() => commands.characters.setAppearance('daily-random'));
 
   return (
     <div className="collection-page">
       <header className="collection-header">
         <div><span className="eyebrow">每日随机生成</span><h1>公仔收藏</h1><p>角色形状、材质和动作相互独立。每天的新朋友只在本机生成与保存。</p></div>
-        <button className={state.appearanceMode === 'daily-random' ? 'primary' : ''} type="button" onClick={() => void window.eyeProtect.setCharacterAppearance('daily-random')}>
+        <CommandButton className={state.appearanceMode === 'daily-random' ? 'primary' : ''} type="button" state={setDailyRandom.state} errorReason={setDailyRandom.error?.message} onClick={() => void setDailyRandom.run()}>
           <Dice5 size={16} /> 每日随机出场
-        </button>
+        </CommandButton>
       </header>
       {candidate ? (
         <section className="candidate-card">
           <div className="candidate-stage"><ProceduralCharacter character={candidate} mood="happy" action="react" /></div>
           <div className="candidate-copy"><span className="eyebrow"><Gift size={14} /> 今日来访</span><h2>{candidate.name}</h2><p>{personalityCopy(candidate)}</p><small>{candidate.style} · 喜欢 {candidate.favoriteActions.join('、')}</small>
-            <div className="candidate-actions"><button className="primary" type="button" onClick={() => void window.eyeProtect.collectDailyCharacter()}><Sparkles size={15} /> 收下它</button><button type="button" onClick={() => void window.eyeProtect.discardDailyCharacter()}>这次不收</button></div>
+            <div className="candidate-actions">
+              <CommandButton className="primary" state={collect.state} errorReason={collect.error?.message} successContent="已加入收藏" onClick={() => void collect.run()}><Sparkles size={15} /> 收下它</CommandButton>
+              <CommandButton state={discard.state} errorReason={discard.error?.message} onClick={() => void discard.run()}>这次不收</CommandButton>
+            </div>
           </div>
         </section>
       ) : <div className="candidate-empty"><Gift size={18} /><span>今天的来访已经处理，明天会出现新的随机公仔。</span></div>}
@@ -54,23 +63,29 @@ export function CharacterCollectionView(): JSX.Element {
 
 function CharacterCard({ character, active, pinned }: { character: CollectibleCharacter; active: boolean; pinned: boolean }): JSX.Element {
   const [name, setName] = useState(character.name);
-  const saveName = (): void => {
-    if (name.trim() && name.trim() !== character.name) void window.eyeProtect.renameCharacter(character.id, name);
+  const rename = useCommand((name: string) => commands.characters.rename(character.id, name));
+  const setMaterial = useCommand((material: CharacterMaterial) => commands.characters.setMaterial(character.id, material));
+  const setAccessory = useCommand((accessory: PetAccessory) => commands.characters.setAccessory(character.id, accessory));
+  const pin = useCommand((id: string) => commands.characters.setAppearance('pinned', id));
+  const favorite = useCommand((favorite: boolean) => commands.characters.setFavorite(character.id, favorite));
+  const remove = useCommand(() => commands.characters.remove(character.id));
+  const commitName = (): void => {
+    if (name.trim() && name.trim() !== character.name) void rename.run(name);
   };
   return (
     <article className={`character-card ${active ? 'is-active' : ''}`.trim()}>
       <div className="character-card-stage"><ProceduralCharacter character={character} mood={active ? 'happy' : 'calm'} /></div>
       <div className="character-card-body">
-        <input aria-label="角色名字" value={name} onChange={(event) => setName(event.currentTarget.value)} onBlur={saveName} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+        <input aria-label="角色名字" aria-invalid={rename.error ? true : undefined} value={name} onChange={(event) => setName(event.currentTarget.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
         <p>{personalityCopy(character)}</p>
         <div className="character-card-fields">
-          <label>材质<select value={character.material} onChange={(event) => void window.eyeProtect.setCharacterMaterial(character.id, event.currentTarget.value as CharacterMaterial)}>{CHARACTER_MATERIALS.map((material) => <option key={material} value={material}>{MATERIAL_LABELS[material]}</option>)}</select></label>
-          <label>配饰<select value={character.accessory} onChange={(event) => void window.eyeProtect.setCharacterAccessory(character.id, event.currentTarget.value as PetAccessory)}>{ACCESSORIES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}</select></label>
+          <label>材质<select value={character.material} onChange={(event) => void setMaterial.run(event.currentTarget.value as CharacterMaterial)}>{CHARACTER_MATERIALS.map((material) => <option key={material} value={material}>{MATERIAL_LABELS[material]}</option>)}</select></label>
+          <label>配饰<select value={character.accessory} onChange={(event) => void setAccessory.run(event.currentTarget.value as PetAccessory)}>{ACCESSORIES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}</select></label>
         </div>
         <div className="character-card-actions">
-          <button type="button" className={pinned ? 'primary' : ''} onClick={() => void window.eyeProtect.setCharacterAppearance('pinned', character.id)}><Pin size={14} />{pinned ? '正在出场' : '固定出场'}</button>
-          <button type="button" className={character.favorite ? 'is-favorite' : ''} title="收藏置顶" onClick={() => void window.eyeProtect.setCharacterFavorite(character.id, !character.favorite)}><Heart size={14} fill={character.favorite ? 'currentColor' : 'none'} /></button>
-          <button type="button" className="danger-icon" title="删除角色" onClick={() => { if (window.confirm(`删除「${character.name}」？`)) void window.eyeProtect.deleteCharacter(character.id); }}><Trash2 size={14} /></button>
+          <CommandButton type="button" className={pinned ? 'primary' : ''} state={pin.state} errorReason={pin.error?.message} onClick={() => void pin.run(character.id)}><Pin size={14} />{pinned ? '正在出场' : '固定出场'}</CommandButton>
+          <CommandButton type="button" className={character.favorite ? 'is-favorite' : ''} title="收藏置顶" aria-label={character.favorite ? '取消收藏置顶' : '收藏置顶'} state={favorite.state} errorReason={favorite.error?.message} onClick={() => void favorite.run(!character.favorite)}><Heart size={14} fill={character.favorite ? 'currentColor' : 'none'} /></CommandButton>
+          <CommandButton type="button" className="danger-icon" title="删除角色" aria-label={`删除角色「${character.name}」`} state={remove.state} errorReason={remove.error?.message} onClick={() => { if (window.confirm(`删除「${character.name}」？`)) void remove.run(); }}><Trash2 size={14} /></CommandButton>
         </div>
       </div>
     </article>

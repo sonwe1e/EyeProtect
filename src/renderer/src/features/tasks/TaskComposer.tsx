@@ -7,6 +7,9 @@ import {
   type TaskInput,
   type TodoPriority
 } from '../../../../shared/types';
+import { CommandButton } from '../../components/CommandButton';
+import { useCommand } from '../../hooks/useCommand';
+import { commands } from '../../lib/commands';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
@@ -21,7 +24,9 @@ const CONTEXT_LABELS: Record<TaskContext, string> = {
 };
 
 /** Quick-add form: title + submit always visible; extra fields in an expandable
- *  area so the common path (type + Enter) stays fast. */
+ *  area so the common path (type + Enter) stays fast. Creating a task goes
+ *  through the command layer so a failure (e.g. read-only database) surfaces on
+ *  the button instead of being silently swallowed. */
 export function TaskComposer({ projects, defaultProjectId, onCreated }: {
   projects: Project[];
   defaultProjectId?: string | null;
@@ -35,6 +40,8 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
   const [projectId, setProjectId] = useState<string | null>(defaultProjectId ?? null);
   const [dueAt, setDueAt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const create = useCommand((input: TaskInput) => commands.tasks.create(input));
 
   const reset = useCallback(() => {
     setDraft('');
@@ -64,12 +71,14 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
       if (dueAt) {
         input.dueAt = new Date(dueAt).getTime();
       }
-      void window.eyeProtect.createTask(input).then(() => {
-        reset();
-        onCreated?.();
+      void create.run(input).then((result) => {
+        if (result.ok) {
+          reset();
+          onCreated?.();
+        }
       });
     },
-    [draft, priority, context, remindOnBreak, projectId, dueAt, reset, onCreated]
+    [draft, priority, context, remindOnBreak, projectId, dueAt, reset, onCreated, create]
   );
 
   return (
@@ -92,9 +101,15 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
         >
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
-        <button type="submit" title="添加" aria-label="添加" disabled={!draft.trim()}>
+        <CommandButton
+          type="submit"
+          state={create.state}
+          errorReason={create.error?.message}
+          disabled={!draft.trim()}
+        >
           <Plus size={14} />
-        </button>
+          <span>添加</span>
+        </CommandButton>
       </div>
       {expanded ? (
         <div className="task-compose-extra">

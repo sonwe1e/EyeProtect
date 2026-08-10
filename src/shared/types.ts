@@ -515,10 +515,97 @@ export interface RuntimeInfo {
   dataDir: string;
 }
 
+// ── Command Layer contract (USERPLAN §十五, §二十七) ────────────────────────
+// Every user mutation flows through the command layer so the UI can never
+// silently swallow a failure. A command is never fire-and-forget: it reports
+// its state and either returns data or a structured, recoverable error.
+
+export type CommandState = 'idle' | 'pending' | 'success' | 'error';
+
+/**
+ * The result of a command. `ok: true` carries the domain data; `ok: false`
+ * carries a stable error code, a human message, and whether the user can retry.
+ * `T` matches the success payload of the underlying IPC call (e.g. Task[]).
+ */
+export type CommandResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; code: ErrorCode; message: string; recoverable: boolean };
+
+/** Stable error codes the UI can switch on to show targeted recovery actions. */
+export type ErrorCode =
+  | 'database/read-only'
+  | 'database/unavailable'
+  | 'validation'
+  | 'not-found'
+  | 'conflict'
+  | 'unknown';
+
+/**
+ * Translate a raw thrown value (an IPC rejection) into a structured result.
+ * Kept pure and shared so main-side mapping and renderer-side catch-blocks
+ * never drift. Matches known main-process messages to stable codes; anything
+ * unknown is surfaced as `unknown` (recoverable) rather than swallowed.
+ */
+export const toCommandResult = (err: unknown): Extract<CommandResult<never>, { ok: false }> => {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/恢复模式|read.only|readOnly|未被修改/i.test(message)) {
+    return { ok: false, code: 'database/read-only', message, recoverable: true };
+  }
+  if (/无法打开|cannot open|数据库/i.test(message)) {
+    return { ok: false, code: 'database/unavailable', message, recoverable: true };
+  }
+  // Validation problems (bad input) are recoverable and distinct from a
+  // missing entity — keep them in their own bucket so the UI can tell the
+  // user the input was rejected rather than that nothing was found.
+  if (/invalid|非法|参数|输入/i.test(message)) {
+    return { ok: false, code: 'validation', message, recoverable: true };
+  }
+  if (/不存在|not found|未找到/i.test(message)) {
+    return { ok: false, code: 'not-found', message, recoverable: false };
+  }
+  if (/冲突|already|duplicate/i.test(message)) {
+    return { ok: false, code: 'conflict', message, recoverable: false };
+  }
+  return { ok: false, code: 'unknown', message, recoverable: true };
+};
+
+// ── AppHealth (USERPLAN §二十八) ────────────────────────────────────────────
+// First-class global state so the UI can explain *why* an action is unavailable
+// instead of pretending everything is fine while mutations silently fail.
+
+export type HealthStatus = 'healthy' | 'degraded' | 'unavailable';
+export type NotificationAvailability = 'available' | 'unavailable';
+
+export interface AppHealth {
+  database: HealthStatus;
+  scheduler: HealthStatus;
+  notification: NotificationAvailability;
+}
+
+export interface FailedDeliveryNotice {
+  id: string;
+  source: 'task' | 'standalone' | 'timebox';
+  sourceId: string;
+  occurrenceAt: number;
+  title: string;
+  body: string;
+  failedAt: number | null;
+}
+
 export interface EyeProtectApi {
   getSettings: () => Promise<Settings>;
   saveSettings: (settings: Partial<Settings>) => Promise<Settings>;
   getRuntimeInfo: () => Promise<RuntimeInfo>;
+  // --- AppHealth (USERPLAN §二十八) ---
+  /** Current health of database, scheduler, and notification subsystems. */
+  getAppHealth: () => Promise<AppHealth>;
+  onAppHealthChanged: (callback: (health: AppHealth) => void) => () => void;
+  /**
+   * Relaunch the whole app (renderer + main process). A renderer-only reload
+   * cannot leave database-recovery mode because the main-process TaskStore is
+   * constructed once at startup, so exiting recovery requires a full restart.
+   */
+  relaunchApp: () => Promise<void>;
   getReminderStatus: () => Promise<ReminderStatus>;
   reminderAction: (action: ReminderAction, reminderId: string) => Promise<ReminderStatus>;
   /** Act on the soft pre-alert: start now, push back 2 min, or keep the plan. */
@@ -558,6 +645,10 @@ export interface EyeProtectApi {
   deleteStandaloneReminder: (id: string) => Promise<StandaloneReminder[]>;
   onStandaloneRemindersChanged: (callback: (reminders: StandaloneReminder[]) => void) => () => void;
   onStandaloneReminderFired: (callback: (reminder: StandaloneReminder) => void) => () => void;
+  getFailedDeliveries: () => Promise<FailedDeliveryNotice[]>;
+  retryFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;
+  dismissFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;
+  onFailedDeliveriesChanged: (callback: (notices: FailedDeliveryNotice[]) => void) => () => void;
   getCharacterCollection: () => Promise<CharacterCollectionState>;
   collectDailyCharacter: () => Promise<CharacterCollectionState>;
   discardDailyCharacter: () => Promise<CharacterCollectionState>;

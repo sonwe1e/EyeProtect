@@ -101,7 +101,7 @@ test('a pause that expired while the app was away is cleared on restore', () => 
   });
 });
 
-test('an overdue deadline restored after a long absence fires at most one reminder', () => {
+test('crash downtime after the latest checkpoint does not consume active-use deadlines', () => {
   withTempDir((dir) => {
     let now = T0;
     const clock = () => now;
@@ -121,7 +121,9 @@ test('an overdue deadline restored after a long absence fires at most one remind
       restore: new RuntimeStateStore(dir).load(clock)
     });
     const status = second.tick();
-    assert.equal(status.activeReminder?.kind, 'combined', 'both overdue kinds merge into one');
+    assert.equal(status.activeReminder, null, 'offline crash gap is not counted as active screen use');
+    assert.equal(status.nextEyeAt, T0 + 8 * 60 * MINUTE + 20 * MINUTE);
+    assert.equal(status.nextWalkAt, T0 + 8 * 60 * MINUTE + 60 * MINUTE);
   });
 });
 

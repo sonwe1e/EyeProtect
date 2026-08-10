@@ -20,6 +20,7 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  AppHealth,
   CharacterAppearanceMode,
   CharacterMaterial,
   HotkeyAction,
@@ -148,6 +149,26 @@ const createTray = (
             { label: `下次护眼：${formatClock(status.nextEyeAt)}`, enabled: false },
             { label: `下次走动：${formatClock(status.nextWalkAt)}`, enabled: false }
           ]),
+      ...(status.activeReminder
+        ? [
+            { type: 'separator' as const },
+            { label: '当前提醒', enabled: false },
+            {
+              label: '完成当前提醒',
+              enabled: Date.now() >= status.activeReminder.unlockAt,
+              click: (): void => void scheduler.handleAction('complete', status.activeReminder!.id)
+            },
+            {
+              label: '稍后提醒',
+              enabled: Date.now() >= status.activeReminder.snoozeAllowedAt,
+              click: (): void => void scheduler.handleAction('snooze', status.activeReminder!.id)
+            },
+            {
+              label: '跳过当前提醒',
+              click: (): void => void scheduler.handleAction('skip', status.activeReminder!.id)
+            }
+          ]
+        : []),
       { type: 'separator' },
       ...(paused
         ? [
@@ -167,6 +188,15 @@ const createTray = (
       { label: '打开工作台', click: (): void => void windows.showWorkbenchWindow('today') },
       { label: '公仔收藏', click: (): void => windows.showWorkbenchWindow('collection') },
       { label: '打开设置', click: (): void => windows.showWorkbenchWindow('settings') },
+      {
+        label: '重新加载宠物',
+        click: (): void => {
+          // Best-effort: a pet-window reload must never throw into the tray.
+          void windows.loadPetWindowBestEffort().catch((error) => {
+            console.error('[tray] reload pet failed:', error);
+          });
+        }
+      },
       { type: 'separator' },
       { label: '测试护眼提醒', click: (): void => void scheduler.triggerTest('eye') },
       { label: '测试走动提醒', click: (): void => void scheduler.triggerTest('walk') },
@@ -241,6 +271,7 @@ const handleIpc = (channel: string, handler: (...args: unknown[]) => unknown): v
   });
 };
 
+
 const asReminderAction = (value: unknown): ReminderAction | null =>
   value === 'complete' || value === 'snooze' || value === 'skip' ? value : null;
 
@@ -294,6 +325,10 @@ app.on('web-contents-created', (_event, contents) => {
 app.whenReady().then(async () => {
   const settingsStore = new SettingsStore();
   const runtimeStateStore = new RuntimeStateStore(settingsStore.getDataDir());
+  // Begin a session BEFORE load() so the new session id owns the restore and
+  // every subsequent save()/checkpoint is tagged with it. A crash restore then
+  // reads a recent checkpoint from THIS session instead of a stale prior exit.
+  runtimeStateStore.beginSession();
   const historyStore = new ReminderHistoryStore(settingsStore.getDataDir());
   // One shared deadline queue for every timed event (breaks, alarms, tasks).
   // A rolling reminder-trace backs the kernel so a missed reminder can be
@@ -397,6 +432,36 @@ app.whenReady().then(async () => {
   taskScheduler.arm();
   standaloneReminders.arm();
   const windows = new AppWindows(settingsStore, scheduler, () => taskService.getTasks());
+
+  // ── AppHealth (USERPLAN §二十八) ──────────────────────────────────────────
+  // Derive subsystem health from real state so the renderer can explain *why* an
+  // action is unavailable. Database health comes straight from the store's
+  // recovery status; notification availability from Electron's Notification API.
+  // The scheduler is treated as healthy here; a future signal may downgrade it.
+  const getAppHealth = (): AppHealth => {
+    const recovery = taskStore.getRecoveryStatus();
+    // `readOnly` is the in-memory recovery path: the database IS open and
+    // usable, it just does not persist writes back to the original file. That is
+    // "degraded", not "unavailable" — the two states carry different recovery
+    // copy in the banner, so they must not be conflated (USERPLAN §十七/§二十八).
+    return {
+      database: recovery.readOnly ? 'degraded' : 'healthy',
+      scheduler: 'healthy',
+      notification: Notification.isSupported() ? 'available' : 'unavailable'
+    };
+  };
+
+  /** Push health to all windows; debounced so a flurry of changes coalesces. */
+  let healthBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  const broadcastAppHealth = (): void => {
+    if (healthBroadcastTimer) {
+      return;
+    }
+    healthBroadcastTimer = setTimeout(() => {
+      healthBroadcastTimer = null;
+      windows.broadcastAppHealth(getAppHealth());
+    }, 50);
+  };
   // Fallback chain for reminder visibility (USERPLAN §四.B): if the primary
   // AlertWindow renderer crashes, the emergency surface takes over so a reminder
   // is never silently dropped while the main process is alive.
@@ -410,19 +475,32 @@ app.whenReady().then(async () => {
     () => windows.showWorkbenchWindow('today'),
     (event, data) => reminderTrace.append({ t: Date.now(), src: 'surface', event, data }),
     () => windows.getReminderSurfaceWebContentsId(),
-    () => windows.isReminderSurfaceHealthy()
+    () => windows.isReminderSurfaceHealthy(),
+    () => {
+      // Fail-open: no surface could present the reminder, so the dim masks (if
+      // any) must come down — an active focused reminder must always satisfy
+      // "actionable surface available OR dim masks destroyed".
+      console.warn('[surface] all reminder surfaces failed; tearing down dim masks (fail-open)');
+      windows.destroyDimMasks();
+    }
   );
   const deliveryQueue = new NotificationDeliveryQueue(taskStore, {
     onDelivered: (delivery) => {
       if (delivery.source === 'task') {
         taskStore.consumeTaskReminder(delivery.sourceId, delivery.occurrenceAt);
         taskScheduler.arm();
+      } else if (delivery.source === 'standalone') {
+        standaloneReminders.acknowledgeDelivery(delivery.sourceId, delivery.occurrenceAt);
       }
+      windows.broadcastFailedDeliveries(taskStore.getFailedDeliveries());
     },
     onClick: (delivery) => {
       void windows.showWorkbenchWindow(delivery.source === 'standalone' ? 'reminders' : 'today');
     },
-    onFailed: () => void windows.showWorkbenchWindow('reminders')
+    onFailed: (delivery) => {
+      windows.broadcastFailedDeliveries(taskStore.getFailedDeliveries());
+      void windows.showWorkbenchWindow(delivery.source === 'standalone' ? 'reminders' : 'today');
+    }
   });
   taskWorkTracker.on('timebox', (task: Task) => {
     deliveryQueue.enqueue(
@@ -537,6 +615,10 @@ app.whenReady().then(async () => {
   };
   app.on('render-process-gone', (_event, webContents) => onRendererGone(webContents.id));
   app.on('child-process-gone', () => onRendererGone());
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('unresponsive', () => onRendererGone(contents.id));
+    contents.on('did-fail-load', () => onRendererGone(contents.id));
+  });
 
   // Domain-scoped reactions: a preference save only touches the subsystems
   // whose inputs actually changed. Todo/alarm mutations never reach this
@@ -610,12 +692,15 @@ app.whenReady().then(async () => {
   });
 
   standaloneReminders.on('changed', (reminders) => windows.broadcastStandaloneReminders(reminders));
-  standaloneReminders.on('fired', (reminder) => {
+  standaloneReminders.on('fired', (reminder, fireAt) => {
     windows.broadcastStandaloneReminderFired(reminder);
+    // Use the scheduled fireAt (not Date.now()) as the occurrence key so a
+    // crash-replay re-fire dedupes on the same (source, id, occurrence_at)
+    // instead of recording a brand-new occurrence every restart.
     deliveryQueue.enqueue(
       'standalone',
       reminder.id,
-      Date.now(),
+      fireAt,
       reminder.label || 'EyeProtect 提醒',
       '时间到了。点击打开工作台查看。'
     );
@@ -638,6 +723,11 @@ app.whenReady().then(async () => {
   });
   taskService.on('undo-changed', (state) => windows.broadcastUndo(state));
   characterService.on('changed', (state) => windows.broadcastCharacterCollection(state));
+  // Database health can flip independently of domain data (e.g. a late
+  // storage error). Re-evaluate on the next tick after any domain change and
+  // when the store reports a recovery status change.
+  taskService.on('tasks-changed', () => broadcastAppHealth());
+  characterService.on('changed', () => broadcastAppHealth());
 
   scheduler.on('action', ({ action, isTest }: { action: ReminderAction; isTest: boolean }) => {
     if (action !== 'complete' || isTest) {
@@ -692,6 +782,10 @@ app.whenReady().then(async () => {
     windows.broadcastStandaloneReminders(standaloneReminders.list());
     windows.broadcastCharacterCollection(characterService.getState());
     windows.broadcastHotkeyStatus(hotkeyStatus);
+    // Health is derived, not part of any domain push, so seed it explicitly —
+    // otherwise a recovery-mode launch would show no banner until the next
+    // successful task/character write.
+    windows.broadcastAppHealth(getAppHealth());
     broadcastHistory();
   };
 
@@ -734,6 +828,14 @@ app.whenReady().then(async () => {
     return requireWritableTaskDatabase(() => characterService.setAccessory(asString(id), normalized));
   });
   handleIpc('runtime:get', () => getRuntimeInfo(settingsStore));
+  handleIpc('app:health:get', () => getAppHealth());
+  // A renderer-only reload cannot exit database-recovery mode: the main-process
+  // TaskStore is constructed once at startup. A full restart is required, so
+  // this relaunches the app and quits the current instance.
+  handleIpc('app:relaunch', () => {
+    app.relaunch();
+    app.quit();
+  });
   handleIpc('reminder:status', () => scheduler.getStatus());
   handleIpc('reminder:action', (action, reminderId) => {
     const normalized = asReminderAction(action);
@@ -766,6 +868,30 @@ app.whenReady().then(async () => {
   handleIpc('standalone-reminder:delete', (id) =>
     requireWritableTaskDatabase(() => standaloneReminders.remove(asString(id)))
   );
+  handleIpc('delivery:failed:list', () => taskStore.getFailedDeliveries());
+  handleIpc('delivery:failed:retry', (id) => {
+    requireWritableTaskDatabase(() => taskStore.retryFailedDelivery(asString(id)));
+    void deliveryQueue.pump();
+    const notices = taskStore.getFailedDeliveries();
+    windows.broadcastFailedDeliveries(notices);
+    return notices;
+  });
+  handleIpc('delivery:failed:dismiss', (id) => {
+    const deliveryId = asString(id);
+    const notice = taskStore.getFailedDeliveries().find((entry) => entry.id === deliveryId);
+    requireWritableTaskDatabase(() => taskStore.dismissFailedDelivery(deliveryId));
+    // The user saw the durable in-app surface and explicitly dismissed it, so
+    // this occurrence is now closed just like a visible native delivery.
+    if (notice?.source === 'task') {
+      taskStore.consumeTaskReminder(notice.sourceId, notice.occurrenceAt);
+      taskScheduler.arm();
+    } else if (notice?.source === 'standalone') {
+      standaloneReminders.acknowledgeDelivery(notice.sourceId, notice.occurrenceAt);
+    }
+    const notices = taskStore.getFailedDeliveries();
+    windows.broadcastFailedDeliveries(notices);
+    return notices;
+  });
   handleIpc('history:report', () => getWeeklyReport());
   handleIpc('history:care', () => getCareStatus());
   handleIpc('history:clear', () => {
@@ -1075,20 +1201,36 @@ app.whenReady().then(async () => {
   handleIpc('window:workbench:close', () => windows.closeWorkbenchWindow());
   handleIpc('window:workbench:section', () => windows.getWorkbenchSection());
 
-  await windows.createPetWindow();
-  applyGlobalHotkeys(settingsStore.get().hotkeysEnabled);
-  createTray(windows, scheduler, settingsStore, () => taskService.getTasks());
+  // The control plane (kernel, scheduler, tray, delivery queue, activity
+  // monitor, task work tracker) must start even if the pet renderer fails to
+  // load: the pet is best-effort eye-candy, not a scheduling dependency. So the
+  // scheduler etc. come first, and the pet window is created last and non-fatally.
   kernel.start();
   scheduler.start();
+  runtimeStateStore.startCheckpoint(() => scheduler.serialize());
   activityMonitor.start();
+  // Dead-letter recovery: any delivery that reached terminal `failed` in a
+  // prior run is reset to `due` so it is retried instead of forgotten.
+  taskStore.reconcileFailedDeliveries();
   deliveryQueue.start();
   taskWorkTracker.start(taskService.getActiveTaskId());
+  applyGlobalHotkeys(settingsStore.get().hotkeysEnabled);
+  createTray(windows, scheduler, settingsStore, () => taskService.getTasks());
   syncStartupShortcut(settingsStore.get());
   startDiagnostics();
+  // Best-effort: a pet-window startup failure is caught+retried inside
+  // loadPetWindowBestEffort() and never aborts startup.
+  void windows.loadPetWindowBestEffort();
+  if (process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-pet-failure')) {
+    // Keep a renderer control surface available to the packaged fault smoke;
+    // the pet itself remains intentionally unavailable.
+    windows.showWorkbenchWindow('today');
+  }
 
   // Persist on the way out so a restart resumes the running countdowns
   // instead of silently resetting (or bypassing) them.
   app.on('before-quit', () => {
+    runtimeStateStore.stopCheckpoint();
     activityMonitor.stop();
     deliveryQueue.stop();
     taskWorkTracker.stop();

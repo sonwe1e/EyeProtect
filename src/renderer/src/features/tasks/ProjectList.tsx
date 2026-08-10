@@ -3,32 +3,129 @@ import { FolderOpen, Plus, Trash2 } from 'lucide-react';
 import {
   PROJECT_NAME_MAX,
   type Project,
+  type ProjectInput,
   type Task
 } from '../../../../shared/types';
+import { CommandButton } from '../../components/CommandButton';
+import { useCommand } from '../../hooks/useCommand';
+import { commands } from '../../lib/commands';
 
-/** Sidebar project list: each item filters the center column to that project. */
+/** One project row. Fully owns its rename draft, rename command, and delete
+ *  command, so a failure on one row can never bleed onto a sibling row. */
+function ProjectItem({
+  project,
+  count,
+  isActive,
+  onSelect
+}: {
+  project: Project;
+  count: number;
+  isActive: boolean;
+  onSelect: (id: string) => void;
+}): JSX.Element {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameText, setRenameText] = useState(project.name);
+  const rename = useCommand((name: string) => commands.projects.update(project.id, { name }));
+  const remove = useCommand(() => commands.projects.remove(project.id));
+
+  // Re-initialize the draft whenever this row (re)enters rename mode.
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameText(project.name);
+    }
+  }, [isRenaming, project.name]);
+
+  const startRename = (): void => {
+    setIsRenaming(true);
+  };
+
+  const commitRename = (): void => {
+    const name = renameText.trim();
+    if (name && name !== project.name) {
+      void rename.run(name);
+    }
+    setIsRenaming(false);
+  };
+
+  return (
+    <li
+      className={`project-item ${isActive ? 'is-active' : ''}`.trim()}
+      style={{ ['--chip-color' as string]: project.color ?? '#8aa0a6' }}
+      onClick={() => onSelect(project.id)}
+    >
+      <span className="project-item-dot" />
+      {isRenaming ? (
+        <input
+          className="project-rename-input"
+          type="text"
+          autoFocus
+          value={renameText}
+          maxLength={PROJECT_NAME_MAX}
+          aria-invalid={rename.error ? true : undefined}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => setRenameText(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitRename();
+            } else if (event.key === 'Escape') {
+              event.stopPropagation();
+              setRenameText(project.name);
+              setIsRenaming(false);
+            }
+          }}
+          onBlur={commitRename}
+        />
+      ) : (
+        <span
+          className="project-item-name"
+          title={`${project.name}（双击重命名）`}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            startRename();
+          }}
+        >
+          {project.name}
+        </span>
+      )}
+      <span className="project-item-count">{count}</span>
+      <CommandButton
+        type="button"
+        className="project-item-remove"
+        state={remove.state}
+        errorReason={remove.error?.message}
+        title="删除项目"
+        aria-label={`删除项目「${project.name}」`}
+        onClick={(event) => {
+          event.stopPropagation();
+          void remove.run();
+        }}
+      >
+        <Trash2 size={12} />
+      </CommandButton>
+    </li>
+  );
+}
+
+/** Sidebar project list: each item filters the center column to that project.
+ *  All mutations (add/rename/delete) run through the command layer so a failure
+ *  is shown on the control instead of being silently dropped. */
 export function ProjectList({
   projects,
   tasks,
   selectedProjectId,
-  onSelect,
-  onCreate,
-  onRename,
-  onDelete
+  onSelect
 }: {
   projects: Project[];
   tasks: Task[];
   selectedProjectId: string | null;
   onSelect: (id: string | null) => void;
-  onCreate: (name: string) => void;
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameText, setRenameText] = useState('');
   const addInputRef = useRef<HTMLInputElement>(null);
+
+  const create = useCommand((input: ProjectInput) => commands.projects.create(input));
 
   const taskCountByProject = useMemo(() => {
     const counts = new Map<string, number>();
@@ -46,31 +143,28 @@ export function ProjectList({
     }
   }, [adding]);
 
-  const commitAdd = useCallback(() => {
-    const name = newName.trim();
-    if (name) {
-      onCreate(name);
-    }
-    setNewName('');
+  const cancelAdd = useCallback(() => {
     setAdding(false);
-  }, [newName, onCreate]);
-
-  const startRename = useCallback((project: Project) => {
-    setRenamingId(project.id);
-    setRenameText(project.name);
+    setNewName('');
   }, []);
 
-  const commitRename = useCallback(() => {
-    if (renamingId === null) {
+  const commitAdd = useCallback(() => {
+    const name = newName.trim();
+    if (!name) {
       return;
     }
-    const name = renameText.trim();
-    if (name) {
-      onRename(renamingId, name);
-    }
-    setRenamingId(null);
-    setRenameText('');
-  }, [renamingId, renameText, onRename]);
+    const used = new Set(projects.map((project) => project.color).filter(Boolean));
+    const palette = ['#217a70', '#e67e22', '#c0392b', '#3498db', '#8e44ad', '#16a085'];
+    const color = palette.find((entry) => !used.has(entry)) ?? palette[0];
+    void create.run({ name, color }).then((result) => {
+      // Only close + clear on success. On failure (e.g. read-only database) the
+      // input stays open with the name preserved so the user can retry.
+      if (result.ok) {
+        setNewName('');
+        setAdding(false);
+      }
+    });
+  }, [newName, projects, create]);
 
   return (
     <div className="project-list">
@@ -79,7 +173,7 @@ export function ProjectList({
           <FolderOpen size={13} />
           项目
         </span>
-        <button
+        <CommandButton
           type="button"
           className="project-add"
           title="新建项目"
@@ -87,7 +181,7 @@ export function ProjectList({
           onClick={() => setAdding((value) => !value)}
         >
           <Plus size={13} />
-        </button>
+        </CommandButton>
       </div>
       {adding ? (
         <div className="project-add-row">
@@ -104,8 +198,7 @@ export function ProjectList({
                 commitAdd();
               } else if (event.key === 'Escape') {
                 event.stopPropagation();
-                setNewName('');
-                setAdding(false);
+                cancelAdd();
               }
             }}
             onBlur={commitAdd}
@@ -119,59 +212,13 @@ export function ProjectList({
           projects.map((project) => {
             const count = taskCountByProject.get(project.id) ?? 0;
             return (
-              <li
+              <ProjectItem
                 key={project.id}
-                className={`project-item ${selectedProjectId === project.id ? 'is-active' : ''}`.trim()}
-                style={{ ['--chip-color' as string]: project.color ?? '#8aa0a6' }}
-                onClick={() => onSelect(selectedProjectId === project.id ? null : project.id)}
-              >
-                <span className="project-item-dot" />
-                {renamingId === project.id ? (
-                  <input
-                    className="project-rename-input"
-                    type="text"
-                    autoFocus
-                    value={renameText}
-                    maxLength={PROJECT_NAME_MAX}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => setRenameText(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        commitRename();
-                      } else if (event.key === 'Escape') {
-                        event.stopPropagation();
-                        setRenamingId(null);
-                      }
-                    }}
-                    onBlur={commitRename}
-                  />
-                ) : (
-                  <span
-                    className="project-item-name"
-                    title={`${project.name}（双击重命名）`}
-                    onDoubleClick={(event) => {
-                      event.stopPropagation();
-                      startRename(project);
-                    }}
-                  >
-                    {project.name}
-                  </span>
-                )}
-                <span className="project-item-count">{count}</span>
-                <button
-                  type="button"
-                  className="project-item-remove"
-                  title="删除项目"
-                  aria-label={`删除项目「${project.name}」`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDelete(project.id);
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </li>
+                project={project}
+                count={count}
+                isActive={selectedProjectId === project.id}
+                onSelect={(id) => onSelect(selectedProjectId === id ? null : id)}
+              />
             );
           })
         )}

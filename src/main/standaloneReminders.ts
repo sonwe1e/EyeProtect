@@ -12,6 +12,7 @@ export class StandaloneReminderService extends EventEmitter {
   private revision = 0;
   private readonly onWake: (owner: string, events: ScheduledEvent[]) => void;
   private readonly onStoreChanged: () => void;
+  private readonly onTimezoneChange: () => void;
 
   constructor(
     private readonly store: TaskStore,
@@ -25,6 +26,8 @@ export class StandaloneReminderService extends EventEmitter {
       }
     };
     this.kernel.on('wake', this.onWake);
+    this.onTimezoneChange = () => this.arm(this.now(), true);
+    this.kernel.on('timezone-change', this.onTimezoneChange);
     this.onStoreChanged = () => {
       this.arm();
       this.emit('changed', this.list());
@@ -51,7 +54,7 @@ export class StandaloneReminderService extends EventEmitter {
     return this.list();
   }
 
-  arm(now: number = this.now()): void {
+  arm(now: number = this.now(), recomputeCalendar = false): void {
     const persisted = new Map(
       this.store.getScheduledEvents('standalone').map((event) => [event.payloadRef, event])
     );
@@ -61,7 +64,12 @@ export class StandaloneReminderService extends EventEmitter {
         continue;
       }
       const previous = persisted.get(reminder.id);
-      const fireAt = previous?.fireAt ?? nextStandaloneReminderFireAt(reminder.schedule, now);
+      // Timezone changes alter civil-time schedules (daily/weekdays/weekly and
+      // custom calendar recurrence), but an absolute one-shot epoch must stay
+      // exactly where the user put it.
+      const reusePersisted = !recomputeCalendar || reminder.schedule.type === 'once';
+      const fireAt = (reusePersisted ? previous?.fireAt : undefined) ??
+        nextStandaloneReminderFireAt(reminder.schedule, now);
       if (fireAt === null) {
         continue;
       }
@@ -88,23 +96,62 @@ export class StandaloneReminderService extends EventEmitter {
 
   dispose(): void {
     this.kernel.off('wake', this.onWake);
+    this.kernel.off('timezone-change', this.onTimezoneChange);
     this.store.off('standalone-reminders-changed', this.onStoreChanged);
     this.kernel.clear('standalone');
   }
 
   private handleWake(events: ScheduledEvent[]): void {
-    const dueIds = new Set(events.map((event) => event.id.replace(/^standalone:/, '')));
+    // Map each due reminder to the scheduled fireAt of its matched event so
+    // consumers (crash-replay enqueue) can dedupe on the real occurrence time
+    // instead of the moment the wake was processed.
+    const fireAtById = new Map(
+      events.map((event) => [event.id.replace(/^standalone:/, ''), event.fireAt])
+    );
+    const dueIds = new Set(fireAtById.keys());
     const due = this.list().filter((reminder) => dueIds.has(reminder.id));
     for (const reminder of due) {
-      this.emit('fired', reminder);
-      if (reminder.schedule.type === 'once') {
-        this.store.deleteStandaloneReminder(reminder.id);
-      }
+      const fireAt = fireAtById.get(reminder.id) ?? this.now();
+      this.emit('fired', reminder, fireAt);
     }
-    // Advance recurring reminders beyond this occurrence. Existing persisted
-    // rows must be cleared first or arm() would deliberately reuse them.
-    this.store.replaceScheduledEvents('standalone', []);
-    this.arm(this.now() + 1_000);
+    // Do not consume or advance here. The durable delivery queue acknowledges
+    // visibility through acknowledgeDelivery(); until then the persisted
+    // occurrence remains replayable after a crash or terminal notification
+    // failure. The kernel already removed only the due in-memory events, so an
+    // adjacent one-shot remains armed and cannot be skipped.
+  }
+
+  /** Close exactly one occurrence after a visible surface accepted it. */
+  acknowledgeDelivery(id: string, occurrenceAt: number, now: number = this.now()): void {
+    const reminder = this.list().find((entry) => entry.id === id);
+    const persisted = this.store.getScheduledEvents('standalone');
+    const occurrence = persisted.find((event) => event.payloadRef === id);
+    if (!reminder || !occurrence || occurrence.fireAt !== occurrenceAt) {
+      return;
+    }
+    if (reminder.schedule.type === 'once') {
+      // deleteStandaloneReminder removes only this reminder's durable event;
+      // the store change callback re-arms every unaffected occurrence.
+      this.store.deleteStandaloneReminder(id);
+      return;
+    }
+    const remaining = persisted.filter((event) => event.payloadRef !== id);
+    const nextFireAt = nextStandaloneReminderFireAt(
+      reminder.schedule,
+      Math.max(now, occurrenceAt + 1)
+    );
+    if (nextFireAt !== null) {
+      remaining.push({
+        id: `standalone:${id}`,
+        owner: 'standalone',
+        type: 'standalone-reminder',
+        fireAt: nextFireAt,
+        revision: ++this.revision,
+        payloadRef: id
+      });
+    }
+    this.store.replaceScheduledEvents('standalone', remaining);
+    this.kernel.set('standalone', remaining.map(toKernelEvent));
   }
 }
 

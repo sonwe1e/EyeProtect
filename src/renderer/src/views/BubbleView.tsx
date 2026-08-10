@@ -3,13 +3,16 @@ import { Check, Clock3, Eye, Footprints, ListChecks, Timer, X } from 'lucide-rea
 import { sortTasksForView } from '../../../shared/types';
 import { getActivity } from '../../../shared/breakActivities';
 import type { BreakActivity } from '../../../shared/types';
+import { CommandButton } from '../components/CommandButton';
 import { ActivityGuide } from '../features/reminders/ActivityGuide';
 import { useClock } from '../hooks/useClock';
 import { useActiveTaskId } from '../hooks/useActiveTask';
+import { useCommand } from '../hooks/useCommand';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useTasks } from '../hooks/useTasks';
 import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
 import { ProceduralCharacter } from '../features/characters/ProceduralCharacter';
+import { commands } from '../lib/commands';
 
 export default function BubbleView(): JSX.Element {
   const tasks = useTasks();
@@ -17,6 +20,7 @@ export default function BubbleView(): JSX.Element {
   const status = useReminderStatus();
   const now = useClock(1_000);
   const character = activeCharacterFrom(useCharacterCollection());
+  const completeBreakTask = useCommand((id: string) => commands.tasks.setStatus(id, 'done'));
   const openTodos = useCallback(() => {
     void window.eyeProtect.openWorkbench('today');
   }, []);
@@ -64,31 +68,33 @@ export default function BubbleView(): JSX.Element {
             ))}
           </div>
           {active.breakTask && breakTask && breakTask.status !== 'done' ? (
-            <button
+            <CommandButton
               type="button"
               className="bubble-break-todo"
-              onClick={() => void window.eyeProtect.setTaskStatus(active.breakTask?.id ?? '', 'done')}
+              state={completeBreakTask.state}
+              errorReason={completeBreakTask.error?.message}
+              onClick={() => void completeBreakTask.run(active.breakTask?.id ?? '')}
             >
               <Footprints size={13} />
               <span>顺路：{active.breakTask.title}</span>
               <Check size={13} />
-            </button>
+            </CommandButton>
           ) : null}
           {activeTask ? <p className="break-return-task compact">休息后继续：<strong>{activeTask.title}</strong></p> : null}
           <div className="bubble-actions">
             <button
               className="primary"
               disabled={waiting}
-              onClick={() => void window.eyeProtect.reminderAction('complete', active.id)}
+              onClick={() => void commands.reminderActions.act('complete', active.id)}
             >
               <Check size={12} />
               完成
             </button>
-            <button onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}>
+            <button onClick={() => void commands.reminderActions.act('snooze', active.id)}>
               <Clock3 size={12} />
               稍后
             </button>
-            <button onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}>
+            <button onClick={() => void commands.reminderActions.act('skip', active.id)}>
               <X size={12} />
               跳过
             </button>
@@ -114,16 +120,16 @@ export default function BubbleView(): JSX.Element {
           </div>
           <p>要现在开始休息吗？</p>
           <div className="bubble-actions">
-            <button className="primary" onClick={() => void window.eyeProtect.preAlertAction('start')}>
+            <button className="primary" onClick={() => void commands.reminderActions.preAlert('start')}>
               现在休息
             </button>
             <button
               title="完成手头这一小段，延后 2 分钟"
-              onClick={() => void window.eyeProtect.preAlertAction('snooze')}
+              onClick={() => void commands.reminderActions.preAlert('snooze')}
             >
               +2 分钟
             </button>
-            <button onClick={() => void window.eyeProtect.preAlertAction('dismiss')}>按原计划</button>
+            <button onClick={() => void commands.reminderActions.preAlert('dismiss')}>按原计划</button>
           </div>
         </div>
         <span className="bubble-tail" />

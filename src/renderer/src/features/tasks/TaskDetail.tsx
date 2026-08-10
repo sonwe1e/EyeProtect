@@ -10,6 +10,9 @@ import {
   type TaskUpdateInput,
   type TodoPriority
 } from '../../../../shared/types';
+import { CommandButton } from '../../components/CommandButton';
+import { useCommand } from '../../hooks/useCommand';
+import { commands } from '../../lib/commands';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
@@ -131,12 +134,28 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean)
   };
 
-  // The workbench keys this component by task id. Flushing the latest draft
-  // during unmount closes the debounce gap when the user edits and immediately
-  // selects another task or closes the window.
-  useEffect(() => () => {
-    void window.eyeProtect.updateTask(task.id, latestDraftRef.current);
-  }, [task.id]);
+  // Field-group edits share one command. The command identity is pinned to the
+  // task id so its `run` stays stable across renders and the debounce effects
+  // below don't reset on every keystroke.
+  const updateCommand = useCallback(
+    (input: TaskUpdateInput) => commands.tasks.update(task.id, input),
+    [task.id]
+  );
+  const update = useCommand(updateCommand);
+
+  const statusCommand = useCommand((next: TaskStatus) => commands.tasks.setStatus(task.id, next));
+  const activeCommand = useCommand((id: string | null) => commands.tasks.setActive(id));
+  const deleteCommand = useCommand(() => commands.tasks.delete(task.id));
+  const recurrenceCommand = useCommand(
+    (rule: RecurrenceRule | null) => commands.tasks.update(task.id, { recurrence: rule })
+  );
+
+  // Status is controlled by list checkboxes as well as this detail pane. Keep
+  // this one externally-owned field in sync without resetting dirty draft
+  // fields (title/notes/etc.) that may still be waiting for autosave.
+  useEffect(() => {
+    setStatus(task.status);
+  }, [task.id, task.status]);
 
   // Re-sync local state when the selected task changes.
   useEffect(() => {
@@ -165,17 +184,20 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     setSaveError(null);
   }, [task.id]);
 
+  // Serialize autosave requests so rapid edits can't reorder behind a slow
+  // round-trip. Each persist runs through the command layer and surfaces the
+  // real error message instead of a generic string.
   const persist = useCallback((input: TaskUpdateInput): void => {
-    saveQueueRef.current = saveQueueRef.current
-      .then(async () => {
-        await window.eyeProtect.updateTask(task.id, input);
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      const result = await update.run(input);
+      if (result.ok) {
         setSaveError(null);
         onUpdated?.();
-      })
-      .catch(() => {
-        setSaveError('保存失败，已保留本地内容；继续编辑会自动重试。');
-      });
-  }, [task.id, onUpdated]);
+      } else {
+        setSaveError(result.message);
+      }
+    });
+  }, [update.run, onUpdated]);
 
   useEffect(() => {
     if (initialSyncRef.current) {
@@ -194,10 +216,6 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     const timer = setTimeout(() => persist({ notes: notes.trim() || null }), 500);
     return () => clearTimeout(timer);
   }, [notes, persist]);
-
-  const handleDelete = useCallback(() => {
-    void window.eyeProtect.deleteTask(task.id).then(() => onDeleted?.());
-  }, [task.id, onDeleted]);
 
   return (
     <form className="detail-card" onSubmit={(event) => event.preventDefault()}>
@@ -298,9 +316,16 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
               key={key}
               type="button"
               className={status === key ? 'is-active' : ''}
+              disabled={statusCommand.isPending}
               onClick={() => {
                 setStatus(key);
-                void window.eyeProtect.setTaskStatus(task.id, key);
+                void statusCommand.run(key).then((result) => {
+                  if (result.ok) {
+                    setSaveError(null);
+                  } else {
+                    setSaveError(result.message);
+                  }
+                });
               }}
             >
               {STATUS_LABELS[key]}
@@ -388,9 +413,22 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
             </option>
           ))}
         </select>
-        <button type="button" className="detail-recurrence-apply" onClick={() => persist({
-          recurrence: buildRecurrence(recurrenceType, Math.max(1, Number(recurrenceInterval) || 1), recurrenceWeekdays, monthlyDay, afterDays)
-        })}>应用重复规则</button>
+        <button
+          type="button"
+          className="detail-recurrence-apply"
+          disabled={recurrenceCommand.isPending}
+          onClick={() => {
+            void recurrenceCommand.run(
+              buildRecurrence(recurrenceType, Math.max(1, Number(recurrenceInterval) || 1), recurrenceWeekdays, monthlyDay, afterDays)
+            ).then((result) => {
+              if (result.ok) {
+                setSaveError(null);
+              } else {
+                setSaveError(result.message);
+              }
+            });
+          }}
+        >应用重复规则</button>
       </label>
 
       {recurrenceType === 'daily' || recurrenceType === 'weekly' || recurrenceType === 'monthly' ? (
@@ -409,18 +447,34 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           创建 {dateFormatter.format(new Date(task.createdAt))} · 更新{' '}
           {dateFormatter.format(new Date(task.updatedAt))}
         </span>
-        <button type="button" className="detail-active" onClick={() => void window.eyeProtect.setActiveTask(active ? null : task.id)}>
+        <CommandButton
+          type="button"
+          className="detail-active"
+          state={activeCommand.state}
+          errorReason={activeCommand.error?.message}
+          onClick={() => {
+            void activeCommand.run(active ? null : task.id);
+          }}
+        >
           {active ? <Square size={13} /> : <Play size={13} />}
           <span>{active ? '停止任务' : '开始任务'}</span>
-        </button>
-        <button
+        </CommandButton>
+        <CommandButton
           type="button"
           className="detail-delete"
-          onClick={handleDelete}
+          state={deleteCommand.state}
+          errorReason={deleteCommand.error?.message}
+          onClick={() => {
+            void deleteCommand.run().then((result) => {
+              if (result.ok) {
+                onDeleted?.();
+              }
+            });
+          }}
         >
           <Trash2 size={13} />
           <span>删除</span>
-        </button>
+        </CommandButton>
       </div>
     </form>
   );

@@ -65,6 +65,8 @@ export interface SchedulerKernelOptions {
   driftThresholdMs?: number
   /** Receives a rolling trace of kernel decisions for diagnostics/telemetry. */
   trace?: (message: string, data?: Record<string, unknown>) => void
+  /** Local timezone offset source, injectable for deterministic tests. */
+  getTimezoneOffset?: () => number
 }
 
 interface RegisteredEvent extends ScheduledEvent {
@@ -82,6 +84,7 @@ export class SchedulerKernel extends EventEmitter {
   private readonly watchdogIntervalMs: number;
   private readonly driftThresholdMs: number;
   private readonly trace: (message: string, data?: Record<string, unknown>) => void;
+  private readonly getTimezoneOffset: () => number;
 
   /** All currently pending deadlines. */
   private events: RegisteredEvent[] = [];
@@ -96,6 +99,7 @@ export class SchedulerKernel extends EventEmitter {
   /** Baseline for drift detection, refreshed on every arm and watchdog tick. */
   private lastWall = 0;
   private lastMonotonic = 0;
+  private lastTimezoneOffset = 0;
 
   constructor(options: SchedulerKernelOptions = {}) {
     super();
@@ -109,6 +113,7 @@ export class SchedulerKernel extends EventEmitter {
     );
     this.driftThresholdMs = options.driftThresholdMs ?? DEFAULT_DRIFT_THRESHOLD_MS;
     this.trace = options.trace ?? (() => {});
+    this.getTimezoneOffset = options.getTimezoneOffset ?? (() => new Date().getTimezoneOffset());
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -120,6 +125,7 @@ export class SchedulerKernel extends EventEmitter {
     this.running = true;
     this.lastWall = this.clock.now();
     this.lastMonotonic = this.clock.monotonic();
+    this.lastTimezoneOffset = this.getTimezoneOffset();
     this.trace('kernel start');
     this.arm();
     this.startWatchdog();
@@ -346,10 +352,23 @@ export class SchedulerKernel extends EventEmitter {
   private checkDrift(): void {
     const wall = this.clock.now();
     const mono = this.clock.monotonic();
+    const timezoneOffset = this.getTimezoneOffset();
     const wallElapsed = wall - this.lastWall;
     const monoElapsed = mono - this.lastMonotonic;
     this.lastWall = wall;
     this.lastMonotonic = mono;
+
+    if (timezoneOffset !== this.lastTimezoneOffset) {
+      const previousOffset = this.lastTimezoneOffset;
+      this.lastTimezoneOffset = timezoneOffset;
+      this.trace('kernel timezone changed', { previousOffset, timezoneOffset });
+      // Services owning civil-time schedules must recompute their epochs. An
+      // absolute one-shot timestamp remains unchanged; only its owner can make
+      // that distinction, so the kernel emits a dedicated signal.
+      this.emit('timezone-change', { previousOffset, timezoneOffset });
+      this.reconcile();
+      return;
+    }
 
     if (Math.abs(wallElapsed - monoElapsed) > this.driftThresholdMs) {
       this.trace('kernel drift detected', {

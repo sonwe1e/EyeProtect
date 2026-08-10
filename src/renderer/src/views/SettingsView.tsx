@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import {
   SETTINGS_LIMITS,
+  type CommandResult,
   type DataActionResult,
   type DataRecoveryInfo,
   type HotkeyAction,
@@ -41,6 +42,7 @@ import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 import { useWeeklyReport } from '../hooks/useWeeklyReport';
 import { formatClock, minutesLeft } from '../lib/time';
+import { commands } from '../lib/commands';
 
 const REMINDER_MODE_COPY: Array<{
   value: ReminderMode;
@@ -123,6 +125,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [quietAppsDraft, setQuietAppsDraft] = useState('');
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus>({
@@ -176,9 +179,16 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
     async (patch: Partial<Settings>) => {
       setSaving(true);
       try {
-        const next = await window.eyeProtect.saveSettings(patch);
-        setSettings(next);
-        setSavedAt(Date.now());
+        const result = await commands.settings.save(patch);
+        if (result.ok) {
+          setSettings(result.data);
+          setSavedAt(Date.now());
+          setSaveError(null);
+        } else {
+          // Keep the stale value and surface the failure (e.g. disk-full) instead
+          // of silently reverting with the spinner.
+          setSaveError(result.message);
+        }
       } finally {
         setSaving(false);
       }
@@ -225,11 +235,25 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
       report.recommendedWalkMinutes !== settings.walkIntervalMinutes);
 
   const runDataAction = useCallback(
-    async (action: () => Promise<DataActionResult>) => {
-      const result = await action();
-      setDataMessage(result.message);
-      if (result.success) {
-        setRecoveryInfo(await window.eyeProtect.getDataRecoveryInfo());
+    async (action: () => Promise<CommandResult<DataActionResult> | DataActionResult>) => {
+      try {
+        const result = await action();
+        // The command layer normalises rejections into {ok:false}; legacy callers
+        // may still return the raw DataActionResult. Handle both shapes so a
+        // failure never vanishes into an unhandled promise.
+        const ok = 'ok' in result ? result.ok : result.success;
+        const message =
+          'ok' in result
+            ? result.ok
+              ? result.data.message
+              : result.message
+            : result.message;
+        setDataMessage(message);
+        if (ok) {
+          setRecoveryInfo(await window.eyeProtect.getDataRecoveryInfo());
+        }
+      } catch (err) {
+        setDataMessage(err instanceof Error ? err.message : String(err));
       }
     },
     []
@@ -252,6 +276,15 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           </button>
         ) : null}
       </header>
+
+      {saveError ? (
+        <p className="settings-save-error" role="alert">
+          <span>保存失败：{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)}>
+            忽略
+          </button>
+        </p>
+      ) : null}
 
       <section className="status-strip">
         {nextItems.map((item) => (
@@ -276,7 +309,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
               最多自动推迟 3 次
             </small>
           </span>
-          <button onClick={() => void window.eyeProtect.triggerNow()}>现在休息</button>
+          <button onClick={() => void commands.scheduler.triggerNow()}>现在休息</button>
         </div>
       ) : null}
 
@@ -663,11 +696,11 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                   <option value={90}>最近 90 天</option>
                 </select>
               </label>
-              <button onClick={() => void window.eyeProtect.exportReminderHistory('csv')}>
+              <button onClick={() => void commands.data.exportHistory('csv')}>
                 <Download size={14} />
                 CSV
               </button>
-              <button onClick={() => void window.eyeProtect.exportReminderHistory('json')}>
+              <button onClick={() => void commands.data.exportHistory('json')}>
                 <Download size={14} />
                 JSON
               </button>
@@ -679,7 +712,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                     return;
                   }
                   setConfirmClearHistory(false);
-                  void window.eyeProtect.clearReminderHistory();
+                  void commands.data.clearHistory();
                 }}
               >
                 <Trash2 size={14} />
@@ -698,7 +731,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                   return;
                 }
                 setConfirmClearHistory(false);
-                void window.eyeProtect.clearReminderHistory();
+                void commands.data.clearHistory();
               }}
             >
               <Trash2 size={14} />
@@ -717,21 +750,21 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           <DatabaseBackup size={20} />
         </div>
         <div className="data-actions">
-          <button onClick={() => void runDataAction(window.eyeProtect.exportBackup)}>
+          <button onClick={() => void runDataAction(commands.data.exportBackup)}>
             <Download size={15} />
             导出完整备份
           </button>
-          <button onClick={() => void runDataAction(window.eyeProtect.importBackup)}>
+          <button onClick={() => void runDataAction(commands.data.importBackup)}>
             <Upload size={15} />
             导入备份
           </button>
-          <button onClick={() => void runDataAction(window.eyeProtect.openDataDirectory)}>
+          <button onClick={() => void runDataAction(commands.data.openDataDirectory)}>
             <FolderOpen size={15} />
             打开数据目录
           </button>
           <button
             className="danger-soft"
-            onClick={() => void runDataAction(window.eyeProtect.resetToDefaults)}
+            onClick={() => void runDataAction(commands.data.resetToDefaults)}
           >
             <RotateCcw size={15} />
             恢复默认
@@ -760,40 +793,40 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
       <section className="settings-section compact">
         <h2>提醒控制</h2>
         <div className="test-actions">
-          <button onClick={() => void window.eyeProtect.testReminder('eye')}>
+          <button onClick={() => void commands.scheduler.test('eye')}>
             <Eye size={18} />
             护眼提醒
           </button>
-          <button onClick={() => void window.eyeProtect.testReminder('walk')}>
+          <button onClick={() => void commands.scheduler.test('walk')}>
             <Footprints size={18} />
             走动提醒
           </button>
           {paused ? (
             <>
-              <button onClick={() => void window.eyeProtect.resume()}>
+              <button onClick={() => void commands.scheduler.resume()}>
                 <Play size={18} />
                 恢复提醒
               </button>
-              <button onClick={() => void window.eyeProtect.restartCycle()}>
+              <button onClick={() => void commands.scheduler.restartCycle()}>
                 <RotateCcw size={18} />
                 重新开始计时
               </button>
             </>
           ) : (
             <>
-              <button onClick={() => void window.eyeProtect.pause(10)}>
+              <button onClick={() => void commands.scheduler.pause(10)}>
                 <Pause size={18} />
                 暂停 10 分钟
               </button>
-              <button onClick={() => void window.eyeProtect.pause(30)}>
+              <button onClick={() => void commands.scheduler.pause(30)}>
                 <Pause size={18} />
                 会议 30 分钟
               </button>
-              <button onClick={() => void window.eyeProtect.pause(minutesUntilNextHour(now))}>
+              <button onClick={() => void commands.scheduler.pause(minutesUntilNextHour(now))}>
                 <Clock3 size={18} />
                 到下一整点
               </button>
-              <button onClick={() => void window.eyeProtect.pause(minutesUntilMidnight(now))}>
+              <button onClick={() => void commands.scheduler.pause(minutesUntilMidnight(now))}>
                 <MoonStar size={18} />
                 今天不再提醒
               </button>
@@ -812,7 +845,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                 <span>分钟</span>
                 <button
                   type="button"
-                  onClick={() => void window.eyeProtect.pause(customPauseMinutes)}
+                  onClick={() => void commands.scheduler.pause(customPauseMinutes)}
                 >
                   自定义暂停
                 </button>
@@ -826,7 +859,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                 <button
                   type="button"
                   onClick={() =>
-                    void window.eyeProtect.pause(minutesUntilClockTime(meetingEndTime, now))
+                    void commands.scheduler.pause(minutesUntilClockTime(meetingEndTime, now))
                   }
                 >
                   暂停到会议结束

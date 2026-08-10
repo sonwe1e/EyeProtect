@@ -13,6 +13,13 @@ export interface ActivityMonitorOptions {
   naturalBreakMs: () => number;
   now?: () => number;
   pollIntervalMs?: number;
+  /**
+   * Input-idle duration (ms) required to treat the user as "idle". Distinct from
+   * the raw OS input-idle signal (getIdleSeconds) and from the natural-break
+   * reset. Defaults to 60s: reading/thinking without input should not freeze
+   * the health elapsed clock, so 1s is far too eager.
+   */
+  idleThresholdMs?: number;
 }
 
 /**
@@ -23,6 +30,7 @@ export interface ActivityMonitorOptions {
 export class ActivityMonitor extends EventEmitter {
   private readonly getIdleSeconds: () => number;
   private readonly naturalBreakMs: () => number;
+  private readonly idleThresholdMs: number;
   private readonly now: () => number;
   private readonly pollIntervalMs: number;
   private timer: NodeJS.Timeout | null = null;
@@ -33,6 +41,7 @@ export class ActivityMonitor extends EventEmitter {
     super();
     this.getIdleSeconds = options.getIdleSeconds;
     this.naturalBreakMs = options.naturalBreakMs;
+    this.idleThresholdMs = options.idleThresholdMs ?? 60_000;
     this.now = options.now ?? Date.now;
     this.pollIntervalMs = options.pollIntervalMs ?? 5_000;
   }
@@ -76,7 +85,9 @@ export class ActivityMonitor extends EventEmitter {
   sample(): void {
     if (this.state === 'locked' || this.state === 'suspended') return;
     const idleMs = Math.max(0, this.getIdleSeconds()) * 1_000;
-    if (idleMs >= 1_000) {
+    // Only flip to idle once input-idle reaches the (configurable) threshold.
+    // The natural-break reset (naturalBreakMs) is independent of this trigger.
+    if (idleMs >= this.idleThresholdMs) {
       this.enterInactive('idle', this.now() - idleMs);
     } else if (this.state === 'idle') {
       this.returnActive();

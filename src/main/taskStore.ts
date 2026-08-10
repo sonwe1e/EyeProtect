@@ -23,12 +23,13 @@ import {
   type TaskStatus,
   type UndoState,
   type CharacterCollectionState,
+  type FailedDeliveryNotice,
   type TodoItem
 } from '../shared/types';
 
 const DATABASE_FILE = 'eyeprotect.db';
 const LEGACY_TASKS_FILE = 'tasks.json';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export interface TaskReminderOccurrence {
   taskId: string;
@@ -83,6 +84,7 @@ export class TaskStore extends EventEmitter {
   private readonly filePath: string;
   private readonly allowTaskModelReset: boolean;
   private db: DatabaseSync;
+  private transactionDepth = 0;
   private recovery: TaskDatabaseRecovery = { readOnly: false, snapshotPath: null, reason: null };
 
   constructor(dataDir: string, options: TaskStoreOptions = {}) {
@@ -307,14 +309,35 @@ export class TaskStore extends EventEmitter {
     return this.updateTask(id, { status }, now);
   }
 
+  /**
+   * Execute a multi-method domain transition atomically. Store methods may use
+   * their own transactions; nested calls join this outer transaction.
+   */
+  runInTransaction<T>(action: () => T): T {
+    return this.transaction(action);
+  }
+
+  /** Exactly-once claim for one completed recurring task instance. */
+  claimRecurrenceRollover(sourceTaskId: string, occurrenceAt: number, now: number = Date.now()): boolean {
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO task_recurrence_rollovers(source_task_id, occurrence_at, created_at)
+      VALUES (?, ?, ?)
+    `).run(sourceTaskId, occurrenceAt, now);
+    return Number(result.changes) === 1;
+  }
+
   moveTask(input: TaskMoveInput, now: number = Date.now()): Task[] {
-    const inScope = (task: Task): boolean =>
+    const inContainer = (task: Task): boolean =>
       task.status === 'open' &&
       (input.scope.type === 'inbox'
         ? task.projectId === null
         : task.projectId === input.scope.projectId);
     const task = this.getTask(input.taskId);
-    if (!task || !inScope(task)) return this.getTasks();
+    if (!task || !inContainer(task)) return this.getTasks();
+    // Manual order is scoped to siblings. Moving a child must never silently
+    // reorder unrelated roots or children of another parent.
+    const inScope = (candidate: Task): boolean =>
+      inContainer(candidate) && candidate.parentId === task.parentId;
     const ordered = this.getTasks().filter(inScope).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
     const moving = ordered.find((entry) => entry.id === input.taskId)!;
     const rest = ordered.filter((entry) => entry.id !== input.taskId);
@@ -419,6 +442,10 @@ export class TaskStore extends EventEmitter {
     this.transaction(() => {
       for (const id of payload.removeIds ?? []) this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
       for (const task of tasks) {
+        // Undoing completion restores the source instance to its pre-complete
+        // state; release its exactly-once claim so a later genuine completion
+        // may generate the recurrence again.
+        this.db.prepare('DELETE FROM task_recurrence_rollovers WHERE source_task_id = ?').run(task.id);
         this.upsertTask(task);
         this.writeTaskTags(task.id, task.tags);
       }
@@ -497,6 +524,9 @@ export class TaskStore extends EventEmitter {
 
   replaceAll(tasks: Task[], now: number = Date.now()): Task[] {
     const safe = sanitizeTasks(tasks).map((task, sortOrder) => ({ ...task, sortOrder, updatedAt: task.updatedAt || now }));
+    if (hasRelationCycle(safe)) {
+      throw new Error('Task hierarchy must be acyclic');
+    }
     this.transaction(() => {
       this.db.exec('DELETE FROM task_tags; DELETE FROM task_reminders; DELETE FROM tasks;');
       for (const raw of safe) {
@@ -504,8 +534,13 @@ export class TaskStore extends EventEmitter {
         this.insertTask(task);
         this.writeTaskTags(task.id, task.tags);
       }
+      // Restore parent links, but never write a cycle. wouldCreateRelationCycle
+      // also returns true when the parent is missing, so a dangling parent is
+      // safely left NULL instead of corrupting the hierarchy.
+      const byId = new Map(safe.map((task) => [task.id, task]));
       for (const raw of safe) {
-        if (raw.parentId && raw.parentId !== raw.id && safe.some((task) => task.id === raw.parentId)) {
+        if (raw.parentId && raw.parentId !== raw.id && byId.has(raw.parentId) &&
+            !wouldCreateRelationCycle(raw.id, raw.parentId, byId)) {
           this.db.prepare('UPDATE tasks SET parent_id = ? WHERE id = ?').run(raw.parentId, raw.id);
         }
       }
@@ -516,6 +551,9 @@ export class TaskStore extends EventEmitter {
 
   replaceProjects(projects: Project[]): Project[] {
     const safe = sanitizeProjects(projects);
+    if (hasRelationCycle(safe)) {
+      throw new Error('Project hierarchy must be acyclic');
+    }
     this.transaction(() => {
       this.db.exec('UPDATE tasks SET project_id = NULL; DELETE FROM projects;');
       for (const project of safe) {
@@ -524,8 +562,12 @@ export class TaskStore extends EventEmitter {
           VALUES (?, ?, ?, NULL, ?, ?, ?)
         `).run(project.id, project.name, project.color, project.sortOrder, project.createdAt, project.updatedAt);
       }
+      // Same cycle guard as replaceAll: skip any parent link that would close a
+      // loop (or point at a missing project), leaving parent_id NULL instead.
+      const projectsById = new Map(safe.map((project) => [project.id, project]));
       for (const project of safe) {
-        if (project.parentId && project.parentId !== project.id && safe.some((entry) => entry.id === project.parentId)) {
+        if (project.parentId && project.parentId !== project.id && projectsById.has(project.parentId) &&
+            !wouldCreateRelationCycle(project.id, project.parentId, projectsById)) {
           this.db.prepare('UPDATE projects SET parent_id = ? WHERE id = ?').run(project.parentId, project.id);
         }
       }
@@ -764,12 +806,22 @@ export class TaskStore extends EventEmitter {
     now: number = Date.now()
   ): NotificationDelivery {
     const id = randomUUID();
+    // A re-enqueue of a (source, source_id, occurrence_at) whose row is in a
+    // terminal `failed` state atomically resurrects it to `due`. The WHERE
+    // clause leaves due/presenting/delivered rows untouched, preserving dedup
+    // for in-flight deliveries instead of silently returning the stuck row.
     this.db.prepare(`
       INSERT INTO reminder_delivery(
         id, source, source_id, occurrence_at, title, body, state, attempts,
         first_due_at, next_attempt_at
       ) VALUES (?, ?, ?, ?, ?, ?, 'due', 0, ?, ?)
-      ON CONFLICT(source, source_id, occurrence_at) DO NOTHING
+      ON CONFLICT(source, source_id, occurrence_at) DO UPDATE SET
+        state = 'due',
+        next_attempt_at = excluded.next_attempt_at,
+        attempts = 0,
+        last_attempt_at = NULL,
+        first_due_at = excluded.first_due_at
+      WHERE state = 'failed'
     `).run(id, source, sourceId, occurrenceAt, title, body, now, now);
     return this.getDeliveryByOccurrence(source, sourceId, occurrenceAt)!;
   }
@@ -818,6 +870,25 @@ export class TaskStore extends EventEmitter {
   getFailedDeliveryCount(): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS value FROM reminder_delivery WHERE state = 'failed'`).get() as SqlRow;
     return Number(row.value);
+  }
+
+  /**
+   * Startup dead-letter recovery. Resets ANY terminal `failed` delivery back to
+   * `due` so deliveries that exhausted their retry budget before a crash are
+   * re-attempted instead of being silently dropped. Idempotent and safe: a
+   * truly-failed delivery should be retried, not forgotten.
+   *
+   * Wiring (one line, called after deliveryQueue.start() at startup):
+   *   deliveryQueue.start();
+   *   taskStore.reconcileFailedDeliveries();
+   */
+  reconcileFailedDeliveries(now: number = Date.now()): void {
+    this.db.prepare(`
+      UPDATE reminder_delivery
+      SET state = 'due', next_attempt_at = ?, attempts = 0,
+          last_attempt_at = NULL, first_due_at = ?
+      WHERE state = 'failed'
+    `).run(now, now);
   }
 
   recordWorkSegment(taskId: string, startedAt: number, endedAt: number, activeMs: number): void {
@@ -997,6 +1068,12 @@ export class TaskStore extends EventEmitter {
         fire_at INTEGER NOT NULL,
         consumed_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS task_recurrence_rollovers (
+        source_task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+        occurrence_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(source_task_id, occurrence_at)
+      );
       CREATE TABLE IF NOT EXISTS standalone_reminders (
         id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
@@ -1132,15 +1209,55 @@ export class TaskStore extends EventEmitter {
     }
   }
 
-  private transaction(action: () => void): void {
+  private transaction<T>(action: () => T): T {
+    if (this.transactionDepth > 0) {
+      return action();
+    }
     this.db.exec('BEGIN IMMEDIATE');
+    this.transactionDepth += 1;
     try {
-      action();
+      const result = action();
       this.db.exec('COMMIT');
+      return result;
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
+    } finally {
+      this.transactionDepth -= 1;
     }
+  }
+
+  getFailedDeliveries(): FailedDeliveryNotice[] {
+    return (this.db.prepare(`
+      SELECT id, source, source_id, occurrence_at, title, body, last_attempt_at
+      FROM reminder_delivery WHERE state = 'failed'
+      ORDER BY COALESCE(last_attempt_at, first_due_at) DESC
+    `).all() as SqlRow[]).map((row) => ({
+      id: String(row.id),
+      source: String(row.source) as FailedDeliveryNotice['source'],
+      sourceId: String(row.source_id),
+      occurrenceAt: Number(row.occurrence_at),
+      title: String(row.title),
+      body: String(row.body),
+      failedAt: nullableNumber(row.last_attempt_at)
+    }));
+  }
+
+  retryFailedDelivery(id: string, now: number = Date.now()): boolean {
+    const result = this.db.prepare(`
+      UPDATE reminder_delivery SET state = 'due', attempts = 0,
+        next_attempt_at = ?, last_attempt_at = NULL
+      WHERE id = ? AND state = 'failed'
+    `).run(now, id);
+    return Number(result.changes) === 1;
+  }
+
+  dismissFailedDelivery(id: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE reminder_delivery SET state = 'dismissed', next_attempt_at = NULL
+      WHERE id = ? AND state = 'failed'
+    `).run(id);
+    return Number(result.changes) === 1;
   }
 
   private nextSortOrder(): number {
@@ -1335,6 +1452,15 @@ const wouldCreateRelationCycle = <T extends { id: string; parentId: string | nul
     cursor = entries.get(cursor)?.parentId ?? null;
   }
   return !entries.has(parentId);
+};
+
+const hasRelationCycle = <T extends { id: string; parentId: string | null }>(entries: T[]): boolean => {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  return entries.some((entry) =>
+    Boolean(entry.parentId) &&
+    byId.has(entry.parentId!) &&
+    wouldCreateRelationCycle(entry.id, entry.parentId!, byId)
+  );
 };
 
 const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({

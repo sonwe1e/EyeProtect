@@ -4,6 +4,9 @@ import {
   nextStandaloneReminderFireAt,
   type StandaloneReminderSchedule
 } from '../../../../shared/types';
+import { CommandButton } from '../../components/CommandButton';
+import { useCommand } from '../../hooks/useCommand';
+import { commands } from '../../lib/commands';
 import { useStandaloneReminders } from '../../hooks/useStandaloneReminders';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
@@ -23,6 +26,10 @@ export function StandaloneReminderSection(): JSX.Element {
   const [clock, setClock] = useState('09:00');
   const [weekdays, setWeekdays] = useState<number[]>([1]);
   const [intervalDays, setIntervalDays] = useState(2);
+
+  const create = useCommand((input: Parameters<typeof commands.reminders.create>[0]) =>
+    commands.reminders.create(input)
+  );
 
   const schedule = useMemo<StandaloneReminderSchedule | null>(() => {
     const [hour, minute] = clock.split(':').map(Number);
@@ -45,7 +52,11 @@ export function StandaloneReminderSection(): JSX.Element {
     if (!schedule) {
       return;
     }
-    void window.eyeProtect.createStandaloneReminder({ label, schedule, enabled: true }).then(() => setLabel(''));
+    void create.run({ label, schedule, enabled: true }).then((result) => {
+      if (result.ok) {
+        setLabel('');
+      }
+    });
   };
 
   return (
@@ -79,21 +90,47 @@ export function StandaloneReminderSection(): JSX.Element {
         {type === 'custom' ? (
           <label className="interval-days">每 <input type="number" min={1} max={365} value={intervalDays} onChange={(event) => setIntervalDays(Math.max(1, Number(event.currentTarget.value) || 1))} /> 天</label>
         ) : null}
-        <button type="submit" disabled={!schedule}><Plus size={14} />添加提醒</button>
+        <CommandButton type="submit" state={create.state} errorReason={create.error?.message} disabled={!schedule}>
+          <Plus size={14} />添加提醒
+        </CommandButton>
       </form>
       <ul className="standalone-list">
-        {reminders.map((reminder) => {
-          const next = nextStandaloneReminderFireAt(reminder.schedule);
-          return (
-            <li key={reminder.id}>
-              <label><input type="checkbox" checked={reminder.enabled} onChange={(event) => void window.eyeProtect.updateStandaloneReminder(reminder.id, { enabled: event.currentTarget.checked })} /></label>
-              <div><strong>{reminder.label || '提醒'}</strong><small>{next ? new Date(next).toLocaleString('zh-CN') : '已结束'}</small></div>
-              <button type="button" aria-label="删除提醒" onClick={() => void window.eyeProtect.deleteStandaloneReminder(reminder.id)}><Trash2 size={14} /></button>
-            </li>
-          );
-        })}
+        {reminders.map((reminder) => (
+          <ReminderItem key={reminder.id} reminder={reminder} />
+        ))}
         {reminders.length === 0 ? <li className="empty-state">还没有独立提醒。</li> : null}
       </ul>
     </section>
+  );
+}
+
+/** One reminder row. Owns its own command state for enable-toggle and delete. */
+function ReminderItem({ reminder }: { reminder: ReturnType<typeof useStandaloneReminders>[number] }): JSX.Element {
+  const toggle = useCommand((enabled: boolean) => commands.reminders.update(reminder.id, { enabled }));
+  const remove = useCommand(() => commands.reminders.remove(reminder.id));
+
+  const next = nextStandaloneReminderFireAt(reminder.schedule);
+
+  return (
+    <li>
+      <label>
+        <input
+          type="checkbox"
+          checked={reminder.enabled}
+          disabled={toggle.isPending}
+          onChange={(event) => void toggle.run(event.currentTarget.checked)}
+        />
+      </label>
+      <div><strong>{reminder.label || '提醒'}</strong><small>{next ? new Date(next).toLocaleString('zh-CN') : '已结束'}</small></div>
+      <CommandButton
+        type="button"
+        state={remove.state}
+        errorReason={remove.error?.message}
+        aria-label="删除提醒"
+        onClick={() => void remove.run()}
+      >
+        <Trash2 size={14} />
+      </CommandButton>
+    </li>
   );
 }

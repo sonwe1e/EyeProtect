@@ -9,7 +9,6 @@ export interface AlarmInput {
   repeat: AlarmRepeat;
   enabled: boolean;
 }
-
 export interface AlarmClockOptions {
   now?: () => number;
   /**
@@ -41,6 +40,8 @@ export const nextFireAt = (hour: number, minute: number, now = Date.now()): numb
 
 const MINUTE = 60_000;
 
+/** @deprecated Production scheduling uses StandaloneReminderService. Kept only
+ * for legacy data compatibility and tests; do not wire new features to it. */
 export class AlarmClock extends EventEmitter {
   private alarms: Alarm[] = [];
   private timers = new Map<string, NodeJS.Timeout>();
@@ -56,6 +57,9 @@ export class AlarmClock extends EventEmitter {
    * (e.g. a drift check landing on the fire time).
    */
   private lastFiredAt = new Map<string, number>();
+  /** Explicit next occurrence; prevents an unrelated early reconcile from
+   * mistaking yesterday's occurrence for a missed alarm. */
+  private nextDueAt = new Map<string, number>();
 
   constructor(options: AlarmClockOptionsArg = {}) {
     super();
@@ -84,6 +88,10 @@ export class AlarmClock extends EventEmitter {
     const restored = alarms.map((alarm) => ({ ...alarm }));
     this.alarms = restored;
     this.lastFiredAt.clear();
+    this.nextDueAt.clear();
+    for (const alarm of restored) {
+      if (alarm.enabled) this.nextDueAt.set(alarm.id, nextFireAt(alarm.hour, alarm.minute, this.now()));
+    }
     if (this.kernel) {
       // One shared deadline for the whole alarm set instead of per-alarm timers.
       this.reportNextToKernel();
@@ -122,7 +130,9 @@ export class AlarmClock extends EventEmitter {
 
     this.alarms = [...this.alarms, alarm];
     if (alarm.enabled) {
-      this.arm(alarm, nextFireAt(alarm.hour, alarm.minute, now) - now);
+      const dueAt = nextFireAt(alarm.hour, alarm.minute, now);
+      this.nextDueAt.set(alarm.id, dueAt);
+      this.arm(alarm, dueAt - now);
     }
 
     this.emit('changed', this.getAlarms());
@@ -133,6 +143,7 @@ export class AlarmClock extends EventEmitter {
     this.clearTimer(id);
     this.alarms = this.alarms.filter((alarm) => alarm.id !== id);
     this.lastFiredAt.delete(id);
+    this.nextDueAt.delete(id);
     // The nearest pending deadline may have changed.
     if (this.kernel) {
       this.reportNextToKernel();
@@ -155,14 +166,15 @@ export class AlarmClock extends EventEmitter {
       if (!alarm.enabled) {
         continue;
       }
-      const occurrence = mostRecentOccurrence(alarm.hour, alarm.minute, now);
-      if (occurrence > now) {
-        continue; // this occurrence is still in the future
-      }
+      const occurrence = this.nextDueAt.get(alarm.id) ?? nextFireAt(alarm.hour, alarm.minute, now);
+      if (occurrence > now) continue;
       if (this.lastFiredAt.get(alarm.id) === occurrence) {
         continue; // already fired this exact occurrence
       }
       this.lastFiredAt.set(alarm.id, occurrence);
+      if (alarm.repeat === 'daily') {
+        this.nextDueAt.set(alarm.id, nextFireAt(alarm.hour, alarm.minute, now));
+      }
       fired = true;
       this.fire(alarm.id);
     }
@@ -212,6 +224,7 @@ export class AlarmClock extends EventEmitter {
     // would rehydrate it and fire it again the next day.
     this.alarms = this.alarms.filter((entry) => entry.id !== id);
     this.lastFiredAt.delete(id);
+    this.nextDueAt.delete(id);
     this.emit('changed', this.getAlarms());
   }
 
@@ -225,7 +238,9 @@ export class AlarmClock extends EventEmitter {
       if (!alarm.enabled) {
         continue;
       }
-      nearest = Math.min(nearest, nextFireAt(alarm.hour, alarm.minute, this.now()));
+      const dueAt = this.nextDueAt.get(alarm.id) ?? nextFireAt(alarm.hour, alarm.minute, this.now());
+      this.nextDueAt.set(alarm.id, dueAt);
+      nearest = Math.min(nearest, dueAt);
     }
     if (nearest === Infinity) {
       this.kernel.set('alarm', []);
@@ -250,19 +265,3 @@ export class AlarmClock extends EventEmitter {
     }
   }
 }
-
-/**
- * The most recent wall-clock occurrence of `hour:minute` at or before `now`
- * (local time, DST-safe). Unlike nextFireAt (which always returns a FUTURE
- * time), this returns the occurrence the user actually "meant" — the one an
- * alarm should fire for at instant `now`. Used by the kernel path to decide
- * which alarms are due without double-firing.
- */
-const mostRecentOccurrence = (hour: number, minute: number, now: number): number => {
-  const d = new Date(now);
-  d.setHours(hour, minute, 0, 0);
-  if (d.getTime() > now) {
-    d.setDate(d.getDate() - 1);
-  }
-  return d.getTime();
-};

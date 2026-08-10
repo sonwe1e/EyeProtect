@@ -6,7 +6,9 @@ import type {
   CharacterMaterial,
   DataActionResult,
   DataRecoveryInfo,
+  AppHealth,
   EyeProtectApi,
+  FailedDeliveryNotice,
   HotkeyStatus,
   PetAccessory,
   PreAlertAction,
@@ -40,6 +42,10 @@ const api: EyeProtectApi = {
   getSettings: () => ipcRenderer.invoke('settings:get') as Promise<Settings>,
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings) as Promise<Settings>,
   getRuntimeInfo: () => ipcRenderer.invoke('runtime:get') as Promise<RuntimeInfo>,
+  // --- AppHealth (USERPLAN §二十八) ---
+  getAppHealth: () => ipcRenderer.invoke('app:health:get') as Promise<AppHealth>,
+  onAppHealthChanged: (callback) => on<AppHealth>('app:health:changed', callback),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch') as Promise<void>,
   getReminderStatus: () => ipcRenderer.invoke('reminder:status') as Promise<ReminderStatus>,
   reminderAction: (action: ReminderAction, reminderId: string) =>
     ipcRenderer.invoke('reminder:action', action, reminderId) as Promise<ReminderStatus>,
@@ -89,6 +95,14 @@ const api: EyeProtectApi = {
     on<StandaloneReminder[]>('standalone-reminder:changed', callback),
   onStandaloneReminderFired: (callback) =>
     on<StandaloneReminder>('standalone-reminder:fired', callback),
+  getFailedDeliveries: () =>
+    ipcRenderer.invoke('delivery:failed:list') as Promise<FailedDeliveryNotice[]>,
+  retryFailedDelivery: (id: string) =>
+    ipcRenderer.invoke('delivery:failed:retry', id) as Promise<FailedDeliveryNotice[]>,
+  dismissFailedDelivery: (id: string) =>
+    ipcRenderer.invoke('delivery:failed:dismiss', id) as Promise<FailedDeliveryNotice[]>,
+  onFailedDeliveriesChanged: (callback) =>
+    on<FailedDeliveryNotice[]>('delivery:failed-changed', callback),
   getCharacterCollection: () =>
     ipcRenderer.invoke('character:get') as Promise<CharacterCollectionState>,
   collectDailyCharacter: () =>

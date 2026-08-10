@@ -1,12 +1,15 @@
 import { Check, Clock3, X } from 'lucide-react';
 import type { BreakActivity } from '../../../shared/types';
 import { getActivity } from '../../../shared/breakActivities';
+import { CommandButton } from '../components/CommandButton';
 import { ActivityGuide } from '../features/reminders/ActivityGuide';
 import { ReminderArtwork, reminderCopy } from '../features/reminders/ReminderArtwork';
 import { useClock } from '../hooks/useClock';
 import { useActiveTaskId } from '../hooks/useActiveTask';
+import { useCommand } from '../hooks/useCommand';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useTasks } from '../hooks/useTasks';
+import { commands } from '../lib/commands';
 
 export default function AlertView(): JSX.Element {
   const status = useReminderStatus();
@@ -14,6 +17,7 @@ export default function AlertView(): JSX.Element {
   const activeTaskId = useActiveTaskId();
   const now = useClock(1_000);
   const active = status.activeReminder;
+  const completeBreakTask = useCommand((id: string) => commands.tasks.setStatus(id, 'done'));
 
   if (!active) {
     return <main className="alert-shell" />;
@@ -37,7 +41,7 @@ export default function AlertView(): JSX.Element {
 
   const handleDoubleClick = (): void => {
     if (!waiting) {
-      void window.eyeProtect.reminderAction('complete', active.id);
+      void commands.reminderActions.act('complete', active.id);
     }
   };
 
@@ -80,13 +84,15 @@ export default function AlertView(): JSX.Element {
               <span>这次走动可以顺便</span>
               <strong>{active.breakTask.title}</strong>
             </div>
-            <button
+            <CommandButton
               type="button"
-              onClick={() => void window.eyeProtect.setTaskStatus(active.breakTask?.id ?? '', 'done')}
+              state={completeBreakTask.state}
+              errorReason={completeBreakTask.error?.message}
+              onClick={() => void completeBreakTask.run(active.breakTask?.id ?? '')}
             >
               <Check size={14} />
               做好了
-            </button>
+            </CommandButton>
           </div>
         ) : null}
         {activeTask ? <p className="break-return-task">休息后继续：<strong>{activeTask.title}</strong></p> : null}
@@ -102,19 +108,19 @@ export default function AlertView(): JSX.Element {
           <button
             className="primary"
             disabled={waiting}
-            onClick={() => void window.eyeProtect.reminderAction('complete', active.id)}
+            onClick={() => void commands.reminderActions.act('complete', active.id)}
           >
             <Check size={18} />
             完成
           </button>
           <button
             disabled={snoozeLocked}
-            onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}
+            onClick={() => void commands.reminderActions.act('snooze', active.id)}
           >
             <Clock3 size={18} />
             稍后
           </button>
-          <button onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}>
+          <button onClick={() => void commands.reminderActions.act('skip', active.id)}>
             <X size={18} />
             跳过
           </button>

@@ -4,25 +4,28 @@ import {
   matchesTaskView,
   matchesProjectView,
   sortTasksForView,
+  type FailedDeliveryNotice,
   type Project,
   type Task,
-  type TaskStatus,
-  type TaskUpdateInput,
-  type TaskView,
-  type TodoPriority
+  type TaskView
 } from '../../../shared/types';
+import { AppHealthBanner } from '../components/AppHealthBanner';
+import { CommandButton } from '../components/CommandButton';
 import { ProjectList } from '../features/tasks/ProjectList';
 import { StandaloneReminderSection } from '../features/reminders/StandaloneReminderSection';
 import { TaskComposer } from '../features/tasks/TaskComposer';
 import { TaskDetail } from '../features/tasks/TaskDetail';
 import { TaskList } from '../features/tasks/TaskList';
 import { useActiveTaskId } from '../hooks/useActiveTask';
+import { useAppHealth } from '../hooks/useAppHealth';
 import { useClock } from '../hooks/useClock';
 import { useProjects } from '../hooks/useProjects';
 import { useTasks } from '../hooks/useTasks';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useTaskWork } from '../hooks/useTaskWork';
+import { useCommand } from '../hooks/useCommand';
 import { useUndo } from '../hooks/useUndo';
+import { commands } from '../lib/commands';
 import SettingsView from './SettingsView';
 import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
 
@@ -53,15 +56,25 @@ export default function WorkbenchView(): JSX.Element {
   const reminderStatus = useReminderStatus();
   const work = useTaskWork();
   const undo = useUndo();
+  const health = useAppHealth();
   const now = useClock(60_000);
+  const retryDelivery = useCommand((id: string) => commands.deliveries.retry(id));
+  const dismissDelivery = useCommand((id: string) => commands.deliveries.dismiss(id));
+  const moveTaskCommand = useCommand((input: Parameters<typeof commands.tasks.move>[0]) =>
+    commands.tasks.move(input)
+  );
+  const undoCommand = useCommand((id: string) => commands.tasks.undo(id));
+  const pause = useCommand((minutes: number) => commands.scheduler.pause(minutes));
+  const resume = useCommand(() => commands.scheduler.resume());
   const [section, setSection] = useState<WorkbenchSection>('tasks');
   const [selectedView, setSelectedView] = useState<TaskView>('today');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState<'all' | TodoPriority>('all');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | Task['priority']>('all');
   const [contextFilter, setContextFilter] = useState<'all' | Task['context']>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | Task['status']>('all');
+  const [failedDeliveries, setFailedDeliveries] = useState<FailedDeliveryNotice[]>([]);
 
   useEffect(() => {
     const navigate = (target: 'today' | 'settings' | 'reminders' | 'collection'): void => {
@@ -75,6 +88,11 @@ export default function WorkbenchView(): JSX.Element {
     };
     void window.eyeProtect.getWorkbenchSection().then(navigate);
     return window.eyeProtect.onWorkbenchNavigate(navigate);
+  }, []);
+
+  useEffect(() => {
+    void window.eyeProtect.getFailedDeliveries().then(setFailedDeliveries);
+    return window.eyeProtect.onFailedDeliveriesChanged(setFailedDeliveries);
   }, []);
 
   const viewCounts = useMemo(() => Object.fromEntries(PRIMARY_VIEWS.map((view) => [
@@ -96,7 +114,11 @@ export default function WorkbenchView(): JSX.Element {
         (contextFilter === 'all' || task.context === contextFilter) &&
         (statusFilter === 'all' || task.status === statusFilter);
     });
-    return sortTasksForView(filtered, now);
+    const manualScope = !query && priorityFilter === 'all' && contextFilter === 'all' && statusFilter === 'all' &&
+      (selectedProjectId !== null || selectedView === 'inbox');
+    return manualScope
+      ? [...filtered].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+      : sortTasksForView(filtered, now);
   }, [tasks, selectedView, selectedProjectId, now, activeTaskId, search, priorityFilter, contextFilter, statusFilter]);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
@@ -112,32 +134,26 @@ export default function WorkbenchView(): JSX.Element {
     setSelectedProjectId(id);
     setSelectedTaskId(null);
   }, []);
-  const updateTask = useCallback((id: string, input: TaskUpdateInput) => void window.eyeProtect.updateTask(id, input), []);
-  const deleteTask = useCallback((id: string) => void window.eyeProtect.deleteTask(id).then(() => setSelectedTaskId((current) => current === id ? null : current)), []);
-  const changeStatus = useCallback((id: string, status: TaskStatus) => void window.eyeProtect.setTaskStatus(id, status), []);
-  const changePriority = useCallback((id: string, priority: TodoPriority) => void window.eyeProtect.updateTask(id, { priority }), []);
-  const createProject = useCallback((name: string) => {
-    const used = new Set(projects.map((project) => project.color).filter(Boolean));
-    const palette = ['#217a70', '#e67e22', '#c0392b', '#3498db', '#8e44ad', '#16a085'];
-    void window.eyeProtect.createProject({ name, color: palette.find((color) => !used.has(color)) ?? palette[0] });
-  }, [projects]);
-  const renameProject = useCallback((id: string, name: string) => void window.eyeProtect.updateProject(id, { name }), []);
-  const deleteProject = useCallback((id: string) => void window.eyeProtect.deleteProject(id).then(() => setSelectedProjectId((current) => current === id ? null : current)), []);
   const filtersClear = !search.trim() && priorityFilter === 'all' && contextFilter === 'all' && statusFilter === 'all';
   const canReorder = filtersClear && (selectedProjectId !== null || selectedView === 'inbox');
-  const moveTask = useCallback((taskId: string, beforeTaskId: string | null) => {
-    if (selectedProjectId) {
-      void window.eyeProtect.moveTask({ taskId, beforeTaskId, scope: { type: 'project', projectId: selectedProjectId } });
-    } else if (selectedView === 'inbox') {
-      void window.eyeProtect.moveTask({ taskId, beforeTaskId, scope: { type: 'inbox' } });
-    }
-  }, [selectedProjectId, selectedView]);
   const minutes = (value: number): string => `${Math.floor(value / 60_000)}m`;
   const eyeRemaining = Math.max(0, reminderStatus.nextEyeAt - now);
   const walkRemaining = Math.max(0, reminderStatus.nextWalkAt - now);
+  const failedDelivery = failedDeliveries[0] ?? null;
+  const locateFailedDelivery = useCallback((notice: FailedDeliveryNotice) => {
+    if (notice.source === 'standalone') {
+      setSection('reminders');
+      return;
+    }
+    setSection('tasks');
+    setSelectedView('today');
+    setSelectedProjectId(null);
+    if (tasks.some((task) => task.id === notice.sourceId)) setSelectedTaskId(notice.sourceId);
+  }, [tasks]);
 
   return (
     <main className="workbench-shell">
+      <AppHealthBanner health={health} />
       <header className="rhythm-strip">
         <strong>EyeProtect</strong>
         <span>👁 {minutes(eyeRemaining)}</span>
@@ -145,9 +161,15 @@ export default function WorkbenchView(): JSX.Element {
         <span>连续活跃 {minutes(work.continuousActiveMs)}</span>
         <span>当前任务 {activeTask ? minutes(work.taskActiveMs) : '—'}</span>
         {activeTask?.estimateMinutes ? <span>{Math.min(100, Math.round(work.taskActiveMs / (activeTask.estimateMinutes * 600)))}%</span> : null}
-        <button type="button" onClick={() => reminderStatus.pausedUntil ? void window.eyeProtect.resume() : void window.eyeProtect.pause(30)}>
-          {reminderStatus.pausedUntil ? '恢复提醒' : '暂停提醒'}
-        </button>
+        {reminderStatus.pausedUntil ? (
+          <CommandButton type="button" state={resume.state} errorReason={resume.error?.message} onClick={() => void resume.run()}>
+            恢复提醒
+          </CommandButton>
+        ) : (
+          <CommandButton type="button" state={pause.state} errorReason={pause.error?.message} onClick={() => void pause.run(30)}>
+            暂停提醒
+          </CommandButton>
+        )}
       </header>
       <aside className="workbench-sidebar">
         <div className="sidebar-brand"><span className="sidebar-brand-title">EyeProtect</span><span className="sidebar-brand-sub">工作台</span></div>
@@ -159,7 +181,12 @@ export default function WorkbenchView(): JSX.Element {
             </button>;
           })}
         </nav>
-        <ProjectList projects={projects} tasks={tasks} selectedProjectId={selectedProjectId} onSelect={selectProject} onCreate={createProject} onRename={renameProject} onDelete={deleteProject} />
+        <ProjectList
+          projects={projects}
+          tasks={tasks}
+          selectedProjectId={selectedProjectId}
+          onSelect={selectProject}
+        />
         <div className="sidebar-tools">
           <button type="button" className={`nav-item ${section === 'collection' ? 'is-active' : ''}`} onClick={() => setSection('collection')}><Gift size={15} /><span>公仔收藏</span></button>
           <button type="button" className={`nav-item ${section === 'reminders' ? 'is-active' : ''}`} onClick={() => setSection('reminders')}><Bell size={15} /><span>独立提醒</span></button>
@@ -193,14 +220,35 @@ export default function WorkbenchView(): JSX.Element {
           </div>
           <div className="workbench-main-body">
             <TaskComposer projects={projects} defaultProjectId={selectedProjectId} />
-            <TaskList tasks={filteredTasks} view={selectedView} projects={projects} now={now} selectedTaskId={selectedTaskId} onSelect={setSelectedTaskId} onStatusChange={changeStatus} onUpdate={updateTask} onDelete={deleteTask} onPriorityChange={changePriority} onMove={canReorder ? moveTask : undefined} />
+            <TaskList
+              tasks={filteredTasks}
+              view={selectedView}
+              projects={projects}
+              now={now}
+              selectedTaskId={selectedTaskId}
+              scopeProjectId={selectedProjectId}
+              onSelect={setSelectedTaskId}
+              onMove={canReorder ? (taskId, beforeTaskId) => {
+                void moveTaskCommand.run({
+                  taskId,
+                  beforeTaskId,
+                  scope: selectedProjectId ? { type: 'project', projectId: selectedProjectId } : { type: 'inbox' }
+                });
+              } : undefined}
+            />
           </div>
         </section>
         <aside className="workbench-detail">
           {selectedTask ? <TaskDetail key={selectedTask.id} task={selectedTask} tasks={tasks} projects={projects} active={selectedTask.id === activeTaskId} onDeleted={() => setSelectedTaskId(null)} /> : <div className="empty-state"><Sun size={28} /><p>选择任务查看详情，或新建一件开始。</p></div>}
         </aside>
       </> : null}
-      {undo ? <div className="undo-toast"><span>{undo.kind === 'delete' ? '已删除' : '已完成'}「{undo.taskTitle}」</span><button type="button" onClick={() => void window.eyeProtect.undoTaskOperation(undo.operationId)}>撤销</button></div> : null}
+      {undo ? <div className="undo-toast"><span>{undo.kind === 'delete' ? '已删除' : '已完成'}「{undo.taskTitle}」</span><CommandButton type="button" state={undoCommand.state} errorReason={undoCommand.error?.message} onClick={() => void undoCommand.run(undo.operationId)}>撤销</CommandButton></div> : null}
+      {failedDelivery ? <div className="delivery-failure-banner" role="alert">
+        <div><strong>有一条提醒未能送达{failedDeliveries.length > 1 ? `（${failedDeliveries.length} 条）` : ''}</strong><span>{failedDelivery.title} · {failedDelivery.body}</span></div>
+        <button type="button" onClick={() => locateFailedDelivery(failedDelivery)}>查看来源</button>
+        <CommandButton type="button" state={retryDelivery.state} errorReason={retryDelivery.error?.message} onClick={() => void retryDelivery.run(failedDelivery.id)}>重试</CommandButton>
+        <CommandButton type="button" state={dismissDelivery.state} errorReason={dismissDelivery.error?.message} onClick={() => void dismissDelivery.run(failedDelivery.id)}>忽略</CommandButton>
+      </div> : null}
     </main>
   );
 }

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   ActiveReminder,
+  AppHealth,
   CareStatus,
   CharacterCollectionState,
   HotkeyStatus,
@@ -12,6 +13,7 @@ import type {
   RuntimeInfo,
   Settings,
   StandaloneReminder,
+  FailedDeliveryNotice,
   Task,
   TaskWorkSummary,
   UndoState,
@@ -37,6 +39,8 @@ const BUBBLE_DESTROY_DELAY_MS = 30_000;
 const DISPLAY_CHANGE_DEBOUNCE_MS = 250;
 const forceEmergencySmoke =
   process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-emergency');
+const forcePetLoadFailure =
+  process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-pet-failure');
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
@@ -104,6 +108,7 @@ export class AppWindows {
   private alertLoading: Promise<boolean> | null = null;
   private dimWindows: BrowserWindow[] = [];
   private workbenchWindow: BrowserWindow | null = null;
+  private workbenchLoading: Promise<void> | null = null;
   private workbenchSection: 'today' | 'settings' | 'reminders' | 'collection' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
@@ -121,6 +126,9 @@ export class AppWindows {
   }
 
   async createPetWindow(): Promise<void> {
+    if (forcePetLoadFailure) {
+      throw new Error('fault injection: pet renderer load failure');
+    }
     if (this.petWindow && !this.petWindow.isDestroyed()) {
       return;
     }
@@ -175,6 +183,42 @@ export class AppWindows {
     this.refreshBubble();
   }
 
+  /**
+   * Best-effort pet-window creation with bounded retries. A failure here must
+   * never crash startup: the scheduler, tray and delivery queue are independent
+   * of the pet renderer, so we catch, log and retry a few times, then move on.
+   * On any failure we drop a half-created window so the next attempt (or a later
+   * "Reload pet" call) starts clean instead of reusing a broken WebContents.
+   */
+  async loadPetWindowBestEffort(maxAttempts = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.createPetWindow();
+        return;
+      } catch (error) {
+        console.error(`[windows] pet window creation failed (attempt ${attempt}/${maxAttempts}):`, error);
+        this.resetBrokenPetWindow();
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+        }
+      }
+    }
+    console.error('[windows] giving up on pet window after startup retries; the app keeps running without it');
+  }
+
+  /** Destroy and clear a half-created/broken pet window so a retry starts clean. */
+  private resetBrokenPetWindow(): void {
+    if (this.petWindow && !this.petWindow.isDestroyed()) {
+      this.petWindow.destroy();
+    }
+    this.petWindow = null;
+  }
+
+  /** True when the pet window is present and live (used to guard pet-only UI). */
+  isPetWindowAlive(): boolean {
+    return Boolean(this.petWindow) && !this.petWindow!.isDestroyed();
+  }
+
   togglePetVisibility(): boolean {
     this.petTemporarilyHidden = !this.petTemporarilyHidden;
     if (this.petTemporarilyHidden) {
@@ -197,6 +241,18 @@ export class AppWindows {
   showWorkbenchWindow(section: 'today' | 'settings' | 'reminders' | 'collection' = 'today'): void {
     this.workbenchSection = section;
     if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      // A window already exists: if its renderer is mid-load, let that load
+      // finish instead of creating a second window for the same surface.
+      if (this.workbenchLoading) {
+        void this.workbenchLoading.then(() => {
+          if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+            this.workbenchWindow.show();
+            this.workbenchWindow.focus();
+            this.workbenchWindow.webContents.send('workbench:navigate', this.workbenchSection);
+          }
+        });
+        return;
+      }
       this.workbenchWindow.show();
       this.workbenchWindow.focus();
       this.workbenchWindow.webContents.send('workbench:navigate', section);
@@ -207,7 +263,7 @@ export class AppWindows {
     const initialWidth = Math.max(960, Math.min(1280, Math.round(width * 0.7)));
     const initialHeight = Math.max(600, Math.min(800, Math.round(height * 0.75)));
 
-    this.workbenchWindow = new BrowserWindow({
+    const window = new BrowserWindow({
       width: initialWidth,
       height: initialHeight,
       minWidth: 880,
@@ -223,17 +279,41 @@ export class AppWindows {
         sandbox: true
       }
     });
+    this.workbenchWindow = window;
 
-    this.workbenchWindow.on('closed', () => {
-      this.workbenchWindow = null;
+    window.on('closed', () => {
+      if (this.workbenchWindow === window) {
+        this.workbenchWindow = null;
+      }
     });
 
-    this.workbenchWindow.webContents.once('did-finish-load', () => {
-      this.workbenchWindow?.webContents.send('workbench:navigate', section);
-      this.workbenchWindow?.show();
-      this.workbenchWindow?.focus();
+    window.webContents.once('did-finish-load', () => {
+      if (this.workbenchWindow !== window || window.isDestroyed()) return;
+      window.webContents.send('workbench:navigate', this.workbenchSection);
+      window.show();
+      window.focus();
     });
-    void loadRenderer(this.workbenchWindow, 'workbench');
+    // A failed load would otherwise leave a blank window that every later
+    // showWorkbenchWindow() re-surfaces; destroy + null it so the next call
+    // recreates a healthy window.
+    window.webContents.once('did-fail-load', () => {
+      console.error('[windows] workbench renderer failed to load; resetting window');
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+      if (this.workbenchWindow === window) {
+        this.workbenchWindow = null;
+      }
+    });
+    this.workbenchLoading = loadRenderer(window, 'workbench')
+      .catch((error) => {
+        console.error('[windows] workbench load rejected:', error);
+        if (!window.isDestroyed()) window.destroy();
+        if (this.workbenchWindow === window) this.workbenchWindow = null;
+      })
+      .finally(() => {
+        this.workbenchLoading = null;
+      });
   }
 
   closeWorkbenchWindow(): void {
@@ -429,6 +509,15 @@ export class AppWindows {
     this.sendTo([this.workbenchWindow, this.petWindow], 'settings:changed', settings);
   }
 
+  /**
+   * AppHealth (USERPLAN §二十八) — the workbench renders a banner when the
+   * database or notification subsystem is degraded, so the user always knows
+   * why a mutation failed instead of seeing a silently broken button.
+   */
+  broadcastAppHealth(health: AppHealth): void {
+    this.sendTo([this.workbenchWindow, this.petWindow], 'app:health:changed', health);
+  }
+
   broadcastReminderStatus(status: ReminderStatus): void {
     // The pet only needs reminder status for its first-class double-click
     // shortcut in gentle mode; alert/settings/bubble render the visible state.
@@ -446,6 +535,10 @@ export class AppWindows {
 
   broadcastStandaloneReminderFired(reminder: StandaloneReminder): void {
     this.sendTo([this.workbenchWindow], 'standalone-reminder:fired', reminder);
+  }
+
+  broadcastFailedDeliveries(notices: FailedDeliveryNotice[]): void {
+    this.sendTo([this.workbenchWindow], 'delivery:failed-changed', notices);
   }
 
   broadcastCharacterCollection(state: CharacterCollectionState): void {
@@ -671,6 +764,15 @@ export class AppWindows {
       }
     }
     this.dimWindows = [];
+  }
+
+  /**
+   * Tear down the dim overlays on demand (no-op when none exist). Used by the
+   * reminder surface's fail-open path: when no actionable surface can be shown,
+   * the dim masks must not be left up alone. Best-effort; never throws.
+   */
+  destroyDimMasks(): void {
+    this.destroyDimWindows();
   }
 
   private getIdlePetSize(settings: Settings): { width: number; height: number } {

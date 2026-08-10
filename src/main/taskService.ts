@@ -66,17 +66,27 @@ export class TaskService extends EventEmitter {
   }
 
   updateTask(id: string, input: TaskUpdateInput, now: number = Date.now()): Task[] {
-    const before = this.store.getTask(id);
-    const { status, ...fields } = input;
-    this.store.updateTask(id, fields, now);
-    const updated = this.store.getTask(id);
-    if (status !== undefined && updated && status !== before?.status) {
-      this.store.setTaskStatus(id, status, now);
-      if (status === 'done' && updated.recurrence) {
-        this.rolloverRecurrence(updated, now);
+    let undoOperation: UndoState | null = null;
+    this.store.runInTransaction(() => {
+      const before = this.store.getTask(id);
+      const beforeIds = new Set(this.store.getTasks().map((entry) => entry.id));
+      const previousActive = this.store.getActiveTaskId();
+      const { status, ...fields } = input;
+      this.store.updateTask(id, fields, now);
+      const updated = this.store.getTask(id);
+      if (status !== undefined && updated && status !== before?.status) {
+        this.store.setTaskStatus(id, status, now);
+        if (status === 'done' && updated.recurrence) {
+          this.rolloverRecurrence(updated, now);
+        }
+        if (status === 'done' && before) {
+          const generated = this.store.getTasks().filter((entry) => !beforeIds.has(entry.id)).map((entry) => entry.id);
+          undoOperation = this.store.createUndoOperation('complete', before.title, [before], generated, previousActive, now);
+        }
+        this.emit('active-task-changed', this.store.getActiveTaskId());
       }
-      this.emit('active-task-changed', this.store.getActiveTaskId());
-    }
+    });
+    if (undoOperation) this.emit('undo-changed', undoOperation);
     this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
@@ -94,18 +104,26 @@ export class TaskService extends EventEmitter {
       return this.store.getTasks();
     }
 
-    const beforeIds = new Set(this.store.getTasks().map((entry) => entry.id));
-    const previousActive = this.store.getActiveTaskId();
-    this.store.setTaskStatus(id, status, now);
+    let undoOperation: UndoState | null = null;
+    this.store.runInTransaction(() => {
+      const wasDone = task.status === 'done';
+      const beforeIds = new Set(this.store.getTasks().map((entry) => entry.id));
+      const previousActive = this.store.getActiveTaskId();
+      this.store.setTaskStatus(id, status, now);
 
-    if (status === 'done' && task.recurrence) {
-      this.rolloverRecurrence(task, now);
-    }
-    if (status === 'done' && task.status !== 'done') {
-      const generated = this.store.getTasks().filter((entry) => !beforeIds.has(entry.id)).map((entry) => entry.id);
-      const operation = this.store.createUndoOperation('complete', task.title, [task], generated, previousActive, now);
-      this.emit('undo-changed', operation);
-    }
+      // Rollover fires exactly once on the non-done -> done transition edge. A
+      // done -> done re-trigger (double-click, IPC retry, stale UI) must not
+      // spawn a duplicate next occurrence.
+      if (status === 'done' && !wasDone && task.recurrence) {
+        this.rolloverRecurrence(task, now);
+      }
+      if (status === 'done' && !wasDone) {
+        const generated = this.store.getTasks().filter((entry) => !beforeIds.has(entry.id)).map((entry) => entry.id);
+        undoOperation = this.store.createUndoOperation('complete', task.title, [task], generated, previousActive, now);
+      }
+    });
+
+    if (undoOperation) this.emit('undo-changed', undoOperation);
 
     this.emit('active-task-changed', this.store.getActiveTaskId());
     this.emit('tasks-changed', this.store.getTasks());
@@ -204,6 +222,12 @@ export class TaskService extends EventEmitter {
       // Rule cannot produce a future occurrence (e.g. weekly with no weekdays).
       return;
     }
+    // Database-backed claim is the final exactly-once defense. It is made
+    // inside the same transaction as status, generated tree and undo record,
+    // so a crash cannot leave either half committed.
+    if (!this.store.claimRecurrenceRollover(task.id, nextFire, now)) {
+      return;
+    }
 
     const delta = nextFire - anchor;
     const hasScheduledField =
@@ -262,10 +286,15 @@ export class TaskService extends EventEmitter {
   private descendantsOf(parentId: string): Task[] {
     const tasks = this.store.getTasks();
     const result: Task[] = [];
+    // Defense-in-depth: a cyclic parent graph (which normalizeRelations and the
+    // cycle guards should prevent) must not cause infinite traversal.
+    const visited = new Set<string>();
     let frontier = tasks.filter((task) => task.parentId === parentId);
     while (frontier.length > 0) {
       const next: Task[] = [];
       for (const task of frontier.sort((a, b) => a.sortOrder - b.sortOrder)) {
+        if (visited.has(task.id)) continue;
+        visited.add(task.id);
         result.push(task);
         next.push(...tasks.filter((candidate) => candidate.parentId === task.id));
       }

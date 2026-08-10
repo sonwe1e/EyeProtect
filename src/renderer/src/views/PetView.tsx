@@ -6,6 +6,7 @@ import { useCareStatus } from '../hooks/useCareStatus';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useTasks } from '../hooks/useTasks';
 import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
+import { commands } from '../lib/commands';
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
@@ -26,7 +27,7 @@ export default function PetView(): JSX.Element {
     }
     const active = reminderStatus.activeReminder;
     if (active?.mode === 'gentle') {
-      void window.eyeProtect.reminderAction('complete', active.id);
+      void commands.reminderActions.act('complete', active.id);
       return;
     }
     void window.eyeProtect.openWorkbench('today');

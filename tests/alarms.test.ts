@@ -320,6 +320,30 @@ test('kernel path: reconcile after a wall-clock jump fires a missed alarm', () =
   assert.equal(fired.length, 1, 'missed alarm fires on reconcile after a jump');
 });
 
+test('kernel path: an unrelated reconcile before today alarm does not fire yesterday occurrence', () => {
+  const clock = makeClock();
+  const kernel = new SchedulerKernel({
+    clock: { now: clock.now, monotonic: clock.monotonic },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const alarmClock = new AlarmClock({ now: clock.now, kernel });
+  kernel.start();
+  const future = new Date(BASE_TS + 60 * 60_000);
+  alarmClock.setAlarm({
+    hour: future.getHours(),
+    minute: future.getMinutes(),
+    repeat: 'daily',
+    enabled: true
+  });
+  let fired = 0;
+  alarmClock.on('fired', () => { fired += 1; });
+
+  alarmClock.reconcile(BASE_TS);
+  assert.equal(fired, 0, 'reconcile does not synthesize a missed alarm from yesterday');
+  alarmClock.dispose();
+  kernel.stop();
+});
+
 test('kernel path: nearest deadline is reported when alarms share the queue', () => {
   const clock = makeClock();
   const kernel = new SchedulerKernel({

@@ -14,6 +14,7 @@
     "smoke:running": "node scripts/smoke-running-app.mjs",
     "smoke:experience": "node scripts/smoke-reminder-experience.mjs",
     "smoke:emergency": "node scripts/smoke-emergency-reminder.mjs",
+    "smoke:pet-failure": "node scripts/smoke-pet-failure.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "start": "electron-vite preview",

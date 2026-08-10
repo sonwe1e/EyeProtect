@@ -85,6 +85,23 @@ jobs:
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Smoke test pet renderer startup isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $smokeData = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-failure-smoke-data'
+          New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
+          $env:EYEPROTECT_DATA_DIR = $smokeData
+          $env:EYEPROTECT_SMOKE = '1'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9335', '--eyeprotect-smoke-pet-failure' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:pet-failure -- 9335
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:

@@ -214,6 +214,38 @@ test('a recurring task planned/due dates shift with the reminder', () => {
   });
 });
 
+test('setTaskStatus done->done does not spawn a duplicate recurring instance', () => {
+  withService((service) => {
+    const rule: RecurrenceRule = { type: 'daily', interval: 1 };
+    const [task] = service.createTask({ title: '每日回顾', reminderAt: NOW, recurrence: rule }, NOW);
+
+    // First completion spawns exactly one next occurrence.
+    const first = service.setTaskStatus(task.id, 'done', NOW + 1000);
+    assert.equal(first.length, 2, 'original + one new instance');
+
+    // The original is now done. A second done on the SAME done task must not
+    // spawn again (guards the double-click / IPC retry / stale UI edge).
+    const doneTask = service.getTask(task.id)!;
+    assert.equal(doneTask.status, 'done');
+    const second = service.setTaskStatus(task.id, 'done', NOW + 2000);
+    assert.equal(second.length, 2, 'no additional instance on done->done');
+  });
+});
+
+test('updateTask done->done also spawns exactly one recurring instance', () => {
+  withService((service) => {
+    const rule: RecurrenceRule = { type: 'daily', interval: 1 };
+    const [task] = service.createTask({ title: '每日回顾', reminderAt: NOW, recurrence: rule }, NOW);
+
+    service.updateTask(task.id, { status: 'done' }, NOW + 1000);
+    assert.equal(service.getTasks().length, 2, 'one rollover after first completion');
+
+    // Re-asserting done on the already-done task must not spawn again.
+    service.updateTask(task.id, { status: 'done' }, NOW + 2000);
+    assert.equal(service.getTasks().length, 2, 'no duplicate on repeated done');
+  });
+});
+
 test('completing a non-recurring task does not spawn a new instance', () => {
   withService((service) => {
     const [task] = service.createTask({ title: 'one-off' }, NOW);
@@ -302,6 +334,34 @@ test('completion undo removes its generated recurring tree', () => {
     const restored = service.getTasks();
     assert.equal(restored.length, 2);
     assert.equal(restored.find((task) => task.id === parent.id)?.status, 'open');
+
+    service.setTaskStatus(parent.id, 'done', NOW + 3_000);
+    assert.equal(service.getTasks().length, 4, 'undo releases the rollover claim for a later real completion');
+  });
+});
+
+test('recurrence generation failure rolls back status, generated tree and undo atomically', () => {
+  withService((service, store) => {
+    const [parent] = service.createTask({
+      title: 'Atomic recurring parent',
+      plannedAt: NOW,
+      recurrence: { type: 'daily', interval: 1 }
+    }, NOW);
+    store.createTask({ title: 'Child', parentId: parent.id }, NOW);
+
+    const originalCreate = store.createTask.bind(store);
+    let generatedCalls = 0;
+    store.createTask = ((input, now) => {
+      generatedCalls += 1;
+      if (generatedCalls === 2) throw new Error('injected descendant clone failure');
+      return originalCreate(input, now);
+    }) as TaskStore['createTask'];
+
+    assert.throws(() => service.setTaskStatus(parent.id, 'done', NOW + 1_000), /injected descendant/);
+    const after = service.getTasks();
+    assert.equal(after.length, 2, 'no partial generated root survives');
+    assert.equal(service.getTask(parent.id)?.status, 'open', 'source completion rolls back');
+    assert.equal(service.getUndoState(NOW + 2_000), null, 'undo record rolls back with the transition');
   });
 });
 
@@ -321,6 +381,25 @@ test('manual movement atomically reorders only the selected inbox scope', () => 
     const inbox = moved.filter((task) => task.projectId === null).sort((a, b) => a.sortOrder - b.sortOrder);
     assert.deepEqual(inbox.map((task) => task.title), ['Second', 'First']);
     assert.equal(moved.find((task) => task.projectId === project.id)?.sortOrder, projectTask.sortOrder);
+  });
+});
+
+test('manual movement is restricted to siblings and cannot cross a parent boundary', () => {
+  withService((service, store) => {
+    const [rootA] = service.createTask({ title: 'Root A' }, NOW);
+    const rootB = service.createTask({ title: 'Root B' }, NOW + 1).find((task) => task.title === 'Root B')!;
+    const childA = store.createTask({ title: 'Child A', parentId: rootA.id }, NOW + 2);
+    const childB = store.createTask({ title: 'Child B', parentId: rootA.id }, NOW + 3);
+
+    service.moveTask({ taskId: childB.id, beforeTaskId: childA.id, scope: { type: 'inbox' } }, NOW + 4);
+    let tasks = service.getTasks();
+    const children = tasks.filter((task) => task.parentId === rootA.id).sort((a, b) => a.sortOrder - b.sortOrder);
+    assert.deepEqual(children.map((task) => task.title), ['Child B', 'Child A']);
+
+    const beforeCrossParent = tasks.map((task) => [task.id, task.sortOrder]);
+    service.moveTask({ taskId: childB.id, beforeTaskId: rootB.id, scope: { type: 'inbox' } }, NOW + 5);
+    tasks = service.getTasks();
+    assert.deepEqual(tasks.map((task) => [task.id, task.sortOrder]), beforeCrossParent, 'cross-parent drop is rejected');
   });
 });
 
