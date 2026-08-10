@@ -37,7 +37,8 @@ import type {
   TaskInput,
   TaskMoveInput,
   TaskStatus,
-  TaskUpdateInput
+  TaskUpdateInput,
+  TimeBlockInput
 } from '../shared/types';
 import type { Project } from '../shared/types';
 import { DEFAULT_SETTINGS, isLocalDateKey, sanitizeStandaloneReminderSchedule } from '../shared/types';
@@ -737,6 +738,12 @@ app.whenReady().then(async () => {
   taskService.on('project-removed', (projectId: string) => {
     windows.broadcastProjectRemoved(projectId);
   });
+  taskService.on('time-blocks-changed', () => {
+    windows.broadcastToWorkbench('timeblock:changed', null);
+  });
+  taskService.on('daily-plans-changed', (payload: { localDate: string | null }) => {
+    windows.broadcastToWorkbench('plan:changed', payload);
+  });
   taskService.on('active-task-changed', (id: string | null) => {
     taskWorkTracker.setActiveTask(id);
     windows.broadcastActiveTask(id);
@@ -1260,6 +1267,62 @@ app.whenReady().then(async () => {
       }
       return taskStore.removeDailyPlan(asString(taskId), localDate);
     })
+  );
+
+  // ── TimeBlock domain (USERPLAN 1.2 PR4) ──────────────────────────────
+  // Blocks are real scheduled intervals: end must be after start, the task
+  // must exist, and a task may own N blocks (ADR-001).
+  const asTimeBlockInput = (value: unknown): TimeBlockInput => {
+    if (!value || typeof value !== 'object') {
+      throw new Error('无效的时间块输入');
+    }
+    const candidate = value as Partial<TimeBlockInput>;
+    if (
+      typeof candidate.taskId !== 'string' ||
+      !candidate.taskId ||
+      typeof candidate.startAt !== 'number' ||
+      !Number.isFinite(candidate.startAt) ||
+      typeof candidate.endAt !== 'number' ||
+      !Number.isFinite(candidate.endAt)
+    ) {
+      throw new Error('无效的时间块输入');
+    }
+    return {
+      taskId: candidate.taskId,
+      startAt: candidate.startAt,
+      endAt: candidate.endAt,
+      timeZone: typeof candidate.timeZone === 'string' ? candidate.timeZone : undefined,
+      source: candidate.source === 'planner' ? 'planner' : 'manual'
+    };
+  };
+  const asTimeBlockUpdate = (value: unknown): Partial<TimeBlockInput> => {
+    if (!value || typeof value !== 'object') {
+      return {};
+    }
+    const candidate = value as Partial<TimeBlockInput>;
+    const input: Partial<TimeBlockInput> = {};
+    if (typeof candidate.taskId === 'string' && candidate.taskId) input.taskId = candidate.taskId;
+    if (typeof candidate.startAt === 'number' && Number.isFinite(candidate.startAt)) input.startAt = candidate.startAt;
+    if (typeof candidate.endAt === 'number' && Number.isFinite(candidate.endAt)) input.endAt = candidate.endAt;
+    if (typeof candidate.timeZone === 'string') input.timeZone = candidate.timeZone;
+    if (candidate.source === 'planner' || candidate.source === 'manual') input.source = candidate.source;
+    return input;
+  };
+  handleIpc('timeblock:list', () => taskStore.getTimeBlocks());
+  handleIpc('timeblock:create', (input) =>
+    requireWritableTaskDatabase(() => taskStore.createTimeBlock(asTimeBlockInput(input)))
+  );
+  handleIpc('timeblock:update', (id, input) =>
+    requireWritableTaskDatabase(() => {
+      const result = taskStore.updateTimeBlock(asString(id), asTimeBlockUpdate(input));
+      if (!result) {
+        throw new Error('时间块不存在');
+      }
+      return result;
+    })
+  );
+  handleIpc('timeblock:delete', (id) =>
+    requireWritableTaskDatabase(() => taskStore.deleteTimeBlock(asString(id)))
   );
   handleIpc('window:workbench:open', (section) =>
     windows.showWorkbenchWindow(

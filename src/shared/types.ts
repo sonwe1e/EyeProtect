@@ -450,6 +450,13 @@ export interface Settings {
    * flagged as overcommitment instead of being silently accepted.
    */
   dailyCapacityMinutes: number;
+  /**
+   * Plan timeline working window (USERPLAN 1.2 §十二): local minute-of-day
+   * bounds. The timeline extends past them when blocks live outside — tasks
+   * are never silently clamped into the window.
+   */
+  workStartMinutes: number;
+  workEndMinutes: number;
   /** How reminders enforce themselves; see ReminderMode. */
   reminderMode: ReminderMode;
   /** Soft bubble this many seconds before each deadline; 0 turns it off. */
@@ -766,6 +773,15 @@ export interface EyeProtectApi {
   getDailyPlans: (localDate: string) => Promise<DailyTaskPlan[]>;
   upsertDailyPlan: (input: DailyTaskPlanInput) => Promise<DailyTaskPlan[]>;
   removeDailyPlan: (taskId: string, localDate: string) => Promise<DailyTaskPlan[]>;
+  /** TimeBlock CRUD (USERPLAN 1.2 PR4). A task may own N blocks. */
+  getTimeBlocks: () => Promise<TimeBlock[]>;
+  createTimeBlock: (input: TimeBlockInput) => Promise<TimeBlock>;
+  updateTimeBlock: (id: string, input: Partial<TimeBlockInput>) => Promise<TimeBlock>;
+  deleteTimeBlock: (id: string) => Promise<boolean>;
+  /** Planning-domain change signals (USERPLAN 1.2 PR4): `localDate === null`
+   *  means every date may have changed. */
+  onTimeBlocksChanged: (callback: () => void) => () => void;
+  onDailyPlansChanged: (callback: (payload: { localDate: string | null }) => void) => () => void;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
@@ -828,6 +844,8 @@ export const DEFAULT_SETTINGS: Settings = {
   snoozeMinutes: 5,
   naturalBreakMinutes: 5,
   dailyCapacityMinutes: 360,
+  workStartMinutes: 7 * 60,
+  workEndMinutes: 21 * 60,
   reminderMode: 'guided',
   preAlertSeconds: 30,
   startWithWindows: false,
@@ -857,6 +875,8 @@ export const SETTINGS_LIMITS = {
   snoozeMinutes: { min: 1, max: 60 },
   naturalBreakMinutes: { min: 1, max: 30 },
   dailyCapacityMinutes: { min: 60, max: 960 },
+  workStartMinutes: { min: 0, max: 23 * 60 + 59 },
+  workEndMinutes: { min: 1, max: 24 * 60 },
   preAlertSeconds: PRE_ALERT_LIMIT,
   petScale: { min: 0.7, max: 1.8 },
   minuteOfDay: { min: 0, max: 24 * 60 - 1 }
@@ -1598,12 +1618,16 @@ const isActiveStatus = (status: TaskStatus): boolean => status === 'open';
 export const matchesProjectView = (task: Task, projectId: string): boolean =>
   task.projectId === projectId && isActiveStatus(task.status);
 
-/** Predicates a task matches a view. `now` injectable for deterministic tests. */
+/** Predicates a task matches a view. `now` injectable for deterministic tests.
+ * `scheduledTodayIds` (USERPLAN 1.2 PR4): tasks owning a TimeBlock that starts
+ * today count as today's work — the block, not `plannedAt`, is the schedule
+ * fact (ADR-001). */
 export const matchesTaskView = (
   task: Task,
   view: TaskView,
   now: number = Date.now(),
-  activeTaskId: string | null = null
+  activeTaskId: string | null = null,
+  scheduledTodayIds?: ReadonlySet<string>
 ): boolean => {
   switch (view) {
     case 'inbox':
@@ -1616,7 +1640,8 @@ export const matchesTaskView = (
       const todayEnd = endOfDay(now);
       const planned = task.plannedAt !== null && task.plannedAt <= todayEnd;
       const due = task.dueAt !== null && task.dueAt <= todayEnd;
-      return planned || due || task.id === activeTaskId;
+      const blocked = scheduledTodayIds?.has(task.id) ?? false;
+      return planned || due || blocked || task.id === activeTaskId;
     }
     case 'upcoming': {
       if (!isActiveStatus(task.status)) {

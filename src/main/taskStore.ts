@@ -1466,11 +1466,13 @@ export class TaskStore extends EventEmitter {
         `).run(plan.taskId, plan.localDate, plan.plannedMinutes, plan.dailyRank, plan.sortOrder, now, now);
       }
     });
+    this.emit('daily-plans-changed', { localDate: plan.localDate });
     return this.getDailyPlans(plan.localDate);
   }
 
   removeDailyPlan(taskId: string, localDate: string, now: number = Date.now()): DailyTaskPlan[] {
     this.db.prepare('DELETE FROM daily_task_plans WHERE task_id = ? AND local_date = ?').run(taskId, localDate);
+    this.emit('daily-plans-changed', { localDate });
     return this.getDailyPlans(localDate);
   }
 
@@ -1493,6 +1495,7 @@ export class TaskStore extends EventEmitter {
         insert.run(plan.taskId, plan.localDate, plan.plannedMinutes, rank, plan.sortOrder, plan.createdAt, plan.updatedAt);
       }
     });
+    this.emit('daily-plans-changed', { localDate: null });
     return this.getAllDailyTaskPlans();
   }
 
@@ -1532,6 +1535,7 @@ export class TaskStore extends EventEmitter {
       INSERT INTO time_blocks(id, task_id, start_at, end_at, time_zone, source, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(block.id, block.taskId, block.startAt, block.endAt, block.timeZone, block.source, block.createdAt, block.updatedAt);
+    this.emit('time-blocks-changed');
     return block;
   }
 
@@ -1548,12 +1552,17 @@ export class TaskStore extends EventEmitter {
       UPDATE time_blocks SET task_id = ?, start_at = ?, end_at = ?, time_zone = ?, source = ?, updated_at = ?
       WHERE id = ?
     `).run(next.taskId, next.startAt, next.endAt, next.timeZone, next.source, now, id);
+    this.emit('time-blocks-changed');
     return this.getTimeBlocks().find((block) => block.id === id) ?? null;
   }
 
   deleteTimeBlock(id: string, _now: number = Date.now()): boolean {
     const result = this.db.prepare('DELETE FROM time_blocks WHERE id = ?').run(id);
-    return Number(result.changes) === 1;
+    if (Number(result.changes) === 1) {
+      this.emit('time-blocks-changed');
+      return true;
+    }
+    return false;
   }
 
   replaceAllTimeBlocks(blocks: TimeBlock[], now: number = Date.now()): TimeBlock[] {
@@ -1569,6 +1578,7 @@ export class TaskStore extends EventEmitter {
         insert.run(block.id, block.taskId, block.startAt, block.endAt, block.timeZone, block.source, block.createdAt, block.updatedAt);
       }
     });
+    this.emit('time-blocks-changed');
     return this.getTimeBlocks();
   }
 

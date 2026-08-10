@@ -29,6 +29,8 @@ import type {
   TaskMoveInput,
   TaskStatus,
   TaskWorkSummary,
+  TimeBlock,
+  TimeBlockInput,
   UndoState,
   TaskUpdateInput,
   WeeklyReport
@@ -90,6 +92,14 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('plan:upsert', input) as Promise<DailyTaskPlan[]>,
   removeDailyPlan: (taskId: string, localDate: string) =>
     ipcRenderer.invoke('plan:remove', taskId, localDate) as Promise<DailyTaskPlan[]>,
+  getTimeBlocks: () => ipcRenderer.invoke('timeblock:list') as Promise<TimeBlock[]>,
+  createTimeBlock: (input: TimeBlockInput) =>
+    ipcRenderer.invoke('timeblock:create', input) as Promise<TimeBlock>,
+  updateTimeBlock: (id: string, input: Partial<TimeBlockInput>) =>
+    ipcRenderer.invoke('timeblock:update', id, input) as Promise<TimeBlock>,
+  deleteTimeBlock: (id: string) => ipcRenderer.invoke('timeblock:delete', id) as Promise<boolean>,
+  onTimeBlocksChanged: (callback) => on<null>('timeblock:changed', callback),
+  onDailyPlansChanged: (callback) => on<{ localDate: string | null }>('plan:changed', callback),
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),

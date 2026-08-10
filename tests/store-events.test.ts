@@ -195,6 +195,19 @@ test('activity threshold, theme and density use bounded supported values', () =>
   assert.equal(sanitizeSettings({ dailyCapacityMinutes: 12 }).dailyCapacityMinutes, 60);
   assert.equal(sanitizeSettings({ dailyCapacityMinutes: 5000 }).dailyCapacityMinutes, 960);
   assert.equal(sanitizeSettings({ dailyCapacityMinutes: 'lots' }).dailyCapacityMinutes, 360);
+  // Working window: bounded, and an inverted window falls back as a whole.
+  assert.equal(defaults.workStartMinutes, 7 * 60);
+  assert.equal(defaults.workEndMinutes, 21 * 60);
+  const shifted = sanitizeSettings({ workStartMinutes: 10 * 60, workEndMinutes: 22 * 60 });
+  assert.equal(shifted.workStartMinutes, 10 * 60);
+  assert.equal(shifted.workEndMinutes, 22 * 60);
+  const inverted = sanitizeSettings({ workStartMinutes: 22 * 60, workEndMinutes: 8 * 60 });
+  assert.equal(inverted.workStartMinutes, 7 * 60);
+  assert.equal(inverted.workEndMinutes, 21 * 60);
+  const clamped = sanitizeSettings({ workStartMinutes: -50, workEndMinutes: 4000 });
+  assert.ok(clamped.workStartMinutes >= 0);
+  assert.ok(clamped.workEndMinutes <= 24 * 60);
+  assert.ok(clamped.workStartMinutes < clamped.workEndMinutes);
   assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).theme, 'dark');
   assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).density, 'compact');
   assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).theme, 'system');

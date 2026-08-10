@@ -32,11 +32,15 @@ export const useDailyPlans = (
   useEffect(() => {
     const cancel = refresh();
     const offBulk = window.eyeProtect.onTasksChanged(() => refresh());
+    const offPlans = window.eyeProtect.onDailyPlansChanged((payload) => {
+      if (!payload.localDate || payload.localDate === localDate) refresh();
+    });
     return () => {
       cancel();
       offBulk();
+      offPlans();
     };
-  }, [refresh]);
+  }, [refresh, localDate]);
 
   return { plans, setPlans, refresh };
 };

@@ -31,6 +31,8 @@ import type {
   TaskMoveInput,
   TaskStatus,
   TaskUpdateInput,
+  TimeBlock,
+  TimeBlockInput,
   WeeklyReport
 } from '../../../shared/types';
 import { toCommandResult } from '../../../shared/types';
@@ -78,6 +80,16 @@ export const commands = {
       run<DailyTaskPlan[]>(() => window.eyeProtect.upsertDailyPlan(input)),
     remove: (taskId: string, localDate: string) =>
       run<DailyTaskPlan[]>(() => window.eyeProtect.removeDailyPlan(taskId, localDate))
+  },
+
+  // ── TimeBlocks (USERPLAN 1.2 PR4) ──────────────────────────────────────
+  timeBlocks: {
+    create: (input: TimeBlockInput) =>
+      run<TimeBlock>(() => window.eyeProtect.createTimeBlock(input)),
+    update: (id: string, input: Partial<TimeBlockInput>) =>
+      run<TimeBlock>(() => window.eyeProtect.updateTimeBlock(id, input)),
+    remove: (id: string) =>
+      run<boolean>(() => window.eyeProtect.deleteTimeBlock(id))
   },
 
   // ── Characters ─────────────────────────────────────────────────────────────

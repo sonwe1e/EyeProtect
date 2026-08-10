@@ -35,6 +35,10 @@ export class TaskService extends EventEmitter {
     store.on('project-removed', (id: string) => this.emit('project-removed', id));
     store.on('tasks-replaced', (tasks: Task[]) => this.emit('tasks-replaced', tasks));
     store.on('projects-replaced', (projects: Project[]) => this.emit('projects-replaced', projects));
+    store.on('time-blocks-changed', () => this.emit('time-blocks-changed'));
+    store.on('daily-plans-changed', (payload: { localDate: string | null }) =>
+      this.emit('daily-plans-changed', payload)
+    );
   }
 
   // ── Read pass-throughs ─────────────────────────────────────────────────────

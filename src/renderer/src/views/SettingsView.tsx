@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   BrainCircuit,
+  CalendarDays,
   Clock3,
   Compass,
   DatabaseBackup,
@@ -380,6 +381,36 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           icon={<Clock3 size={18} />}
           onCommit={(value) => void update({ dailyCapacityMinutes: value })}
         />
+        <div className="quiet-time-row">
+          <CalendarDays size={17} />
+          <span>计划时间线工作时段</span>
+          <label>
+            从
+            <input
+              type="time"
+              value={timeValue(settings.workStartMinutes)}
+              onChange={(event) => {
+                const value = parseTimeValue(event.currentTarget.value);
+                if (value !== null) {
+                  void update({ workStartMinutes: value });
+                }
+              }}
+            />
+          </label>
+          <span>到</span>
+          <label>
+            <input
+              type="time"
+              value={timeValue(settings.workEndMinutes)}
+              onChange={(event) => {
+                const value = parseTimeValue(event.currentTarget.value);
+                if (value !== null) {
+                  void update({ workEndMinutes: value });
+                }
+              }}
+            />
+          </label>
+        </div>
         <NumberField
           label="提前预告"
           value={settings.preAlertSeconds}

@@ -344,7 +344,15 @@ for (const [label, file, ready] of [
     })()`);
     if (!resizePoints) throw new Error('Plan resize handle was not available');
     await dragPointer(workbench, resizePoints.from, resizePoints.to);
-    await waitFor(workbench, `(async () => (await window.eyeProtect.getTasks()).some((task) => task.title === '安排明天的研究计划' && task.estimateMinutes === 75))()`);
+    // PR4 semantics: resizing changes the TimeBlock interval, never the task's
+    // estimate. The 45-minute dropped block grows by one 30px (30m) step.
+    await waitFor(workbench, `(async () => {
+      const tasks = await window.eyeProtect.getTasks();
+      const target = tasks.find((task) => task.title === '安排明天的研究计划');
+      if (!target) return false;
+      const blocks = await window.eyeProtect.getTimeBlocks();
+      return blocks.some((block) => block.taskId === target.id && Math.round((block.endAt - block.startAt) / 60000) === 75);
+    })()`);
     await capture(workbench, 'plan-interaction-dark.png');
   }
 }

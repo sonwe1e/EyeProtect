@@ -1050,6 +1050,11 @@ export class AppWindows {
     this.sendTo([this.workbenchWindow], 'project:removed', projectId);
   }
 
+  /** Generic workbench-only push for planning-domain change signals. */
+  broadcastToWorkbench(channel: string, payload: unknown): void {
+    this.sendTo([this.workbenchWindow], channel, payload);
+  }
+
   broadcastActiveTask(id: string | null): void {
     this.sendTo([this.workbenchWindow, this.bubbleWindow], 'task:active-changed', id);
   }

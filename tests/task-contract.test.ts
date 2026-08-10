@@ -125,6 +125,20 @@ test('matchesTaskView: future planned falls in upcoming not today', () => {
   assert.ok(!matchesTaskView(future, 'today', now));
 });
 
+test('matchesTaskView: a TimeBlock starting today puts the task in Today (PR4)', () => {
+  // No plannedAt, no dueAt — only a block scheduled today makes it "today".
+  const blocked = task({ id: 'blocked', status: 'open' });
+  assert.ok(!matchesTaskView(blocked, 'today', now), 'without the block set it stays out');
+  assert.ok(
+    matchesTaskView(blocked, 'today', now, null, new Set(['blocked'])),
+    'the TimeBlock is the schedule fact'
+  );
+  assert.ok(
+    !matchesTaskView(task({ id: 'other', status: 'open' }), 'today', now, null, new Set(['blocked'])),
+    'the set only affects its own task'
+  );
+});
+
 test('matchesTaskView: far future is in no view', () => {
   const far = task({ status: 'open', dueAt: now + 30 * 86_400_000 });
   assert.ok(!matchesTaskView(far, 'upcoming', now));

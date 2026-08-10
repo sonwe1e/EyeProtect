@@ -190,6 +190,32 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.dailyCapacityMinutes.max
       )
     ),
+    // Working window (Plan timeline). An inverted/empty window is invalid as a
+    // whole, so both sides fall back to the defaults together.
+    ...(() => {
+      const start = Math.round(
+        clampNumber(
+          input.workStartMinutes,
+          DEFAULT_SETTINGS.workStartMinutes,
+          SETTINGS_LIMITS.workStartMinutes.min,
+          SETTINGS_LIMITS.workStartMinutes.max
+        )
+      );
+      const end = Math.round(
+        clampNumber(
+          input.workEndMinutes,
+          DEFAULT_SETTINGS.workEndMinutes,
+          SETTINGS_LIMITS.workEndMinutes.min,
+          SETTINGS_LIMITS.workEndMinutes.max
+        )
+      );
+      return start < end
+        ? { workStartMinutes: start, workEndMinutes: end }
+        : {
+            workStartMinutes: DEFAULT_SETTINGS.workStartMinutes,
+            workEndMinutes: DEFAULT_SETTINGS.workEndMinutes
+          };
+    })(),
     reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
       ? (input.reminderMode as ReminderMode)
       : DEFAULT_SETTINGS.reminderMode,

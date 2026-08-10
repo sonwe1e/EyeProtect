@@ -20,7 +20,7 @@ import {
   type FailedDeliveryNotice,
   type Task
 } from '../../../shared/types';
-import { localDateKey } from '../../../shared/calendar';
+import { localDateKey, sameLocalDate, startOfLocalDate } from '../../../shared/calendar';
 import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
 import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
@@ -44,6 +44,7 @@ import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 import { useTasks } from '../hooks/useTasks';
 import { useDailyPlans } from '../hooks/useDailyPlans';
+import { useTimeBlocks } from '../hooks/useTimeBlocks';
 import { useTaskWork } from '../hooks/useTaskWork';
 import { useUndo } from '../hooks/useUndo';
 import { commands } from '../lib/commands';
@@ -109,13 +110,24 @@ export default function WorkbenchView(): JSX.Element {
     () => tasks.filter((task) => matchesTaskView(task, 'overdue', now, activeTaskId)),
     [tasks, now, activeTaskId]
   );
+  const { blocks: allBlocks } = useTimeBlocks();
+  // Tasks owning a TimeBlock that starts today are scheduled — the block is
+  // the schedule fact, not plannedAt (USERPLAN PR4 / ADR-001).
+  const scheduledTodayIds = useMemo(() => {
+    const todayStart = startOfLocalDate(now);
+    const ids = new Set<string>();
+    for (const block of allBlocks) {
+      if (sameLocalDate(block.startAt, todayStart)) ids.add(block.taskId);
+    }
+    return ids;
+  }, [allBlocks, now]);
   const todayTasks = useMemo(() => {
     const overdue = new Set(overdueTasks.map((task) => task.id));
     return sortTasksForView(
-      tasks.filter((task) => matchesTaskView(task, 'today', now, activeTaskId) && !overdue.has(task.id)),
+      tasks.filter((task) => matchesTaskView(task, 'today', now, activeTaskId, scheduledTodayIds) && !overdue.has(task.id)),
       now
     );
-  }, [tasks, overdueTasks, now, activeTaskId]);
+  }, [tasks, overdueTasks, now, activeTaskId, scheduledTodayIds]);
   // ── Today 2.1 (USERPLAN 1.2 §十一): commitments come from DailyTaskPlan,
   // not from global priority. NOW / TODAY'S 3 / SCHEDULED / FLEXIBLE.
   const todayKey = localDateKey(now);
@@ -134,23 +146,23 @@ export default function WorkbenchView(): JSX.Element {
   const scheduledToday = useMemo(
     () =>
       todayTasks
-        .filter((task) => task.plannedAt !== null)
-        .sort((left, right) => (left.plannedAt ?? 0) - (right.plannedAt ?? 0)),
-    [todayTasks]
+        .filter((task) => task.plannedAt !== null || scheduledTodayIds.has(task.id))
+        .sort((left, right) => (left.plannedAt ?? Infinity) - (right.plannedAt ?? Infinity)),
+    [todayTasks, scheduledTodayIds]
   );
   const flexibleToday = useMemo(() => {
     const ranked = new Set(todaysThree.map((task) => task.id));
     const scheduled = new Set(scheduledToday.map((task) => task.id));
     const plannedFlexible = todayPlans
       .map((plan) => taskById.get(plan.taskId))
-      .filter((task): task is Task => Boolean(task && task.plannedAt === null));
+      .filter((task): task is Task => Boolean(task && task.plannedAt === null && !scheduledTodayIds.has(task.id)));
     const unscheduledDue = todayTasks.filter(
       (task) => task.plannedAt === null && !planByTask.has(task.id)
     );
     return [...plannedFlexible, ...unscheduledDue].filter(
       (task, index, list) => !ranked.has(task.id) && !scheduled.has(task.id) && list.indexOf(task) === index
     );
-  }, [todayPlans, taskById, todaysThree, scheduledToday, todayTasks, planByTask]);
+  }, [todayPlans, taskById, todaysThree, scheduledToday, scheduledTodayIds, todayTasks, planByTask]);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
@@ -266,7 +278,7 @@ export default function WorkbenchView(): JSX.Element {
       );
     }
     if (section === 'plan') {
-      return <PlanWorkspace tasks={tasks} now={now} nextEyeAt={reminderStatus.nextEyeAt} onOpen={setSelectedTaskId} />;
+      return <PlanWorkspace tasks={tasks} now={now} nextEyeAt={reminderStatus.nextEyeAt} nextWalkAt={reminderStatus.nextWalkAt} onOpen={setSelectedTaskId} />;
     }
     if (section === 'projects') {
       if (!selectedProject) {

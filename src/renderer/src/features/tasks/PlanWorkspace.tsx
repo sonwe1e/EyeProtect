@@ -1,8 +1,9 @@
-import { useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarDays, Eye, GripVertical } from 'lucide-react';
-import type { Task } from '../../../../shared/types';
+import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, Eye, Footprints, GripVertical } from 'lucide-react';
+import type { Task, TimeBlock } from '../../../../shared/types';
 import {
   addLocalDays,
+  endOfLocalDate,
   localDateAtMinutes,
   localDateKey,
   minutesOfLocalDay,
@@ -11,29 +12,41 @@ import {
 } from '../../../../shared/calendar';
 import { Button, StatusChip } from '../../components/primitives';
 import { useCommand } from '../../hooks/useCommand';
+import { useDailyPlans } from '../../hooks/useDailyPlans';
+import { useSettings } from '../../hooks/useSettings';
+import { useTimeBlocks } from '../../hooks/useTimeBlocks';
 import { commands } from '../../lib/commands';
-import { buildTimelineLayout, PLAN_UNESTIMATED_VISUAL_MINUTES } from './planLayout';
+import { buildBlockLayout } from './planLayout';
 import styles from './PlanWorkspace.module.css';
 
-// Default working window. The timeline EXTENDS beyond it when tasks are
-// planned outside — a 06:00 task must render at 06:00, never be silently
-// clamped to 07:00 (USERPLAN 1.2 PR0: Plan out-of-hours correctness).
-const BASE_START_MINUTES = 7 * 60;
-const BASE_END_MINUTES = 21 * 60;
-const MIN_BLOCK_MINUTES = 15;
 const PIXELS_PER_MINUTE = 1;
 const SNAP_MINUTES = 15;
+const MIN_BLOCK_MINUTES = 15;
+/** A dropped card without an estimate gets a real, visible 30-minute block —
+ * the block itself is the commitment; nothing pretends to be a task estimate. */
+const DEFAULT_DROP_MINUTES = 30;
+const STRIP_DAYS = 7;
 
 const clamp = (value: number, minimum: number, maximum: number): number => Math.min(maximum, Math.max(minimum, value));
 const snap = (value: number): number => Math.round(value / SNAP_MINUTES) * SNAP_MINUTES;
-const clockLabel = (minutes: number): string => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-const formatClock = (timestamp: number): string => clockLabel(minutesOfLocalDay(timestamp));
+const clockLabel = (minutes: number): string =>
+  `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(Math.floor(minutes % 60)).padStart(2, '0')}`;
 
-/** Visual duration of a block: the real estimate, or a clearly-labelled minimum. */
-const blockDuration = (task: Task): number => task.estimateMinutes ?? PLAN_UNESTIMATED_VISUAL_MINUTES;
-
-function UnscheduledCard({ task, day, onOpen }: { task: Task; day: number; onOpen: () => void }): JSX.Element {
-  const schedule = useCommand(() => commands.tasks.update(task.id, { plannedAt: localDateAtMinutes(day, 9 * 60) }));
+function UnscheduledCard({ task, day, ranked, onOpen, onScheduled }: {
+  task: Task;
+  day: number;
+  ranked: number | null;
+  onOpen: () => void;
+  onScheduled: () => void;
+}): JSX.Element {
+  const schedule = useCommand(() =>
+    commands.timeBlocks.create({
+      taskId: task.id,
+      startAt: localDateAtMinutes(day, 9 * 60),
+      endAt: localDateAtMinutes(day, 9 * 60 + (task.estimateMinutes ?? DEFAULT_DROP_MINUTES)),
+      source: 'planner'
+    })
+  );
   return (
     <article
       className="plan-task-card"
@@ -43,37 +56,56 @@ function UnscheduledCard({ task, day, onOpen }: { task: Task; day: number; onOpe
         event.dataTransfer.setData('application/x-eyeprotect-task', task.id);
       }}
     >
-      <button type="button" className="plan-task-title" onClick={onOpen}>{task.title}</button>
+      <button type="button" className="plan-task-title" onClick={onOpen}>
+        {ranked !== null ? <span className="plan-rank-badge">{ranked}</span> : null}
+        {task.title}
+      </button>
       <span>{task.estimateMinutes ? `${task.estimateMinutes} 分钟` : '未估时'}</span>
       <div className="plan-task-actions">
-        <Button disabled={schedule.isPending} onClick={() => void schedule.run()}>放到 09:00</Button>
+        <Button
+          disabled={schedule.isPending}
+          onClick={() => void schedule.run().then((result) => { if (result.ok) onScheduled(); })}
+        >
+          放到 09:00
+        </Button>
         <span className="plan-drag-hint"><GripVertical size={14} />拖入时间线</span>
       </div>
+      {schedule.error ? <small className="plan-card-error" role="alert">{schedule.error.message}</small> : null}
     </article>
   );
 }
 
-function TimelineBlock({ task, day, lane, laneCount, windowStartMinutes, windowEndMinutes, onOpen }: {
-  task: Task;
+function BlockView({ block, task, windowStartMinutes, windowEndMinutes, day, lane, laneCount, onOpen, onChanged }: {
+  block: TimeBlock;
+  task: Task | undefined;
+  windowStartMinutes: number;
+  windowEndMinutes: number;
   day: number;
   lane: number;
   laneCount: number;
-  windowStartMinutes: number;
-  windowEndMinutes: number;
   onOpen: () => void;
+  onChanged: () => void;
 }): JSX.Element {
-  const update = useCommand((input: { plannedAt?: number; estimateMinutes?: number }) => commands.tasks.update(task.id, input));
-  const plannedAt = task.plannedAt ?? localDateAtMinutes(day, 9 * 60);
-  const estimated = task.estimateMinutes !== null;
-  const minuteOfDay = minutesOfLocalDay(plannedAt);
-  // The timeline window already covers every scheduled block, so no clamping
-  // may hide the true wall-clock time here.
-  const baseTop = minuteOfDay - windowStartMinutes;
-  const baseDuration = blockDuration(task);
+  const update = useCommand((input: { startAt: number; endAt: number }) => commands.timeBlocks.update(block.id, input));
+  const remove = useCommand(() => commands.timeBlocks.remove(block.id));
+  const dayStart = startOfLocalDate(day);
+  const dayEnd = endOfLocalDate(day);
+  const startMinutes = minutesOfLocalDay(Math.max(block.startAt, dayStart));
+  const durationMinutes = Math.max(
+    MIN_BLOCK_MINUTES,
+    Math.round((Math.min(block.endAt, dayEnd) - Math.max(block.startAt, dayStart)) / 60_000)
+  );
   const [preview, setPreview] = useState<{ top: number; duration: number } | null>(null);
+  const baseTop = clamp(startMinutes - windowStartMinutes, 0, windowEndMinutes - windowStartMinutes - MIN_BLOCK_MINUTES);
   const top = preview?.top ?? baseTop;
-  const duration = preview?.duration ?? baseDuration;
+  const duration = preview?.duration ?? durationMinutes;
   const windowMinutes = windowEndMinutes - windowStartMinutes;
+
+  const commitMove = (nextTop: number, nextDuration: number): void => {
+    const startAt = localDateAtMinutes(day, windowStartMinutes + nextTop);
+    const endAt = localDateAtMinutes(day, windowStartMinutes + nextTop + nextDuration);
+    void update.run({ startAt, endAt }).then((result) => { if (result.ok) onChanged(); });
+  };
 
   const beginPointerChange = (event: ReactPointerEvent<HTMLButtonElement>, mode: 'move' | 'resize'): void => {
     event.preventDefault();
@@ -95,11 +127,9 @@ function TimelineBlock({ task, day, lane, laneCount, windowStartMinutes, windowE
       target.removeEventListener('pointerup', onUp);
       const delta = snap((next.clientY - originY) / PIXELS_PER_MINUTE);
       if (mode === 'move') {
-        const nextTop = clamp(originTop + delta, 0, windowMinutes - originDuration);
-        void update.run({ plannedAt: localDateAtMinutes(day, windowStartMinutes + nextTop) });
+        commitMove(clamp(originTop + delta, 0, windowMinutes - originDuration), originDuration);
       } else {
-        const nextDuration = clamp(originDuration + delta, MIN_BLOCK_MINUTES, windowMinutes - originTop);
-        void update.run({ estimateMinutes: nextDuration });
+        commitMove(originTop, clamp(originDuration + delta, MIN_BLOCK_MINUTES, windowMinutes - originTop));
       }
       setPreview(null);
     };
@@ -107,9 +137,31 @@ function TimelineBlock({ task, day, lane, laneCount, windowStartMinutes, windowE
     target.addEventListener('pointerup', onUp, { once: true });
   };
 
+  // Keyboard scheduling (USERPLAN §十二): arrows move by one snap step,
+  // Shift+arrows resize, Delete removes the block.
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    const step = SNAP_MINUTES;
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowUp' ? -step : step;
+      if (event.shiftKey) {
+        commitMove(top, clamp(duration + direction, MIN_BLOCK_MINUTES, windowMinutes - top));
+      } else {
+        commitMove(clamp(top + direction, 0, windowMinutes - duration), duration);
+      }
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      void remove.run().then((result) => { if (result.ok) onChanged(); });
+    }
+  };
+
+  const error = update.error?.message ?? remove.error?.message;
   return (
     <article
-      className={`timeline-block ${estimated ? '' : 'is-unestimated'} ${update.error ? 'is-error' : ''}`.trim()}
+      className={`timeline-block ${error ? 'is-error' : ''}`.trim()}
+      tabIndex={0}
+      aria-label={`时间块：${task?.title ?? block.taskId}，${clockLabel(windowStartMinutes + top)} 开始，${duration} 分钟`}
+      onKeyDown={onKeyDown}
       style={{
         top: top * PIXELS_PER_MINUTE,
         height: duration * PIXELS_PER_MINUTE,
@@ -117,49 +169,99 @@ function TimelineBlock({ task, day, lane, laneCount, windowStartMinutes, windowE
         right: `calc(12px + (100% - 76px) * ${laneCount - lane - 1} / ${laneCount} + ${lane < laneCount - 1 ? 3 : 0}px)`
       }}
     >
-      <button type="button" className="timeline-block-drag" aria-label={`移动「${task.title}」`} onPointerDown={(event) => beginPointerChange(event, 'move')}><GripVertical size={15} /></button>
-      <button type="button" className="timeline-block-title" onClick={onOpen}>{task.title}</button>
-      <span>{formatClock(localDateAtMinutes(day, windowStartMinutes + top))} · {estimated ? `${duration} 分钟` : '未估时'}</span>
-      {update.error ? <small>{update.error.message}</small> : null}
-      <button type="button" className="timeline-block-resize" aria-label={`调整「${task.title}」时长`} onPointerDown={(event) => beginPointerChange(event, 'resize')} />
+      <button type="button" className="timeline-block-drag" aria-label={`移动「${task?.title ?? '任务'}」`} onPointerDown={(event) => beginPointerChange(event, 'move')}><GripVertical size={15} /></button>
+      <button type="button" className="timeline-block-title" onClick={onOpen}>{task?.title ?? block.taskId}</button>
+      <span>{clockLabel(windowStartMinutes + top)} · {duration} 分钟</span>
+      {error ? <small>{error}</small> : null}
+      <button type="button" className="timeline-block-resize" aria-label={`调整「${task?.title ?? '任务'}」时长`} onPointerDown={(event) => beginPointerChange(event, 'resize')} />
     </article>
   );
 }
 
-export function PlanWorkspace({ tasks, now, nextEyeAt, onOpen }: { tasks: Task[]; now: number; nextEyeAt: number; onOpen: (id: string) => void }): JSX.Element {
+export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
+  tasks: Task[];
+  now: number;
+  nextEyeAt: number;
+  nextWalkAt: number;
+  onOpen: (id: string) => void;
+}): JSX.Element {
+  const { settings } = useSettings();
   const today = startOfLocalDate(now);
-  const tomorrow = useMemo(() => addLocalDays(today, 1), [today]);
+  const [stripAnchor, setStripAnchor] = useState(today);
   const [day, setDay] = useState(today);
-  const unscheduled = useMemo(() => tasks.filter((task) => task.status === 'open' && task.plannedAt === null), [tasks]);
-  const scheduled = useMemo(() => tasks
-    .filter((task) => task.status === 'open' && task.plannedAt !== null && sameLocalDate(task.plannedAt, day))
-    .sort((left, right) => (left.plannedAt ?? 0) - (right.plannedAt ?? 0)), [tasks, day]);
+  const { blocks, refresh } = useTimeBlocks();
+  const { plans } = useDailyPlans(localDateKey(day));
 
-  // Honest workload: only tasks with a real estimate contribute minutes.
-  // Unestimated tasks are counted, never faked as 30-minute blocks.
-  const estimated = scheduled.filter((task) => task.estimateMinutes !== null);
-  const plannedMinutes = estimated.reduce((sum, task) => sum + (task.estimateMinutes ?? 0), 0);
-  const unestimatedCount = scheduled.length - estimated.length;
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const dayKey = localDateKey(day);
+  const plannedByTask = useMemo(() => new Map(plans.map((plan) => [plan.taskId, plan])), [plans]);
 
-  // Dynamic timeline window: the base 07:00–21:00 working hours, extended
-  // (hour-aligned) to cover any block planned outside them. Nothing is
-  // clamped into the working window.
+  const stripDays = useMemo(() => {
+    const start = addLocalDays(stripAnchor, -Math.floor(STRIP_DAYS / 2));
+    return Array.from({ length: STRIP_DAYS }, (_, index) => addLocalDays(start, index));
+  }, [stripAnchor]);
+
+  const blocksOfDay = useMemo(
+    () =>
+      blocks
+        .filter((block) => sameLocalDate(block.startAt, day))
+        .sort((left, right) => left.startAt - right.startAt),
+    [blocks, day]
+  );
+
+  // Left column: tasks committed to this day (DailyTaskPlan) first, then the
+  // rest of the open backlog — none of them owns a block on this date yet.
+  const blockedTaskIds = useMemo(() => new Set(blocksOfDay.map((block) => block.taskId)), [blocksOfDay]);
+  const committed = useMemo(
+    () =>
+      plans
+        .slice()
+        .sort((left, right) => (left.dailyRank ?? 99) - (right.dailyRank ?? 99) || left.sortOrder - right.sortOrder)
+        .map((plan) => taskById.get(plan.taskId))
+        .filter((task): task is Task => Boolean(task && task.status === 'open' && !blockedTaskIds.has(task.id))),
+    [plans, taskById, blockedTaskIds]
+  );
+  const backlog = useMemo(
+    () => {
+      const committedIds = new Set(committed.map((task) => task.id));
+      return tasks
+        .filter((task) => task.status === 'open' && !blockedTaskIds.has(task.id) && !committedIds.has(task.id))
+        .slice(0, 30);
+    },
+    [tasks, blockedTaskIds, committed]
+  );
+
+  // Timeline window: the configured working hours, extended (hour-aligned)
+  // to cover any block living outside them. Nothing gets clamped away.
   const { windowStartMinutes, windowEndMinutes } = useMemo(() => {
-    let start = BASE_START_MINUTES;
-    let end = BASE_END_MINUTES;
-    for (const task of scheduled) {
-      const startMinutes = minutesOfLocalDay(task.plannedAt ?? day);
+    let start = settings.workStartMinutes;
+    let end = settings.workEndMinutes;
+    const dayStart = startOfLocalDate(day);
+    const dayEnd = endOfLocalDate(day);
+    for (const block of blocksOfDay) {
+      const startMinutes = minutesOfLocalDay(Math.max(block.startAt, dayStart));
+      const endMinutes = Math.min(
+        Math.ceil((Math.min(block.endAt, dayEnd) - Math.max(block.startAt, dayStart)) / 60_000) + startMinutes,
+        24 * 60
+      );
       start = Math.min(start, Math.floor(startMinutes / 60) * 60);
-      end = Math.max(end, Math.ceil((startMinutes + blockDuration(task)) / 60) * 60);
+      end = Math.max(end, Math.ceil(endMinutes / 60) * 60);
     }
-    return { windowStartMinutes: clamp(start, 0, BASE_START_MINUTES), windowEndMinutes: clamp(end, BASE_END_MINUTES, 24 * 60) };
-  }, [scheduled, day]);
+    return {
+      windowStartMinutes: clamp(start, 0, settings.workStartMinutes),
+      windowEndMinutes: clamp(end, settings.workEndMinutes, 24 * 60)
+    };
+  }, [blocksOfDay, day, settings.workStartMinutes, settings.workEndMinutes]);
   const windowMinutes = windowEndMinutes - windowStartMinutes;
 
-  const timelineLayout = useMemo(() => buildTimelineLayout(scheduled, day), [scheduled, day]);
-  const drop = useCommand((id: string, plannedAt: number) => commands.tasks.update(id, { plannedAt }));
-  const eyeMinutes = minutesOfLocalDay(nextEyeAt);
-  const showEyeMarker = sameLocalDate(nextEyeAt, day) && eyeMinutes >= windowStartMinutes && eyeMinutes <= windowEndMinutes;
+  const layout = useMemo(() => buildBlockLayout(blocksOfDay), [blocksOfDay]);
+  const drop = useCommand((taskId: string, startAt: number, endAt: number) =>
+    commands.timeBlocks.create({ taskId, startAt, endAt, source: 'planner' })
+  );
+  const scheduledMinutes = blocksOfDay.reduce(
+    (sum, block) => sum + Math.round((block.endAt - block.startAt) / 60_000),
+    0
+  );
   const hourMarks = useMemo(() => {
     const marks: number[] = [];
     for (let minutes = Math.floor(windowStartMinutes / 60) * 60; minutes <= windowEndMinutes - 60; minutes += 60) {
@@ -167,28 +269,79 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, onOpen }: { tasks: Task[]
     }
     return marks;
   }, [windowStartMinutes, windowEndMinutes]);
-  const dayLabel = sameLocalDate(day, today) ? '今天' : sameLocalDate(day, tomorrow) ? '明天' : localDateKey(day);
+
+  const markerFor = useCallback((timestamp: number): number | null => {
+    if (!sameLocalDate(timestamp, day)) return null;
+    const minutes = minutesOfLocalDay(timestamp);
+    return minutes >= windowStartMinutes && minutes <= windowEndMinutes ? minutes : null;
+  }, [day, windowStartMinutes, windowEndMinutes]);
+  const eyeMinutes = markerFor(nextEyeAt);
+  const walkMinutes = markerFor(nextWalkAt);
+
+  const dayLabel = sameLocalDate(day, today)
+    ? '今天'
+    : sameLocalDate(day, addLocalDays(today, 1))
+      ? '明天'
+      : new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(day));
 
   return (
     <div className={`workspace-page plan-page ${styles.root}`}>
       <header className="page-header">
         <div><span className="page-eyebrow">安排节奏</span><h1>计划</h1></div>
         <div className="plan-day-switch" aria-label="选择计划日期">
-          <Button variant="ghost" aria-pressed={sameLocalDate(day, today)} className={sameLocalDate(day, today) ? 'is-active' : ''} onClick={() => setDay(today)}>今天</Button>
-          <Button variant="ghost" aria-pressed={sameLocalDate(day, tomorrow)} className={sameLocalDate(day, tomorrow) ? 'is-active' : ''} onClick={() => setDay(tomorrow)}>明天</Button>
-          <StatusChip tone="brand">
-            已计划 {plannedMinutes} 分钟{unestimatedCount > 0 ? ` · 未估时 ${unestimatedCount} 项` : ''}
-          </StatusChip>
+          <Button variant="ghost" aria-label="更早的日期" onClick={() => setStripAnchor(addLocalDays(stripAnchor, -STRIP_DAYS))}><ChevronLeft size={15} /></Button>
+          {stripDays.map((entry) => (
+            <Button
+              key={entry}
+              variant="ghost"
+              aria-pressed={sameLocalDate(entry, day)}
+              className={sameLocalDate(entry, day) ? 'is-active' : ''}
+              onClick={() => setDay(entry)}
+            >
+              {new Intl.DateTimeFormat('zh-CN', { day: 'numeric' }).format(new Date(entry))}
+              {sameLocalDate(entry, today) ? <span className="plan-strip-today">今</span> : null}
+            </Button>
+          ))}
+          <Button variant="ghost" aria-label="更晚的日期" onClick={() => setStripAnchor(addLocalDays(stripAnchor, STRIP_DAYS))}><ChevronRight size={15} /></Button>
+          <StatusChip tone="brand">已排 {scheduledMinutes} 分钟 · {blocksOfDay.length} 块</StatusChip>
         </div>
       </header>
       <div className="plan-layout">
         <section className="plan-column plan-backlog">
-          <header><h2>未安排</h2><span>{unscheduled.length}</span></header>
-          <p className="plan-column-hint">拖动任务到右侧，或直接安排到上午。</p>
-          <div className="plan-task-list">{unscheduled.map((task) => <UnscheduledCard key={task.id} task={task} day={day} onOpen={() => onOpen(task.id)} />)}</div>
+          <header><h2>{dayLabel}待安排</h2><span>{committed.length + backlog.length}</span></header>
+          <p className="plan-column-hint">拖动任务到右侧时间线，或点击「放到 09:00」。一个任务可以拆成多个时间块。</p>
+          {committed.length ? <h3 className="plan-group-label">今日承诺</h3> : null}
+          <div className="plan-task-list">
+            {committed.map((task) => (
+              <UnscheduledCard
+                key={task.id}
+                task={task}
+                day={day}
+                ranked={plannedByTask.get(task.id)?.dailyRank ?? null}
+                onOpen={() => onOpen(task.id)}
+                onScheduled={refresh}
+              />
+            ))}
+          </div>
+          {backlog.length ? <h3 className="plan-group-label">其他任务</h3> : null}
+          <div className="plan-task-list">
+            {backlog.map((task) => (
+              <UnscheduledCard
+                key={task.id}
+                task={task}
+                day={day}
+                ranked={null}
+                onOpen={() => onOpen(task.id)}
+                onScheduled={refresh}
+              />
+            ))}
+          </div>
         </section>
         <section className="plan-column plan-timeline">
-          <header><h2><CalendarDays size={17} />{dayLabel}时间线</h2><span>{clockLabel(windowStartMinutes)}–{clockLabel(windowEndMinutes)}</span></header>
+          <header>
+            <h2><CalendarDays size={17} />{dayLabel}时间线</h2>
+            <span>{clockLabel(windowStartMinutes)}–{clockLabel(windowEndMinutes)}{windowStartMinutes < settings.workStartMinutes || windowEndMinutes > settings.workEndMinutes ? '（含工作时间之外）' : ''}</span>
+          </header>
           <div
             className="timeline-grid"
             style={{ height: windowMinutes * PIXELS_PER_MINUTE }}
@@ -197,21 +350,50 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, onOpen }: { tasks: Task[]
               event.preventDefault();
               const id = event.dataTransfer.getData('application/x-eyeprotect-task');
               if (!id) return;
+              const task = taskById.get(id);
               const bounds = event.currentTarget.getBoundingClientRect();
-              const minutes = clamp(snap((event.clientY - bounds.top) / PIXELS_PER_MINUTE) + windowStartMinutes, windowStartMinutes, windowEndMinutes - MIN_BLOCK_MINUTES);
-              void drop.run(id, localDateAtMinutes(day, minutes));
+              const startMinutes = clamp(
+                snap((event.clientY - bounds.top) / PIXELS_PER_MINUTE) + windowStartMinutes,
+                windowStartMinutes,
+                windowEndMinutes - MIN_BLOCK_MINUTES
+              );
+              const durationMinutes = Math.min(task?.estimateMinutes ?? DEFAULT_DROP_MINUTES, windowEndMinutes - startMinutes);
+              void drop.run(
+                id,
+                localDateAtMinutes(day, startMinutes),
+                localDateAtMinutes(day, startMinutes + durationMinutes)
+              ).then((result) => { if (result.ok) refresh(); });
             }}
           >
             {hourMarks.map((minutes) => (
               <div key={minutes} className="timeline-hour" style={{ top: (minutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><span>{clockLabel(minutes)}</span></div>
             ))}
-            {showEyeMarker ? <div className="timeline-health-marker" style={{ top: (eyeMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><Eye size={13} /><span>休息</span></div> : null}
-            <div className="timeline-blocks">{scheduled.map((task) => {
-              const position = timelineLayout.get(task.id) ?? { lane: 0, count: 1 };
-              return <TimelineBlock key={task.id} task={task} day={day} lane={position.lane} laneCount={position.count} windowStartMinutes={windowStartMinutes} windowEndMinutes={windowEndMinutes} onOpen={() => onOpen(task.id)} />;
+            {eyeMinutes !== null ? (
+              <div className="timeline-health-marker" style={{ top: (eyeMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><Eye size={13} /><span>护眼</span></div>
+            ) : null}
+            {walkMinutes !== null ? (
+              <div className="timeline-health-marker timeline-health-marker--walk" style={{ top: (walkMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><Footprints size={13} /><span>走动</span></div>
+            ) : null}
+            <div className="timeline-blocks">{blocksOfDay.map((block) => {
+              const position = layout.get(block.id) ?? { lane: 0, count: 1 };
+              return (
+                <BlockView
+                  key={block.id}
+                  block={block}
+                  task={taskById.get(block.taskId)}
+                  day={day}
+                  windowStartMinutes={windowStartMinutes}
+                  windowEndMinutes={windowEndMinutes}
+                  lane={position.lane}
+                  laneCount={position.count}
+                  onOpen={() => onOpen(block.taskId)}
+                  onChanged={refresh}
+                />
+              );
             })}</div>
           </div>
           {drop.error ? <p className="plan-drop-error" role="alert">{drop.error.message}</p> : null}
+          <p className="plan-timeline-hint">护眼/走动标记只是节奏参考，不会移动你的时间块。键盘：↑↓ 移动，Shift+↑↓ 调整时长，Delete 删除。</p>
         </section>
       </div>
     </div>

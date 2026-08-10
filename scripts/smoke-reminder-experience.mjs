@@ -190,7 +190,15 @@ const scheduledJourney = (await waitForValue('#workbench', `(() => {
   return false;
 })()`, Boolean)).value;
 assert(scheduledJourney, 'Plan non-drag scheduling path failed', scheduledJourney);
-await waitForValue('#workbench', `(async () => (await window.eyeProtect.getTasks()).some((task) => task.title === 'Smoke Journey Task' && task.plannedAt !== null))()`, Boolean);
+// PR4 semantics: "放到 09:00" creates a TimeBlock — the plannedAt field is no
+// longer the planner's write target.
+await waitForValue('#workbench', `(async () => {
+  const tasks = await window.eyeProtect.getTasks();
+  const target = tasks.find((task) => task.title === 'Smoke Journey Task');
+  if (!target) return false;
+  const blocks = await window.eyeProtect.getTimeBlocks();
+  return blocks.some((block) => block.taskId === target.id);
+})()`, Boolean);
 
 await evaluate(projectTarget, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('专注')))?.click()`);
 await waitForValue('#workbench', `Boolean(document.querySelector('.focus-surface'))`, Boolean);
