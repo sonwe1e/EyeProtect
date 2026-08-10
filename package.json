@@ -11,10 +11,13 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && npm run verify:build",
     "verify:build": "node scripts/verify-build-contract.mjs",
+    "verify:ui-contract": "node scripts/verify-ui-contract.mjs",
     "smoke:running": "node scripts/smoke-running-app.mjs",
     "smoke:experience": "node scripts/smoke-reminder-experience.mjs",
     "smoke:emergency": "node scripts/smoke-emergency-reminder.mjs",
     "smoke:pet-failure": "node scripts/smoke-pet-failure.mjs",
+    "capture:ui": "node scripts/capture-ui-snapshots.mjs",
+    "build:icon": "electron scripts/build-app-icon.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "start": "electron-vite preview",
@@ -52,6 +55,7 @@
     ],
     "asar": true,
     "win": {
+      "icon": "public/assets/app-icon.ico",
       "signAndEditExecutable": false,
       "target": [
         {

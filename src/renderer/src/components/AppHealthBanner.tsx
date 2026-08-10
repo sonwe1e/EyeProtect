@@ -1,6 +1,9 @@
 import { AlertTriangle, FolderOpen, RefreshCw } from 'lucide-react';
 import type { AppHealth } from '../../../shared/types';
+import { useCommand } from '../hooks/useCommand';
 import { commands } from '../lib/commands';
+import { CommandButton } from './CommandButton';
+import styles from './AppHealthBanner.module.css';
 
 /**
  * Fail-loud health banner (USERPLAN §十七, §二十八).
@@ -16,6 +19,8 @@ import { commands } from '../lib/commands';
  * name it plainly and offer [重试] and [打开数据目录].
  */
 export function AppHealthBanner({ health }: { health: AppHealth | null }): JSX.Element | null {
+  const relaunch = useCommand(() => commands.system.relaunch());
+  const openDataDir = useCommand(() => commands.data.openDataDirectory());
   if (health === null) {
     return null;
   }
@@ -23,18 +28,9 @@ export function AppHealthBanner({ health }: { health: AppHealth | null }): JSX.E
     return null;
   }
 
-  // A renderer-only reload cannot exit database-recovery mode (the main-process
-  // TaskStore is constructed once at startup), so a full restart is required.
-  const reload = (): void => {
-    void commands.system.relaunch();
-  };
-  const openDataDir = (): void => {
-    void commands.data.openDataDirectory();
-  };
-
   return (
-    <div className="app-health-banner" role="alert">
-      <div className="app-health-banner-main">
+    <div className={styles.root} role="alert">
+      <div className={styles.main}>
         <AlertTriangle size={18} />
         <div>
           <strong>
@@ -55,15 +51,15 @@ export function AppHealthBanner({ health }: { health: AppHealth | null }): JSX.E
           ) : null}
         </div>
       </div>
-      <div className="app-health-banner-actions">
+      <div className={styles.actions}>
         {health.database !== 'healthy' ? (
           <>
-            <button type="button" className="primary" onClick={reload}>
+            <CommandButton variant="primary" state={relaunch.state} errorReason={relaunch.error?.message} onClick={() => void relaunch.run()}>
               <RefreshCw size={14} /> 重试
-            </button>
-            <button type="button" onClick={openDataDir}>
+            </CommandButton>
+            <CommandButton state={openDataDir.state} errorReason={openDataDir.error?.message} onClick={() => void openDataDir.run()}>
               <FolderOpen size={14} /> 打开数据目录
-            </button>
+            </CommandButton>
           </>
         ) : null}
       </div>

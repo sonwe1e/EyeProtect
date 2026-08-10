@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  PROJECT_GOAL_MAX,
   matchesTaskView,
   nextRecurrenceFireAt,
   matchesProjectView,
@@ -93,6 +94,10 @@ test('sanitizeProject rejects bad color and empty name', () => {
   assert.equal(sanitizeProject({ id: 'p', name: '' }, now), null);
   assert.equal(sanitizeProject({ id: 'p', name: 'x', color: 'red' }, now)!.color, null);
   assert.equal(sanitizeProject({ id: 'p', name: 'x', color: '#2f8f6f' }, now)!.color, '#2f8f6f');
+  assert.equal(sanitizeProject({ id: 'p', name: 'x', viewMode: 'invalid' }, now)!.viewMode, 'list');
+  const board = sanitizeProject({ id: 'p', name: 'x', goal: `  ${'g'.repeat(PROJECT_GOAL_MAX + 5)}  `, viewMode: 'board' }, now)!;
+  assert.equal(board.goal?.length, PROJECT_GOAL_MAX);
+  assert.equal(board.viewMode, 'board');
 });
 
 test('matchesTaskView: today includes activeTaskId, due today, or planned today', () => {

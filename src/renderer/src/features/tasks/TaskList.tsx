@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Check, Footprints, Globe, Monitor, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, Check, Flag, Footprints, Globe, Monitor, Trash2 } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
   nextTodoPriority,
@@ -219,12 +219,12 @@ function TaskRow({
         <div className="task-meta">
           {task.plannedAt !== null ? (
             <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-              ○ {isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
+              <CalendarClock size={11} aria-hidden="true" />{isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
             </span>
           ) : null}
           {task.dueAt !== null ? (
             <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-              ◇ {isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
+              <Flag size={11} aria-hidden="true" />{isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
             </span>
           ) : null}
           <span className="context-tag" title={`上下文：${contextLabel[task.context]}`}>
@@ -341,7 +341,7 @@ export function TaskList({
   }
 
   return (
-    <ul className="task-list">
+    <ul className={`task-list task-list--${view}`}>
       {orderedTasks.map((task, index) => {
         const siblings = orderedTasks.filter((entry) => entry.parentId === task.parentId);
         const siblingIndex = siblings.findIndex((entry) => entry.id === task.id);

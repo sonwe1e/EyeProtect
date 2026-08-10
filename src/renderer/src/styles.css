@@ -301,11 +301,11 @@
   max-height: calc(var(--alert-panel-space, 220px) - 28px);
   padding: clamp(12px, 2vh, 16px);
   overflow: hidden;
-  color: #1f2a2e;
-  background: rgb(255 252 244 / 94%);
-  border: 1px solid rgb(31 42 46 / 14%);
+  color: var(--fg-primary);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  box-shadow: 0 12px 32px rgb(31 42 46 / 22%);
+  box-shadow: var(--shadow-overlay);
 }
 
 .alert-heading {
@@ -321,20 +321,22 @@
   width: fit-content;
   height: auto;
   padding: 4px 8px;
-  color: #123238;
+  color: var(--brand-contrast);
   font-size: 12px;
   font-weight: 700;
-  background: #b8efd3;
+  background: var(--brand);
   border-radius: 999px;
   box-shadow: none;
 }
 
 .kind-badge.walk {
-  background: #f7cd63;
+  color: var(--warning);
+  background: var(--warning-subtle);
 }
 
 .kind-badge.combined {
-  background: #ffa69e;
+  color: var(--danger);
+  background: var(--danger-subtle);
 }
 
 .alert-heading h1 {
@@ -345,7 +347,7 @@
 
 .alert-heading p {
   margin: 0;
-  color: #526166;
+  color: var(--fg-secondary);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -413,16 +415,16 @@
   min-width: 0;
   min-height: 38px;
   padding: 0 10px;
-  color: #263b40;
-  background: #eef2ec;
-  border: 1px solid rgb(31 42 46 / 12%);
+  color: var(--fg-primary);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
 }
 
 .alert-actions .primary {
-  color: #ffffff;
-  background: #217a70;
-  border-color: #217a70;
+  color: var(--brand-contrast);
+  background: var(--brand);
+  border-color: var(--brand);
 }
 
 .alert-actions button:disabled {
@@ -438,17 +440,17 @@
   margin-top: 10px;
   padding: 7px 10px;
   font-size: 12px;
-  background: rgb(31 42 46 / 7%);
+  background: var(--surface-hover);
   border-radius: 6px;
 }
 
 .alert-wait-time {
   font-weight: 600;
-  color: #1f2a2e;
+  color: var(--fg-primary);
 }
 
 .alert-wait-note {
-  color: #526166;
+  color: var(--fg-secondary);
 }
 
 .alert-activities {
@@ -462,7 +464,7 @@
   display: grid;
   gap: 5px;
   padding: 8px 10px;
-  background: rgb(33 122 112 / 8%);
+  background: var(--brand-subtle);
   border-radius: 7px;
 }
 
@@ -475,7 +477,7 @@
 
 .activity-guide-heading strong {
   min-width: 0;
-  color: #123238;
+  color: var(--fg-primary);
   font-size: 12.5px;
   overflow-y: auto;
   white-space: nowrap;
@@ -484,7 +486,7 @@
 
 .activity-guide-heading span {
   flex-shrink: 0;
-  color: #637174;
+  color: var(--fg-secondary);
   font-size: 10.5px;
 }
 
@@ -492,14 +494,14 @@
   width: 100%;
   height: 4px;
   overflow: hidden;
-  accent-color: #217a70;
+  accent-color: var(--brand);
   border: 0;
   border-radius: 999px;
 }
 
 .activity-guide p {
   margin: 0;
-  color: #384b50;
+  color: var(--fg-secondary);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -511,15 +513,15 @@
   gap: 12px;
   margin-top: 8px;
   padding: 7px 10px;
-  color: #17665d;
+  color: var(--brand);
   font-size: 12px;
-  background: #e7f4ec;
+  background: var(--brand-subtle);
   border-radius: 7px;
 }
 
 .alert-guided-hint small {
   flex-shrink: 0;
-  color: #637174;
+  color: var(--fg-secondary);
   font-size: 10.5px;
 }
 
@@ -530,8 +532,8 @@
   gap: 12px;
   margin-top: 8px;
   padding: 8px 10px;
-  background: #fff4cf;
-  border: 1px solid rgb(190 137 29 / 18%);
+  background: var(--warning-subtle);
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
   border-radius: 7px;
 }
 
@@ -542,13 +544,13 @@
 }
 
 .break-todo-card span {
-  color: #7f681e;
+  color: var(--warning);
   font-size: 10.5px;
 }
 
 .break-todo-card strong {
   overflow: hidden;
-  color: #463a18;
+  color: var(--fg-primary);
   font-size: 12.5px;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -561,9 +563,9 @@
   gap: 4px;
   min-height: 30px;
   padding: 0 9px;
-  color: #17665d;
-  background: #ffffff;
-  border: 1px solid rgb(33 122 112 / 22%);
+  color: var(--brand);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
   border-radius: 7px;
 }
 
@@ -2231,28 +2233,6 @@
 .sidebar-tools { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid rgb(31 42 46 / 8%); }
 .workbench-embedded-page { grid-column: 2 / -1; grid-row: 3; min-width: 0; overflow: auto; background: var(--surface-base); }
 .workbench-embedded-page .settings-shell { width: min(920px, 100%); min-height: 100%; margin: 0 auto; }
-.collection-page { width: min(1040px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 56px; }
-.collection-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; }
-.collection-header h1 { margin: 2px 0 6px; font-size: 30px; }
-.collection-header p { max-width: 620px; margin: 0; color: var(--color-text-muted); line-height: 1.6; }
-.collection-header button, .candidate-actions button, .character-card-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 12px; }
-.collection-page button.primary { color: white; background: var(--color-accent); border-color: var(--color-accent); }
-.eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--color-accent); font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.candidate-card { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(300px, 1.2fr); min-height: 290px; margin-top: 24px; overflow: hidden; background: linear-gradient(135deg, #173e3a, #2b625a); border-radius: 24px; box-shadow: 0 18px 40px rgb(31 42 46 / 14%); }
-.candidate-stage { display: grid; min-height: 280px; place-items: center; background: radial-gradient(circle, rgb(255 255 255 / 12%), transparent 65%); }
-.candidate-stage .procedural-character { width: 240px; height: 240px; }
-.candidate-copy { align-self: center; padding: 34px; color: white; }
-.candidate-copy .eyebrow { color: #b9ffea; }.candidate-copy h2 { margin: 8px 0; font-size: 30px; }.candidate-copy p { margin: 0 0 8px; color: rgb(255 255 255 / 78%); font-size: 15px; }.candidate-copy small { color: rgb(255 255 255 / 55%); }
-.candidate-actions { display: flex; gap: 10px; margin-top: 24px; }.candidate-actions button:not(.primary) { color: white; background: rgb(255 255 255 / 8%); border-color: rgb(255 255 255 / 18%); }
-.candidate-empty { display: flex; align-items: center; gap: 10px; margin-top: 24px; padding: 16px 18px; color: var(--color-text-muted); background: var(--surface-raised); border: 1px dashed rgb(31 42 46 / 16%); border-radius: 14px; }
-.collection-section { margin-top: 34px; }.collection-section-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }.collection-section-heading h2 { margin: 0; }.collection-section-heading span { color: var(--color-text-muted); }
-.character-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
-.character-card { overflow: hidden; background: var(--surface-raised); border: 1px solid rgb(31 42 46 / 10%); border-radius: 18px; transition: transform 160ms ease, border-color 160ms ease; }.character-card:hover { transform: translateY(-2px); }.character-card.is-active { border-color: color-mix(in srgb, var(--color-accent) 58%, transparent); }
-.character-card-stage { display: grid; height: 190px; place-items: center; background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--color-accent) 12%, white), var(--surface-base)); }.character-card-stage .procedural-character { width: 170px; height: 170px; }
-.character-card-body { display: grid; gap: 10px; padding: 14px; }.character-card-body > input { width: 100%; padding: 4px 2px; font-size: 16px; font-weight: 750; background: transparent; border: 0; border-bottom: 1px solid transparent; border-radius: 0; }.character-card-body > input:focus { border-bottom-color: var(--color-accent); outline: 0; }.character-card-body > p { min-height: 36px; margin: 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.5; }
-.character-card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.character-card-fields label { display: grid; gap: 4px; color: var(--color-text-muted); font-size: 10px; }.character-card-fields select { min-width: 0; height: 32px; }
-.character-card-actions { display: flex; gap: 7px; }.character-card-actions button:first-child { flex: 1; }.character-card-actions button.is-favorite { color: #bd5176; background: #fff0f5; }.character-card-actions button.danger-icon:hover { color: #b64237; background: #fff2ef; }
-.collection-empty { display: grid; place-items: center; min-height: 220px; color: var(--color-text-muted); text-align: center; background: var(--surface-raised); border-radius: 18px; }.collection-empty h3 { margin: 8px 0 0; }.collection-empty p { margin: 2px 0 0; }
 .active-task-pill { max-width: 360px; margin-top: 4px; padding: 4px 9px; overflow: hidden; color: var(--color-accent); background: rgb(33 122 112 / 9%); border-color: rgb(33 122 112 / 18%); text-overflow: ellipsis; white-space: nowrap; }
 .standalone-reminders { width: min(880px, calc(100% - 48px)); margin: 0 auto; padding: 32px 0 48px; }
 .standalone-reminders > header > div { display: flex; align-items: center; gap: 12px; }
@@ -2336,11 +2316,6 @@
   color: #17665d;
   font-weight: 600;
   background: rgb(33 122 112 / 12%);
-}
-
-.nav-item svg {
-  flex-shrink: 0;
-  color: #217a70;
 }
 
 .nav-item span:nth-child(2) {
@@ -3173,155 +3148,6 @@
 
 .empty-state svg {
   color: #cdd3cf;
-}
-
-/* ── Phase 0: Command Layer UI contract (USERPLAN §十六) ────────────────────
-   Every command-backed button shares one visual language: default, hover/focus,
-   pending (spinner + disabled), success (brief tick), and error/disabled.
-   Hit targets never fall below the internal standard (§二十三): icon actions
-   ≥36×36, checkboxes ≥32×32, primary buttons ≥40px tall, rows ≥44px. */
-
-.command-button {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 40px;
-  min-width: 40px;
-  padding: 8px 14px;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--color-text, #1f2a2e);
-  background: var(--color-surface, #ffffff);
-  border: 1px solid rgb(31 42 46 / 14%);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
-}
-
-.command-button:hover {
-  background: rgb(31 42 46 / 5%);
-}
-
-.command-button:focus-visible {
-  outline: 2px solid var(--color-accent, #65c7b4);
-  outline-offset: 2px;
-}
-
-.command-button.is-pending,
-.command-button.is-success,
-.command-button.is-error {
-  cursor: default;
-}
-
-.command-button.is-pending {
-  opacity: 0.7;
-}
-
-.command-button.is-success {
-  border-color: #2ecc71;
-  color: #1e8449;
-}
-
-.command-button.is-error {
-  border-color: #c0392b;
-  color: #c0392b;
-}
-
-.command-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.command-button .command-button-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.command-spinner {
-  display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: command-spin 0.6s linear infinite;
-}
-
-.command-success-mark {
-  display: inline-flex;
-  align-items: center;
-}
-
-@keyframes command-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ── AppHealth fail-loud banner (USERPLAN §十七, §二十八) ─────────────────── */
-.app-health-banner {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 16px;
-  margin: 0 0 12px;
-  background: rgb(192 57 43 / 8%);
-  border: 1px solid rgb(192 57 43 / 35%);
-  border-radius: 10px;
-}
-
-.app-health-banner-main {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  color: #9c2b1f;
-}
-
-.app-health-banner-main svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.app-health-banner-main strong {
-  display: block;
-  font-size: 13px;
-}
-
-.app-health-banner-main span {
-  display: block;
-  margin-top: 2px;
-  font-size: 11.5px;
-  color: #7c3a31;
-}
-
-.app-health-banner-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.app-health-banner-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 36px;
-  padding: 6px 12px;
-  font-size: 12px;
-  border-radius: 7px;
-  cursor: pointer;
-  border: 1px solid rgb(31 42 46 / 18%);
-  background: var(--color-surface, #ffffff);
-}
-
-.app-health-banner-actions button.primary {
-  background: var(--color-accent, #65c7b4);
-  border-color: var(--color-accent, #65c7b4);
-  color: #0c3d36;
 }
 
 /* ── Hit-target minimums (USERPLAN §二十三) ──────────────────────────────── */

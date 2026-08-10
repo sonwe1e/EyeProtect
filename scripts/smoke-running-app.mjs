@@ -86,8 +86,19 @@ const evaluate = async (target, expression) => {
   }
 };
 
+const waitForValue = async (target, expression, predicate, timeoutMs = 10_000) => {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await evaluate(target, expression);
+    if (predicate(last)) return last;
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for renderer state: ${JSON.stringify(last)}`);
+};
+
 const petTarget = await waitForTarget('#pet');
-const pet = await evaluate(
+const pet = await waitForValue(
   petTarget,
   `(async () => ({
     bridge: typeof window.eyeProtect === 'object',
@@ -97,7 +108,8 @@ const pet = await evaluate(
     collection: await window.eyeProtect.getCharacterCollection(),
     runtime: await window.eyeProtect.getRuntimeInfo(),
     settings: await window.eyeProtect.getSettings()
-  }))()`
+  }))()`,
+  (value) => Boolean(value?.bridge && value?.petShell && value?.character && value?.proceduralSvg && value?.collection?.candidate)
 );
 
 if (
@@ -113,16 +125,22 @@ if (
 
 await evaluate(petTarget, "window.eyeProtect.openWorkbench('collection')");
 const workbenchTarget = await waitForTarget('#workbench');
-await delay(500);
-const collection = await evaluate(workbenchTarget, `(() => ({
+const collection = await waitForValue(workbenchTarget, `(() => ({
   page: Boolean(document.querySelector('.collection-page')),
   candidate: Boolean(document.querySelector('.candidate-card .procedural-character svg'))
-}))()`);
+}))()`, (value) => value?.page && value?.candidate);
 if (!collection?.page || !collection.candidate) {
   throw new Error(`Character collection smoke check failed: ${JSON.stringify(collection)}`);
 }
 await evaluate(petTarget, "window.eyeProtect.openWorkbench('settings')");
-await delay(300);
+await waitForValue(
+  workbenchTarget,
+  `(() => ({
+    shell: Boolean(document.querySelector('.workbench-v2')),
+    settings: Boolean(document.querySelector('.settings-shell'))
+  }))()`,
+  (value) => value?.shell && value?.settings
+);
 const workbench = await evaluate(
   workbenchTarget,
   `(async () => {
@@ -133,7 +151,7 @@ const workbench = await evaluate(
     const tasks = await window.eyeProtect.createTask({ title: 'Packaged smoke task' });
     return {
       bridge: typeof window.eyeProtect === 'object',
-      workbenchShell: Boolean(document.querySelector('.workbench-shell')),
+      workbenchShell: Boolean(document.querySelector('.workbench-v2')),
       settingsShell: Boolean(document.querySelector('.settings-shell')),
       heading: document.querySelector('.settings-header h1')?.textContent,
       savedSnoozeMinutes: saved.snoozeMinutes,

@@ -188,7 +188,7 @@ export class TaskStore extends EventEmitter {
 
   getProjects(): Project[] {
     return (this.db.prepare(`
-      SELECT id, name, color, parent_id, sort_order, created_at, updated_at
+      SELECT id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at
       FROM projects
       ORDER BY sort_order, created_at, id
     `).all() as SqlRow[]).map(rowToProject);
@@ -214,7 +214,7 @@ export class TaskStore extends EventEmitter {
 
   getProject(id: string): Project | null {
     const row = this.db.prepare(`
-      SELECT id, name, color, parent_id, sort_order, created_at, updated_at
+      SELECT id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at
       FROM projects WHERE id = ?
     `).get(id) as SqlRow | undefined;
     return row ? rowToProject(row) : null;
@@ -471,6 +471,8 @@ export class TaskStore extends EventEmitter {
     const project = sanitizeProject({
       id: randomUUID(),
       name: typeof input.name === 'string' && input.name.trim() ? input.name : 'Untitled',
+      goal: input.goal,
+      viewMode: input.viewMode,
       color: input.color,
       parentId: input.parentId,
       sortOrder: this.nextProjectSortOrder(),
@@ -479,9 +481,9 @@ export class TaskStore extends EventEmitter {
     })!;
     const parentId = project.parentId && this.getProject(project.parentId) ? project.parentId : null;
     this.db.prepare(`
-      INSERT INTO projects(id, name, color, parent_id, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(project.id, project.name, project.color, parentId, project.sortOrder, project.createdAt, project.updatedAt);
+      INSERT INTO projects(id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(project.id, project.name, project.goal, project.viewMode, project.color, parentId, project.sortOrder, project.createdAt, project.updatedAt);
     const result = this.getProject(project.id)!;
     this.emit('projects-changed', this.getProjects());
     return result;
@@ -501,8 +503,8 @@ export class TaskStore extends EventEmitter {
       ? next.parentId
       : current.parentId;
     this.db.prepare(`
-      UPDATE projects SET name = ?, color = ?, parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?
-    `).run(next.name, next.color, parentId, next.sortOrder, now, id);
+      UPDATE projects SET name = ?, goal = ?, view_mode = ?, color = ?, parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?
+    `).run(next.name, next.goal, next.viewMode, next.color, parentId, next.sortOrder, now, id);
     const result = this.getProject(id);
     this.emit('projects-changed', this.getProjects());
     return result;
@@ -558,9 +560,9 @@ export class TaskStore extends EventEmitter {
       this.db.exec('UPDATE tasks SET project_id = NULL; DELETE FROM projects;');
       for (const project of safe) {
         this.db.prepare(`
-          INSERT INTO projects(id, name, color, parent_id, sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, NULL, ?, ?, ?)
-        `).run(project.id, project.name, project.color, project.sortOrder, project.createdAt, project.updatedAt);
+          INSERT INTO projects(id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        `).run(project.id, project.name, project.goal, project.viewMode, project.color, project.sortOrder, project.createdAt, project.updatedAt);
       }
       // Same cycle guard as replaceAll: skip any parent link that would close a
       // loop (or point at a missing project), leaving parent_id NULL instead.
@@ -628,12 +630,13 @@ export class TaskStore extends EventEmitter {
     this.transaction(() => {
       for (const project of projectsById.values()) {
         this.db.prepare(`
-          INSERT INTO projects(id, name, color, parent_id, sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, NULL, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color,
+          INSERT INTO projects(id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET name = excluded.name, goal = excluded.goal,
+            view_mode = excluded.view_mode, color = excluded.color,
             parent_id = NULL, sort_order = excluded.sort_order,
             created_at = excluded.created_at, updated_at = excluded.updated_at
-        `).run(project.id, project.name, project.color, project.sortOrder, project.createdAt, project.updatedAt);
+        `).run(project.id, project.name, project.goal, project.viewMode, project.color, project.sortOrder, project.createdAt, project.updatedAt);
       }
       for (const task of byId.values()) {
         const normalized = this.normalizeRelations({ ...task, parentId: null });
@@ -1026,6 +1029,8 @@ export class TaskStore extends EventEmitter {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        goal TEXT,
+        view_mode TEXT NOT NULL DEFAULT 'list' CHECK(view_mode IN ('list','board')),
         color TEXT,
         parent_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
         sort_order INTEGER NOT NULL,
@@ -1138,6 +1143,13 @@ export class TaskStore extends EventEmitter {
       );
     `);
     this.migrateTaskStatusModel();
+    const projectColumns = this.db.prepare('PRAGMA table_info(projects)').all() as SqlRow[];
+    if (!projectColumns.some((column) => column.name === 'goal')) {
+      this.db.exec('ALTER TABLE projects ADD COLUMN goal TEXT');
+    }
+    if (!projectColumns.some((column) => column.name === 'view_mode')) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN view_mode TEXT NOT NULL DEFAULT 'list'");
+    }
     const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
     if (!taskColumns.some((column) => column.name === 'remind_on_break')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN remind_on_break INTEGER NOT NULL DEFAULT 0');
@@ -1416,6 +1428,8 @@ const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
 const rowToProject = (row: SqlRow): Project => sanitizeProject({
   id: String(row.id),
   name: String(row.name),
+  goal: typeof row.goal === 'string' ? row.goal : null,
+  viewMode: row.view_mode === 'board' ? 'board' : 'list',
   color: typeof row.color === 'string' ? row.color : null,
   parentId: typeof row.parent_id === 'string' ? row.parent_id : null,
   sortOrder: Number(row.sort_order),

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { TaskStore } from '../src/main/taskStore';
 import {
+  PROJECT_GOAL_MAX,
   PROJECT_NAME_MAX,
   TASK_TITLE_MAX,
   sanitizeTask,
@@ -236,6 +237,26 @@ test('createProject sanitizes name and color, defaults invalid color to null', (
   });
 });
 
+test('project goal and view mode persist and update', () => {
+  withTempStore((store, dir) => {
+    const project = store.createProject({
+      name: 'Research',
+      goal: `  ${'g'.repeat(PROJECT_GOAL_MAX + 5)}  `,
+      viewMode: 'board'
+    }, NOW);
+    assert.equal(project.goal?.length, PROJECT_GOAL_MAX);
+    assert.equal(project.viewMode, 'board');
+
+    const updated = store.updateProject(project.id, { goal: 'Ship the paper', viewMode: 'list' }, NOW + 1)!;
+    assert.equal(updated.goal, 'Ship the paper');
+    assert.equal(updated.viewMode, 'list');
+
+    const reloaded = new TaskStore(dir).getProject(project.id)!;
+    assert.equal(reloaded.goal, 'Ship the paper');
+    assert.equal(reloaded.viewMode, 'list');
+  });
+});
+
 test('createProject truncates name to PROJECT_NAME_MAX and rejects blank names', () => {
   withTempStore((store) => {
     const long = store.createProject({ name: 'a'.repeat(PROJECT_NAME_MAX + 5) }, NOW);
@@ -288,7 +309,7 @@ test('deleteProject returns false for an unknown id', () => {
 test('tasks and projects survive a reload from disk', () => {
   withTempStore((store, dir) => {
     store.createTask({ title: 'persist me', tags: ['a', 'b'], reminderAt: NOW + DAY }, NOW);
-    store.createProject({ name: 'Persist', color: '#abc' }, NOW);
+    store.createProject({ name: 'Persist', goal: 'Keep context', viewMode: 'board', color: '#abc' }, NOW);
 
     const reloaded = new TaskStore(dir);
     const tasks = reloaded.getTasks();
@@ -301,6 +322,8 @@ test('tasks and projects survive a reload from disk', () => {
     assert.equal(projects.length, 1);
     assert.equal(projects[0].name, 'Persist');
     assert.equal(projects[0].color, '#abc');
+    assert.equal(projects[0].goal, 'Keep context');
+    assert.equal(projects[0].viewMode, 'board');
   });
 });
 

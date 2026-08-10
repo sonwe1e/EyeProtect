@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { Check } from 'lucide-react';
 import type { CommandState } from '../../../shared/types';
+import { buttonClassNames, type ButtonVariant } from './Button';
 
 /**
  * Command-backed button (USERPLAN §十六 UI Contract).
@@ -24,6 +26,7 @@ export interface CommandButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
   successContent?: ReactNode;
   /** How long (ms) to hold the success state before reverting to idle. */
   successHoldMs?: number;
+  variant?: ButtonVariant;
   children: ReactNode;
 }
 
@@ -32,6 +35,7 @@ export function CommandButton({
   errorReason,
   successContent,
   successHoldMs = 1200,
+  variant = 'secondary',
   disabled,
   children,
   className = '',
@@ -59,14 +63,15 @@ export function CommandButton({
 
   const isPending = state === 'pending';
   const isDisabled = disabled || isPending;
-  const classNames = [
+  const visualState = state === 'success' && !showSuccess ? 'idle' : state;
+  const classNames = buttonClassNames(variant, [
     'command-button',
-    `is-${state}`,
+    `is-${visualState}`,
     showSuccess ? 'is-success-flash' : '',
     className
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(' '));
 
   return (
     <button
@@ -84,7 +89,7 @@ export function CommandButton({
       {isPending ? <span className="command-spinner" aria-hidden="true" /> : null}
       {showSuccess ? (
         <span className="command-success-mark" aria-hidden="true">
-          {successContent ?? '✓'}
+          {successContent ?? <Check size={14} />}
         </span>
       ) : null}
       <span className="command-button-label">{children}</span>

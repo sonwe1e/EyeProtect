@@ -5,6 +5,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   Notification,
   powerMonitor,
   shell,
@@ -27,8 +28,6 @@ import type {
   HotkeyStatus,
   PetAccessory,
   PreAlertAction,
-  ProjectInput,
-  ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
   Settings,
@@ -61,6 +60,7 @@ import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { TaskWorkTracker } from './taskWorkTracker';
 import { CharacterService } from './characterService';
+import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const rendererIndexPath = join(moduleDir, '../renderer/index.html');
@@ -432,6 +432,8 @@ app.whenReady().then(async () => {
   taskScheduler.arm();
   standaloneReminders.arm();
   const windows = new AppWindows(settingsStore, scheduler, () => taskService.getTasks());
+  const refreshSystemTheme = (): void => windows.refreshWorkbenchTheme();
+  nativeTheme.on('updated', refreshSystemTheme);
 
   // ── AppHealth (USERPLAN §二十八) ──────────────────────────────────────────
   // Derive subsystem health from real state so the renderer can explain *why* an
@@ -1132,15 +1134,6 @@ app.whenReady().then(async () => {
     return input;
   };
 
-  const asProjectInput = (value: unknown): ProjectInput => {
-    const candidate = (value && typeof value === 'object' ? value : {}) as Partial<ProjectInput>;
-    return {
-      name: asString(candidate.name),
-      color: typeof candidate.color === 'string' ? candidate.color : undefined,
-      parentId: typeof candidate.parentId === 'string' ? candidate.parentId : undefined
-    };
-  };
-
   handleIpc('task:list', () => taskService.getTasks());
   handleIpc('task:get', (id) => taskService.getTask(asString(id)));
   handleIpc('task:create', (input) =>
@@ -1176,7 +1169,7 @@ app.whenReady().then(async () => {
   );
   handleIpc('project:update', (id, input) =>
     requireWritableTaskDatabase(() =>
-      taskService.updateProject(asString(id), asProjectInput(input) as ProjectUpdateInput)
+      taskService.updateProject(asString(id), asProjectUpdateInput(input))
     )
   );
   handleIpc('project:delete', (id) =>
@@ -1242,6 +1235,7 @@ app.whenReady().then(async () => {
     scheduler.stop();
     taskStore.close();
     globalShortcut.unregisterAll();
+    nativeTheme.removeListener('updated', refreshSystemTheme);
   });
 });
 

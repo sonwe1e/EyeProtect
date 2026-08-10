@@ -1,23 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderOpen, Plus, Trash2 } from 'lucide-react';
-import {
-  PROJECT_NAME_MAX,
-  type Project,
-  type ProjectInput,
-  type Task
-} from '../../../../shared/types';
+import { PROJECT_NAME_MAX, type Project, type ProjectInput, type Task } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
+import { Button, Dialog, Field, IconButton, ProjectDot, TextField } from '../../components/primitives';
 import { useCommand } from '../../hooks/useCommand';
 import { commands } from '../../lib/commands';
 
-/** One project row. Fully owns its rename draft, rename command, and delete
- *  command, so a failure on one row can never bleed onto a sibling row. */
-function ProjectItem({
-  project,
-  count,
-  isActive,
-  onSelect
-}: {
+const PROJECT_COLORS = ['#2e6f61', '#4e6f91', '#7b628f', '#9a6a35', '#6d7a43'];
+
+function ProjectItem({ project, count, isActive, onSelect }: {
   project: Project;
   count: number;
   isActive: boolean;
@@ -28,36 +19,22 @@ function ProjectItem({
   const rename = useCommand((name: string) => commands.projects.update(project.id, { name }));
   const remove = useCommand(() => commands.projects.remove(project.id));
 
-  // Re-initialize the draft whenever this row (re)enters rename mode.
   useEffect(() => {
-    if (isRenaming) {
-      setRenameText(project.name);
-    }
+    if (isRenaming) setRenameText(project.name);
   }, [isRenaming, project.name]);
-
-  const startRename = (): void => {
-    setIsRenaming(true);
-  };
 
   const commitRename = (): void => {
     const name = renameText.trim();
-    if (name && name !== project.name) {
-      void rename.run(name);
-    }
+    if (name && name !== project.name) void rename.run(name);
     setIsRenaming(false);
   };
 
   return (
-    <li
-      className={`project-item ${isActive ? 'is-active' : ''}`.trim()}
-      style={{ ['--chip-color' as string]: project.color ?? '#8aa0a6' }}
-      onClick={() => onSelect(project.id)}
-    >
-      <span className="project-item-dot" />
+    <li className={`project-item ${isActive ? 'is-active' : ''}`.trim()} style={{ ['--chip-color' as string]: project.color ?? '#718078' }} onClick={() => onSelect(project.id)}>
+      <ProjectDot color={project.color} className="project-item-dot" />
       {isRenaming ? (
         <input
           className="project-rename-input"
-          type="text"
           autoFocus
           value={renameText}
           maxLength={PROJECT_NAME_MAX}
@@ -65,164 +42,74 @@ function ProjectItem({
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => setRenameText(event.currentTarget.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commitRename();
-            } else if (event.key === 'Escape') {
-              event.stopPropagation();
-              setRenameText(project.name);
-              setIsRenaming(false);
-            }
+            if (event.key === 'Enter') commitRename();
+            if (event.key === 'Escape') setIsRenaming(false);
           }}
           onBlur={commitRename}
         />
       ) : (
-        <span
-          className="project-item-name"
-          title={`${project.name}（双击重命名）`}
-          onDoubleClick={(event) => {
-            event.stopPropagation();
-            startRename();
-          }}
-        >
-          {project.name}
-        </span>
+        <span className="project-item-name" title={`${project.name}（双击重命名）`} onDoubleClick={(event) => { event.stopPropagation(); setIsRenaming(true); }}>{project.name}</span>
       )}
       <span className="project-item-count">{count}</span>
-      <CommandButton
-        type="button"
-        className="project-item-remove"
-        state={remove.state}
-        errorReason={remove.error?.message}
-        title="删除项目"
-        aria-label={`删除项目「${project.name}」`}
-        onClick={(event) => {
-          event.stopPropagation();
-          void remove.run();
-        }}
-      >
-        <Trash2 size={12} />
-      </CommandButton>
+      <CommandButton className="project-item-remove" state={remove.state} errorReason={remove.error?.message} aria-label={`删除项目「${project.name}」`} onClick={(event) => { event.stopPropagation(); void remove.run(); }}><Trash2 size={14} /></CommandButton>
     </li>
   );
 }
 
-/** Sidebar project list: each item filters the center column to that project.
- *  All mutations (add/rename/delete) run through the command layer so a failure
- *  is shown on the control instead of being silently dropped. */
-export function ProjectList({
-  projects,
-  tasks,
-  selectedProjectId,
-  onSelect
-}: {
+export function ProjectList({ projects, tasks, selectedProjectId, onSelect }: {
   projects: Project[];
   tasks: Task[];
   selectedProjectId: string | null;
   onSelect: (id: string | null) => void;
 }): JSX.Element {
-  const [adding, setAdding] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const addInputRef = useRef<HTMLInputElement>(null);
-
+  const [color, setColor] = useState(PROJECT_COLORS[0]);
   const create = useCommand((input: ProjectInput) => commands.projects.create(input));
-
   const taskCountByProject = useMemo(() => {
     const counts = new Map<string, number>();
     for (const task of tasks) {
-      if (task.projectId && task.status === 'open') {
-        counts.set(task.projectId, (counts.get(task.projectId) ?? 0) + 1);
-      }
+      if (task.projectId && task.status === 'open') counts.set(task.projectId, (counts.get(task.projectId) ?? 0) + 1);
     }
     return counts;
   }, [tasks]);
 
-  useEffect(() => {
-    if (adding) {
-      addInputRef.current?.focus();
-    }
-  }, [adding]);
-
-  const cancelAdd = useCallback(() => {
-    setAdding(false);
+  const closeDialog = useCallback(() => {
+    if (create.isPending) return;
+    setDialogOpen(false);
     setNewName('');
-  }, []);
+    create.reset();
+  }, [create.isPending, create.reset]);
 
   const commitAdd = useCallback(() => {
     const name = newName.trim();
-    if (!name) {
-      return;
-    }
-    const used = new Set(projects.map((project) => project.color).filter(Boolean));
-    const palette = ['#217a70', '#e67e22', '#c0392b', '#3498db', '#8e44ad', '#16a085'];
-    const color = palette.find((entry) => !used.has(entry)) ?? palette[0];
+    if (!name) return;
     void create.run({ name, color }).then((result) => {
-      // Only close + clear on success. On failure (e.g. read-only database) the
-      // input stays open with the name preserved so the user can retry.
-      if (result.ok) {
-        setNewName('');
-        setAdding(false);
-      }
+      if (!result.ok) return;
+      const created = [...result.data].sort((a, b) => b.createdAt - a.createdAt)[0];
+      setDialogOpen(false);
+      setNewName('');
+      create.reset();
+      if (created) onSelect(created.id);
     });
-  }, [newName, projects, create]);
+  }, [newName, color, create.run, create.reset, onSelect]);
 
   return (
     <div className="project-list">
-      <div className="project-list-header">
-        <span className="project-list-title">
-          <FolderOpen size={13} />
-          项目
-        </span>
-        <CommandButton
-          type="button"
-          className="project-add"
-          title="新建项目"
-          aria-label="新建项目"
-          onClick={() => setAdding((value) => !value)}
-        >
-          <Plus size={13} />
-        </CommandButton>
-      </div>
-      {adding ? (
-        <div className="project-add-row">
-          <input
-            ref={addInputRef}
-            type="text"
-            placeholder="项目名称"
-            value={newName}
-            maxLength={PROJECT_NAME_MAX}
-            onChange={(event) => setNewName(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                commitAdd();
-              } else if (event.key === 'Escape') {
-                event.stopPropagation();
-                cancelAdd();
-              }
-            }}
-            onBlur={commitAdd}
-          />
-        </div>
-      ) : null}
+      <div className="project-list-header"><span className="project-list-title"><FolderOpen size={15} />项目</span><IconButton className="project-add" aria-label="新建项目" title="新建项目" onClick={() => setDialogOpen(true)}><Plus size={16} /></IconButton></div>
       <ul className="project-list-items">
-        {projects.length === 0 ? (
-          <li className="project-empty">还没有项目。</li>
-        ) : (
-          projects.map((project) => {
-            const count = taskCountByProject.get(project.id) ?? 0;
-            return (
-              <ProjectItem
-                key={project.id}
-                project={project}
-                count={count}
-                isActive={selectedProjectId === project.id}
-                onSelect={(id) => onSelect(selectedProjectId === id ? null : id)}
-              />
-            );
-          })
-        )}
+        {projects.length === 0 ? <li className="project-empty">还没有项目</li> : projects.map((project) => <ProjectItem key={project.id} project={project} count={taskCountByProject.get(project.id) ?? 0} isActive={selectedProjectId === project.id} onSelect={(id) => onSelect(selectedProjectId === id ? null : id)} />)}
       </ul>
+      <Dialog
+        open={dialogOpen}
+        title="新建项目"
+        description="用项目聚合一个清晰目标下的任务。"
+        onClose={closeDialog}
+        footer={<><Button onClick={closeDialog}>取消</Button><CommandButton variant="primary" state={create.state} errorReason={create.error?.message} disabled={!newName.trim()} onClick={commitAdd}>创建项目</CommandButton></>}
+      >
+        <Field label="名称" error={create.error?.message}><TextField value={newName} maxLength={PROJECT_NAME_MAX} placeholder="例如：Research" aria-invalid={create.error ? true : undefined} onChange={(event) => setNewName(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commitAdd(); } }} /></Field>
+        <fieldset className="project-color-field"><legend>颜色</legend><div>{PROJECT_COLORS.map((entry) => <button key={entry} type="button" className={color === entry ? 'is-selected' : ''} style={{ ['--project-color' as string]: entry }} aria-label={`选择颜色 ${entry}`} aria-pressed={color === entry} onClick={() => setColor(entry)} />)}</div></fieldset>
+      </Dialog>
     </div>
   );
 }

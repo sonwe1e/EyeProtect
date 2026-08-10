@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, nativeTheme, screen } from 'electron';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
 import { getAlertBounds } from './windowBounds';
+import { getWorkbenchBackgroundColor } from './workbenchTheme';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(moduleDir, '../preload/index.cjs');
@@ -270,7 +271,10 @@ export class AppWindows {
       minHeight: 560,
       title: 'EyeProtect · 工作台',
       autoHideMenuBar: true,
-      backgroundColor: '#f7f2e8',
+      backgroundColor: getWorkbenchBackgroundColor(
+        this.settingsStore.get().theme,
+        nativeTheme.shouldUseDarkColors
+      ),
       show: false,
       webPreferences: {
         preload: preloadPath,
@@ -506,7 +510,17 @@ export class AppWindows {
 
   /** Preferences matter to the settings window and the pet's skin/size. */
   broadcastSettings(settings: Settings): void {
+    this.refreshWorkbenchTheme(settings);
     this.sendTo([this.workbenchWindow, this.petWindow], 'settings:changed', settings);
+  }
+
+  /** Keep the native window fill in lockstep with CSS when the OS theme changes. */
+  refreshWorkbenchTheme(settings = this.settingsStore.get()): void {
+    if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      this.workbenchWindow.setBackgroundColor(
+        getWorkbenchBackgroundColor(settings.theme, nativeTheme.shouldUseDarkColors)
+      );
+    }
   }
 
   /**

@@ -249,6 +249,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
               key={key}
               type="button"
               className={priority === key ? 'is-active' : ''}
+              aria-pressed={priority === key}
               onClick={() => setPriority(key)}
             >
               {PRIORITY_LABELS[key]}
@@ -265,6 +266,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
               key={key}
               type="button"
               className={context === key ? 'is-active' : ''}
+              aria-pressed={context === key}
               onClick={() => {
                 setContext(key);
                 if (key === 'desk') setRemindOnBreak(false);
@@ -316,6 +318,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
               key={key}
               type="button"
               className={status === key ? 'is-active' : ''}
+              aria-pressed={status === key}
               disabled={statusCommand.isPending}
               onClick={() => {
                 setStatus(key);
@@ -436,7 +439,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
       ) : null}
       {recurrenceType === 'weekly' ? (
         <div className="weekday-picker">
-          {WEEKDAY_LABELS.map((label, day) => <button key={label} type="button" className={recurrenceWeekdays.includes(day) ? 'is-active' : ''} onClick={() => setRecurrenceWeekdays((current) => current.includes(day) ? current.filter((entry) => entry !== day) : [...current, day].sort())}>{label}</button>)}
+          {WEEKDAY_LABELS.map((label, day) => <button key={label} type="button" className={recurrenceWeekdays.includes(day) ? 'is-active' : ''} aria-pressed={recurrenceWeekdays.includes(day)} onClick={() => setRecurrenceWeekdays((current) => current.includes(day) ? current.filter((entry) => entry !== day) : [...current, day].sort())}>{label}</button>)}
         </div>
       ) : null}
       {recurrenceType === 'monthly' ? <label className="detail-field"><span>每月日期</span><input type="number" min={1} max={31} value={monthlyDay} onChange={(event) => setMonthlyDay(Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)))} /></label> : null}

@@ -8,6 +8,7 @@ import {
   type TodoPriority
 } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
+import { DateTimeField, Field, Select } from '../../components/primitives';
 import { useCommand } from '../../hooks/useCommand';
 import { commands } from '../../lib/commands';
 
@@ -86,6 +87,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
       <div className="task-compose-row">
         <input
           ref={inputRef}
+          data-quick-add="true"
           type="text"
           placeholder="添加任务，回车快速创建..."
           value={draft}
@@ -155,21 +157,19 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
             />
             <span>休息时提醒</span>
           </label>
-          <label className="task-compose-field">
-            <span>项目</span>
-            <select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
+          <Field className="task-compose-field" label="项目">
+            <Select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
               <option value="">无</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="task-compose-field">
-            <span>截止日期</span>
-            <input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.currentTarget.value)} />
-          </label>
+            </Select>
+          </Field>
+          <Field className="task-compose-field" label="截止日期">
+            <DateTimeField value={dueAt} onChange={(event) => setDueAt(event.currentTarget.value)} />
+          </Field>
         </div>
       ) : null}
     </form>

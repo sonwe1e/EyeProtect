@@ -44,6 +44,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify UI contract
+        run: npm run verify:ui-contract
+
       - name: Build
         run: npm run build
 
@@ -59,14 +62,54 @@ jobs:
           New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
           $env:EYEPROTECT_DATA_DIR = $smokeData
           $env:EYEPROTECT_SMOKE = '1'
+          $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
           $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
           $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9333' -PassThru -WindowStyle Hidden
           try {
             npm run smoke:running -- 9333
             npm run smoke:experience -- 9333
+            npm run capture:ui -- 9333 $snapshotDir
           } finally {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
+
+      - name: Upload UI snapshots
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-UI-snapshots
+          path: ${{ runner.temp }}/eyeprotect-ui-snapshots/*.png
+          if-no-files-found: error
+
+      - name: Capture Windows scale-factor matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          $matrix = @(
+            @{ Label = '100'; Scale = 1.0; Port = 9340 },
+            @{ Label = '125'; Scale = 1.25; Port = 9341 },
+            @{ Label = '150'; Scale = 1.5; Port = 9342 },
+            @{ Label = '200'; Scale = 2.0; Port = 9343 }
+          )
+          foreach ($entry in $matrix) {
+            $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP "eyeprotect-scale-$($entry.Label)"
+            New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+            $process = Start-Process -FilePath $executable -ArgumentList "--remote-debugging-port=$($entry.Port)", "--force-device-scale-factor=$($entry.Scale)" -PassThru -WindowStyle Hidden
+            try {
+              node scripts/capture-ui-scale.mjs $entry.Port $snapshotDir $entry.Label $entry.Scale
+            } finally {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Upload scale-factor snapshots
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-UI-scale-snapshots
+          path: ${{ runner.temp }}/eyeprotect-ui-snapshots/*scale-*.png
+          if-no-files-found: error
 
       - name: Smoke test emergency reminder fallback
         shell: pwsh

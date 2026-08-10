@@ -233,6 +233,8 @@ export interface Task {
 export interface Project {
   id: string;
   name: string;
+  goal: string | null;
+  viewMode: 'list' | 'board';
   color: string | null;
   parentId: string | null;
   sortOrder: number;
@@ -287,6 +289,8 @@ export interface UndoState {
 
 export interface ProjectInput {
   name: string;
+  goal?: string | null;
+  viewMode?: 'list' | 'board';
   color?: string | null;
   parentId?: string | null;
 }
@@ -944,6 +948,7 @@ export const TASK_TITLE_MAX = 120;
 export const TASK_NOTES_MAX = 2000;
 export const TASK_TAGS_MAX = 10;
 export const PROJECT_NAME_MAX = 60;
+export const PROJECT_GOAL_MAX = 240;
 
 const sanitizeRecurrenceRule = (value: unknown): RecurrenceRule | null => {
   if (!value || typeof value !== 'object') {
@@ -1135,9 +1140,15 @@ export const sanitizeProject = (value: unknown, now: number = Date.now()): Proje
     typeof candidate.sortOrder === 'number' && Number.isFinite(candidate.sortOrder)
       ? Math.round(candidate.sortOrder)
       : 0;
+  const goal = typeof candidate.goal === 'string'
+    ? candidate.goal.trim().slice(0, PROJECT_GOAL_MAX) || null
+    : null;
+  const viewMode = candidate.viewMode === 'board' ? 'board' : 'list';
   return {
     id: candidate.id,
     name,
+    goal,
+    viewMode,
     color: asProjectColor(candidate.color),
     parentId,
     sortOrder,

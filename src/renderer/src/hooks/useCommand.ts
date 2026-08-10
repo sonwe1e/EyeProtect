@@ -38,6 +38,8 @@ export function useCommand<T, Args extends unknown[]>(
   // covers the keyboard-Enter + click double-submit path. Resolved once the
   // current flight settles.
   const inFlight = useRef<Promise<CommandResult<T>> | null>(null);
+  const commandRef = useRef(command);
+  commandRef.current = command;
 
   const run = useCallback(
     async (...args: Args): Promise<CommandResult<T>> => {
@@ -48,7 +50,7 @@ export function useCommand<T, Args extends unknown[]>(
       const myTurn = ++generation.current;
       setState('pending');
       setResult(null);
-      inFlight.current = command(...args);
+      inFlight.current = commandRef.current(...args);
       try {
         const outcome = await inFlight.current;
         // A newer call started while we were awaiting — drop this stale result.
@@ -66,7 +68,7 @@ export function useCommand<T, Args extends unknown[]>(
         inFlight.current = null;
       }
     },
-    [command]
+    []
   );
 
   const reset = useCallback(() => {
