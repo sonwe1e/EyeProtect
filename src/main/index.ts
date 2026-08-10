@@ -24,6 +24,7 @@ import type {
   AppHealth,
   CharacterAppearanceMode,
   CharacterMaterial,
+  DailyTaskPlanInput,
   HotkeyAction,
   HotkeyStatus,
   PetAccessory,
@@ -39,7 +40,7 @@ import type {
   TaskUpdateInput
 } from '../shared/types';
 import type { Project } from '../shared/types';
-import { DEFAULT_SETTINGS, sanitizeStandaloneReminderSchedule } from '../shared/types';
+import { DEFAULT_SETTINGS, isLocalDateKey, sanitizeStandaloneReminderSchedule } from '../shared/types';
 import { createBackup, parseBackup } from './backup';
 import { startDiagnostics } from './diagnostics';
 import { ReminderScheduler } from './reminders';
@@ -1205,6 +1206,60 @@ app.whenReady().then(async () => {
   );
   handleIpc('project:delete', (id) =>
     requireWritableTaskDatabase(() => taskService.deleteProject(asString(id)))
+  );
+
+  // ── Daily planning domain (USERPLAN 1.2 PR3) ────────────────────────────
+  // The store enforces the (task, date) uniqueness and rank exclusivity; IPC
+  // only sanitizes transport input. Reads accept a civil date key, never a
+  // timestamp — day math stays on the calendar module's side.
+  const asDailyPlanInput = (value: unknown): DailyTaskPlanInput => {
+    if (!value || typeof value !== 'object') {
+      throw new Error('无效的日计划输入');
+    }
+    const candidate = value as Partial<DailyTaskPlanInput>;
+    if (typeof candidate.taskId !== 'string' || !candidate.taskId) {
+      throw new Error('无效的日计划输入');
+    }
+    if (!isLocalDateKey(candidate.localDate)) {
+      throw new Error('无效的日计划输入');
+    }
+    return {
+      taskId: candidate.taskId,
+      localDate: candidate.localDate,
+      plannedMinutes:
+        candidate.plannedMinutes === null ||
+        (typeof candidate.plannedMinutes === 'number' && Number.isFinite(candidate.plannedMinutes))
+          ? candidate.plannedMinutes
+          : undefined,
+      dailyRank:
+        candidate.dailyRank === 1 || candidate.dailyRank === 2 || candidate.dailyRank === 3
+          ? candidate.dailyRank
+          : candidate.dailyRank === null
+            ? null
+            : undefined,
+      sortOrder:
+        typeof candidate.sortOrder === 'number' && Number.isInteger(candidate.sortOrder) && candidate.sortOrder >= 0
+          ? candidate.sortOrder
+          : undefined
+    };
+  };
+  handleIpc('plan:day:list', (localDate) =>
+    isLocalDateKey(localDate)
+      ? taskStore.getDailyPlans(localDate)
+      : (() => {
+          throw new Error('无效的日计划输入');
+        })()
+  );
+  handleIpc('plan:upsert', (input) =>
+    requireWritableTaskDatabase(() => taskStore.upsertDailyPlan(asDailyPlanInput(input)))
+  );
+  handleIpc('plan:remove', (taskId, localDate) =>
+    requireWritableTaskDatabase(() => {
+      if (!isLocalDateKey(localDate)) {
+        throw new Error('无效的日计划输入');
+      }
+      return taskStore.removeDailyPlan(asString(taskId), localDate);
+    })
   );
   handleIpc('window:workbench:open', (section) =>
     windows.showWorkbenchWindow(

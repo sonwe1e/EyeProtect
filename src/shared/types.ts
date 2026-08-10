@@ -444,6 +444,12 @@ export interface Settings {
   snoozeMinutes: number;
   /** Idle/lock duration that qualifies as a completed natural break. */
   naturalBreakMinutes: number;
+  /**
+   * Daily Planning capacity (USERPLAN 1.2 §十 step 3): how many minutes of
+   * work the user realistically has per day. Planned workload beyond this is
+   * flagged as overcommitment instead of being silently accepted.
+   */
+  dailyCapacityMinutes: number;
   /** How reminders enforce themselves; see ReminderMode. */
   reminderMode: ReminderMode;
   /** Soft bubble this many seconds before each deadline; 0 turns it off. */
@@ -757,6 +763,9 @@ export interface EyeProtectApi {
    *  onTasksChanged (bulk), single-entity mutations arrive incrementally. */
   onTaskUpserted: (callback: (task: Task) => void) => () => void;
   onTaskRemoved: (callback: (taskId: string) => void) => () => void;
+  getDailyPlans: (localDate: string) => Promise<DailyTaskPlan[]>;
+  upsertDailyPlan: (input: DailyTaskPlanInput) => Promise<DailyTaskPlan[]>;
+  removeDailyPlan: (taskId: string, localDate: string) => Promise<DailyTaskPlan[]>;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
@@ -818,6 +827,7 @@ export const DEFAULT_SETTINGS: Settings = {
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
   naturalBreakMinutes: 5,
+  dailyCapacityMinutes: 360,
   reminderMode: 'guided',
   preAlertSeconds: 30,
   startWithWindows: false,
@@ -846,6 +856,7 @@ export const SETTINGS_LIMITS = {
   walkIntervalMinutes: { min: 1, max: 240 },
   snoozeMinutes: { min: 1, max: 60 },
   naturalBreakMinutes: { min: 1, max: 30 },
+  dailyCapacityMinutes: { min: 60, max: 960 },
   preAlertSeconds: PRE_ALERT_LIMIT,
   petScale: { min: 0.7, max: 1.8 },
   minuteOfDay: { min: 0, max: 24 * 60 - 1 }

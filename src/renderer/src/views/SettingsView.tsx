@@ -372,6 +372,15 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
           onCommit={(value) => void update({ naturalBreakMinutes: value })}
         />
         <NumberField
+          label="每日可工作容量"
+          value={settings.dailyCapacityMinutes}
+          min={SETTINGS_LIMITS.dailyCapacityMinutes.min}
+          max={SETTINGS_LIMITS.dailyCapacityMinutes.max}
+          suffix="分钟"
+          icon={<Clock3 size={18} />}
+          onCommit={(value) => void update({ dailyCapacityMinutes: value })}
+        />
+        <NumberField
           label="提前预告"
           value={settings.preAlertSeconds}
           min={SETTINGS_LIMITS.preAlertSeconds.min}

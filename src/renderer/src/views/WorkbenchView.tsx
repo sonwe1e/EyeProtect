@@ -20,8 +20,10 @@ import {
   type FailedDeliveryNotice,
   type Task
 } from '../../../shared/types';
+import { localDateKey } from '../../../shared/calendar';
 import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
+import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
 import { CommandButton } from '../components/CommandButton';
 import { Button, IconButton, NavItem, SideSheet, StatusChip, Toast } from '../components/primitives';
 import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
@@ -39,7 +41,9 @@ import { useClock } from '../hooks/useClock';
 import { useCommand } from '../hooks/useCommand';
 import { useProjects } from '../hooks/useProjects';
 import { useReminderStatus } from '../hooks/useReminderStatus';
+import { useSettings } from '../hooks/useSettings';
 import { useTasks } from '../hooks/useTasks';
+import { useDailyPlans } from '../hooks/useDailyPlans';
 import { useTaskWork } from '../hooks/useTaskWork';
 import { useUndo } from '../hooks/useUndo';
 import { commands } from '../lib/commands';
@@ -65,6 +69,7 @@ export default function WorkbenchView(): JSX.Element {
   const work = useTaskWork();
   const undo = useUndo();
   const health = useAppHealth();
+  const { settings } = useSettings();
   const now = useClock(60_000);
   const moveTask = useCommand((input: Parameters<typeof commands.tasks.move>[0]) => commands.tasks.move(input));
   const undoTask = useCommand((id: string) => commands.tasks.undo(id));
@@ -73,6 +78,7 @@ export default function WorkbenchView(): JSX.Element {
   const pause = useCommand((minutes: number) => commands.scheduler.pause(minutes));
   const resume = useCommand(() => commands.scheduler.resume());
   const [section, setSection] = useState<WorkbenchSection>('today');
+  const [planningOpen, setPlanningOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -110,8 +116,41 @@ export default function WorkbenchView(): JSX.Element {
       now
     );
   }, [tasks, overdueTasks, now, activeTaskId]);
-  const importantToday = todayTasks.filter((task) => task.priority !== 'normal');
-  const laterToday = todayTasks.filter((task) => task.priority === 'normal');
+  // ── Today 2.1 (USERPLAN 1.2 §十一): commitments come from DailyTaskPlan,
+  // not from global priority. NOW / TODAY'S 3 / SCHEDULED / FLEXIBLE.
+  const todayKey = localDateKey(now);
+  const { plans: todayPlans } = useDailyPlans(todayKey);
+  const planByTask = useMemo(() => new Map(todayPlans.map((plan) => [plan.taskId, plan])), [todayPlans]);
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const todaysThree = useMemo(
+    () =>
+      todayPlans
+        .filter((plan) => plan.dailyRank !== null)
+        .sort((left, right) => (left.dailyRank ?? 0) - (right.dailyRank ?? 0))
+        .map((plan) => taskById.get(plan.taskId))
+        .filter((task): task is Task => Boolean(task)),
+    [todayPlans, taskById]
+  );
+  const scheduledToday = useMemo(
+    () =>
+      todayTasks
+        .filter((task) => task.plannedAt !== null)
+        .sort((left, right) => (left.plannedAt ?? 0) - (right.plannedAt ?? 0)),
+    [todayTasks]
+  );
+  const flexibleToday = useMemo(() => {
+    const ranked = new Set(todaysThree.map((task) => task.id));
+    const scheduled = new Set(scheduledToday.map((task) => task.id));
+    const plannedFlexible = todayPlans
+      .map((plan) => taskById.get(plan.taskId))
+      .filter((task): task is Task => Boolean(task && task.plannedAt === null));
+    const unscheduledDue = todayTasks.filter(
+      (task) => task.plannedAt === null && !planByTask.has(task.id)
+    );
+    return [...plannedFlexible, ...unscheduledDue].filter(
+      (task, index, list) => !ranked.has(task.id) && !scheduled.has(task.id) && list.indexOf(task) === index
+    );
+  }, [todayPlans, taskById, todaysThree, scheduledToday, todayTasks, planByTask]);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
@@ -168,6 +207,7 @@ export default function WorkbenchView(): JSX.Element {
   ];
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     { id: 'today', label: '前往：今天', keywords: 'today', run: () => selectSection('today') },
+    { id: 'plan-today', label: '每日规划：规划今天', keywords: 'daily planning', run: () => { selectSection('today'); setPlanningOpen(true); } },
     { id: 'inbox', label: '前往：收件箱', keywords: 'inbox', run: () => selectSection('inbox') },
     { id: 'plan', label: '前往：计划', hint: 'P', keywords: 'plan', run: () => selectSection('plan') },
     { id: 'focus', label: '前往：专注', hint: 'F', keywords: 'focus', run: () => selectSection('focus') },
@@ -248,24 +288,53 @@ export default function WorkbenchView(): JSX.Element {
         </div>
       );
     }
+    if (planningOpen) {
+      return (
+        <DailyPlanningFlow
+          tasks={tasks}
+          now={now}
+          settings={settings}
+          onOpen={setSelectedTaskId}
+          onClose={() => setPlanningOpen(false)}
+          onGoToPlan={() => {
+            setPlanningOpen(false);
+            selectSection('plan');
+          }}
+        />
+      );
+    }
     return (
       <div className="workspace-page today-page">
         <header className="page-header">
           <div><span className="page-eyebrow">{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now))}</span><h1>今天</h1></div>
-          <div className="rhythm-summary"><span><Eye size={16} />{formatMinutes(eyeRemaining)}</span><span><Footprints size={16} />{formatMinutes(walkRemaining)}</span></div>
+          <div className="today-header-actions">
+            <Button onClick={() => setPlanningOpen(true)}><CalendarDays size={15} />规划今天</Button>
+            <div className="rhythm-summary"><span><Eye size={16} />{formatMinutes(eyeRemaining)}</span><span><Footprints size={16} />{formatMinutes(walkRemaining)}</span></div>
+          </div>
         </header>
         {activeTask ? (
           <section className="now-card">
             <span>NOW</span><h2>{activeTask.title}</h2>
-            <p>{formatMinutes(work.taskActiveMs)}{activeTask.estimateMinutes ? ` / ${activeTask.estimateMinutes}m` : ' · 自由专注'}</p>
+            <p>
+              本次 {formatMinutes(work.currentSessionMs)} · 今日 {formatMinutes(work.taskActiveMs)}
+              {planByTask.get(activeTask.id)?.plannedMinutes ?? activeTask.estimateMinutes
+                ? ` · 计划 ${planByTask.get(activeTask.id)?.plannedMinutes ?? activeTask.estimateMinutes}m`
+                : ''}
+              {` · 下次护眼 ${formatMinutes(eyeRemaining)}`}
+            </p>
             <Button variant="primary" onClick={() => selectSection('focus')}><Play size={16} />继续专注</Button>
           </section>
         ) : null}
         <TaskComposer projects={projects} />
-        {importantToday.length ? <section className="task-section"><h2>今天最重要</h2>{taskList(importantToday, 'today')}</section> : null}
-        <section className="task-section"><h2>{importantToday.length ? '之后' : '今天的任务'}</h2>{taskList(laterToday, 'today')}</section>
+        {todaysThree.length ? (
+          <section className="task-section"><h2>今日目标（Today&apos;s {todaysThree.length}）</h2>{taskList(todaysThree, 'today')}</section>
+        ) : (
+          <section className="task-section today-goals-empty"><h2>今日目标</h2><p className="empty-state">还没有今日承诺。<Button onClick={() => setPlanningOpen(true)}>开始每日规划</Button>，选出不超过 3 件真正要做的事。</p></section>
+        )}
+        {scheduledToday.length ? <section className="task-section"><h2>已安排</h2>{taskList(scheduledToday, 'today')}</section> : null}
+        {flexibleToday.length ? <section className="task-section"><h2>灵活（今天要做，未排时间）</h2>{taskList(flexibleToday, 'today')}</section> : null}
         {overdueTasks.length ? (
-          <section className="overdue-callout"><div><strong>{overdueTasks.length} 件之前留下的任务</strong><span>打开任务详情，重新安排到合适的日期。</span></div><Button onClick={() => setSelectedTaskId(overdueTasks[0].id)}>重新安排</Button></section>
+          <section className="overdue-callout"><div><strong>{overdueTasks.length} 件需要重新安排</strong><span>逐件决定去向：今天、明天，或放回以后。</span></div><Button onClick={() => setPlanningOpen(true)}>重新安排</Button></section>
         ) : null}
       </div>
     );

@@ -149,13 +149,31 @@ const workbench = await evaluate(
       snoozeMinutes: current.snoozeMinutes
     });
     const tasks = await window.eyeProtect.createTask({ title: 'Packaged smoke task' });
+    const smokeTask = tasks.find((task) => task.title === 'Packaged smoke task');
+    // Daily planning IPC round-trip (USERPLAN PR3): upsert a commitment,
+    // read it back, rank it, then clear it — all inside the packaged app.
+    const localDate = new Date().toLocaleDateString('en-CA');
+    const planned = smokeTask
+      ? await window.eyeProtect.upsertDailyPlan({ taskId: smokeTask.id, localDate, plannedMinutes: 25 })
+      : [];
+    const ranked = smokeTask
+      ? await window.eyeProtect.upsertDailyPlan({ taskId: smokeTask.id, localDate, dailyRank: 1 })
+      : [];
+    const dayPlans = await window.eyeProtect.getDailyPlans(localDate);
+    const unplanned = smokeTask
+      ? await window.eyeProtect.removeDailyPlan(smokeTask.id, localDate)
+      : [];
     return {
       bridge: typeof window.eyeProtect === 'object',
       workbenchShell: Boolean(document.querySelector('.workbench-v2')),
       settingsShell: Boolean(document.querySelector('.settings-shell')),
       heading: document.querySelector('.settings-header h1')?.textContent,
       savedSnoozeMinutes: saved.snoozeMinutes,
-      taskPersisted: tasks.some((task) => task.title === 'Packaged smoke task')
+      taskPersisted: tasks.some((task) => task.title === 'Packaged smoke task'),
+      planningPersisted: planned.some((entry) => entry.taskId === smokeTask?.id && entry.plannedMinutes === 25),
+      planningRanked: ranked.some((entry) => entry.taskId === smokeTask?.id && entry.dailyRank === 1),
+      planningReadBack: dayPlans.some((entry) => entry.taskId === smokeTask?.id && entry.dailyRank === 1),
+      planningRemoved: unplanned.length === 0
     };
   })()`
 );
@@ -166,7 +184,11 @@ if (
   !workbench.settingsShell ||
   workbench.heading !== '提醒设置' ||
   workbench.savedSnoozeMinutes !== pet.settings.snoozeMinutes ||
-  !workbench.taskPersisted
+  !workbench.taskPersisted ||
+  !workbench.planningPersisted ||
+  !workbench.planningRanked ||
+  !workbench.planningReadBack ||
+  !workbench.planningRemoved
 ) {
   throw new Error(`Workbench renderer smoke check failed: ${JSON.stringify(workbench)}`);
 }

@@ -331,3 +331,66 @@
   .app-nav-item.is-active,
   .workbench-v2 .task-row.is-selected { outline: 2px solid Highlight; }
 }
+
+/* ── Today 2.1 + Daily Planning (USERPLAN 1.2 PR3) ────────────────────────── */
+.workbench-v2 .today-header-actions { display: flex; align-items: center; gap: 12px; }
+.workbench-v2 .today-goals-empty .empty-state { display: flex; gap: 8px; align-items: center; color: var(--fg-secondary); font-size: 13px; }
+
+.workbench-v2 .planning-page { display: grid; gap: 22px; }
+.workbench-v2 .planning-step {
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+}
+.workbench-v2 .planning-step h2 { display: flex; gap: 7px; align-items: center; margin: 0 0 10px; font-size: 15px; }
+.workbench-v2 .planning-hint { margin: 0 0 10px; color: var(--fg-secondary); font-size: 12.5px; line-height: 1.55; }
+.workbench-v2 .planning-empty { margin: 0; color: var(--fg-tertiary); font-size: 12.5px; }
+.workbench-v2 .planning-triage-list,
+.workbench-v2 .planning-planned-list,
+.workbench-v2 .planning-candidate-list { display: grid; gap: 6px; margin: 0 0 10px; padding: 0; list-style: none; }
+.workbench-v2 .planning-triage-row,
+.workbench-v2 .planning-planned-row,
+.workbench-v2 .planning-candidate-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 9px 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+.workbench-v2 .planning-task-title {
+  min-width: 0;
+  color: var(--fg-primary);
+  font-weight: 600;
+  text-align: left;
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-v2 .planning-triage-actions { display: flex; gap: 6px; }
+.workbench-v2 .planning-minutes { color: var(--fg-secondary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workbench-v2 .planning-rank-actions { display: inline-flex; gap: 4px; }
+.workbench-v2 .planning-rank-actions button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  color: var(--fg-secondary);
+  font-weight: 650;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.workbench-v2 .planning-rank-actions button.is-active {
+  color: var(--brand-contrast);
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.workbench-v2 .planning-rank-actions button:disabled { opacity: 0.45; }
+.workbench-v2 .planning-capacity { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.workbench-v2 .planning-overcommit { margin: 0; padding: 10px 12px; color: var(--danger); font-size: 12.5px; background: var(--danger-subtle); border-radius: 8px; }
+.workbench-v2 .planning-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 12px; }
+.workbench-v2 .planning-finish { display: flex; gap: 10px; }

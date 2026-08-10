@@ -182,6 +182,14 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.naturalBreakMinutes.max
       )
     ),
+    dailyCapacityMinutes: Math.round(
+      clampNumber(
+        input.dailyCapacityMinutes,
+        DEFAULT_SETTINGS.dailyCapacityMinutes,
+        SETTINGS_LIMITS.dailyCapacityMinutes.min,
+        SETTINGS_LIMITS.dailyCapacityMinutes.max
+      )
+    ),
     reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
       ? (input.reminderMode as ReminderMode)
       : DEFAULT_SETTINGS.reminderMode,

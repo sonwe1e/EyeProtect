@@ -4,6 +4,8 @@ import type {
   CharacterAppearanceMode,
   CharacterCollectionState,
   CharacterMaterial,
+  DailyTaskPlan,
+  DailyTaskPlanInput,
   DataActionResult,
   DataRecoveryInfo,
   AppHealth,
@@ -82,6 +84,12 @@ const api: EyeProtectApi = {
   onProjectsChanged: (callback) => on<Project[]>('project:changed', callback),
   onProjectUpserted: (callback) => on<Project>('project:upserted', callback),
   onProjectRemoved: (callback) => on<string>('project:removed', callback),
+  getDailyPlans: (localDate: string) =>
+    ipcRenderer.invoke('plan:day:list', localDate) as Promise<DailyTaskPlan[]>,
+  upsertDailyPlan: (input: DailyTaskPlanInput) =>
+    ipcRenderer.invoke('plan:upsert', input) as Promise<DailyTaskPlan[]>,
+  removeDailyPlan: (taskId: string, localDate: string) =>
+    ipcRenderer.invoke('plan:remove', taskId, localDate) as Promise<DailyTaskPlan[]>,
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),

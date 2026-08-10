@@ -13,6 +13,8 @@
 import type {
   CharacterCollectionState,
   CommandResult,
+  DailyTaskPlan,
+  DailyTaskPlanInput,
   DataActionResult,
   FailedDeliveryNotice,
   Project,
@@ -66,6 +68,16 @@ export const commands = {
       run<Project[]>(() => window.eyeProtect.updateProject(id, input)),
     remove: (id: string) =>
       run<Project[]>(() => window.eyeProtect.deleteProject(id))
+  },
+
+  // ── Daily planning (USERPLAN 1.2 PR3) ───────────────────────────────
+  // Mutations return the full plan list of the affected local date so callers
+  // can apply the fresh state without a second round-trip.
+  planning: {
+    upsert: (input: DailyTaskPlanInput) =>
+      run<DailyTaskPlan[]>(() => window.eyeProtect.upsertDailyPlan(input)),
+    remove: (taskId: string, localDate: string) =>
+      run<DailyTaskPlan[]>(() => window.eyeProtect.removeDailyPlan(taskId, localDate))
   },
 
   // ── Characters ─────────────────────────────────────────────────────────────

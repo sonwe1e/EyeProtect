@@ -191,6 +191,10 @@ test('activity threshold, theme and density use bounded supported values', () =>
 
   assert.equal(sanitizeSettings({ naturalBreakMinutes: -4 }).naturalBreakMinutes, 1);
   assert.equal(sanitizeSettings({ naturalBreakMinutes: 90 }).naturalBreakMinutes, 30);
+  assert.equal(defaults.dailyCapacityMinutes, 360);
+  assert.equal(sanitizeSettings({ dailyCapacityMinutes: 12 }).dailyCapacityMinutes, 60);
+  assert.equal(sanitizeSettings({ dailyCapacityMinutes: 5000 }).dailyCapacityMinutes, 960);
+  assert.equal(sanitizeSettings({ dailyCapacityMinutes: 'lots' }).dailyCapacityMinutes, 360);
   assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).theme, 'dark');
   assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).density, 'compact');
   assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).theme, 'system');
