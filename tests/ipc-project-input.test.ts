@@ -8,7 +8,8 @@ test('project creation transport requires a string name', () => {
     goal: undefined,
     viewMode: 'board',
     color: undefined,
-    parentId: undefined
+    parentId: undefined,
+    status: undefined
   });
 });
 
@@ -23,4 +24,12 @@ test('project update transport preserves omission instead of inventing an empty 
 
 test('project update transport drops unsupported values', () => {
   assert.deepEqual(asProjectUpdateInput({ name: 5, viewMode: 'grid', color: 8 }), {});
+});
+
+test('project lifecycle status passes the transport only when whitelisted (schema v4)', () => {
+  assert.deepEqual(asProjectInput({ name: 'X', status: 'onHold' }).status, 'onHold');
+  assert.deepEqual(asProjectInput({ name: 'X', status: 'deleted' }).status, undefined);
+  assert.deepEqual(asProjectUpdateInput({ status: 'archived' }), { status: 'archived' });
+  assert.deepEqual(asProjectUpdateInput({ status: 'bogus' }), {});
+  assert.deepEqual(asProjectUpdateInput({ status: 3 }), {});
 });

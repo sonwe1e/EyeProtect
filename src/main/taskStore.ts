@@ -10,8 +10,24 @@ import {
   sanitizeTasks,
   sanitizeStandaloneReminder,
   sanitizeStandaloneReminderSchedule,
+  sanitizeDailyTaskPlan,
+  sanitizeDailyTaskPlans,
+  sanitizeTimeBlock,
+  sanitizeTimeBlocks,
+  sanitizeProjectSection,
+  sanitizeProjectSections,
+  sanitizeFocusSessions,
+  type DailyTaskPlan,
+  type DailyTaskPlanInput,
+  type FocusSession,
+  type FocusSessionOutcome,
+  type FocusSessionStartInput,
   type Project,
   type ProjectInput,
+  type ProjectSection,
+  type ProjectSectionInput,
+  type TimeBlock,
+  type TimeBlockInput,
   type Alarm,
   type PersistedScheduledEvent,
   type StandaloneReminder,
@@ -29,7 +45,7 @@ import {
 
 const DATABASE_FILE = 'eyeprotect.db';
 const LEGACY_TASKS_FILE = 'tasks.json';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export interface TaskReminderOccurrence {
   taskId: string;
@@ -178,7 +194,7 @@ export class TaskStore extends EventEmitter {
     const rows = this.db.prepare(`
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
-             remind_on_break, estimate_minutes, sort_order, created_at, updated_at, completed_at
+             remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at
       FROM tasks
       ORDER BY sort_order, created_at, id
     `).all() as SqlRow[];
@@ -188,7 +204,7 @@ export class TaskStore extends EventEmitter {
 
   getProjects(): Project[] {
     return (this.db.prepare(`
-      SELECT id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at
+      SELECT id, name, goal, view_mode, color, parent_id, status, sort_order, created_at, updated_at
       FROM projects
       ORDER BY sort_order, created_at, id
     `).all() as SqlRow[]).map(rowToProject);
@@ -198,7 +214,7 @@ export class TaskStore extends EventEmitter {
     const row = this.db.prepare(`
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
-             remind_on_break, estimate_minutes, sort_order, created_at, updated_at, completed_at
+             remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at
       FROM tasks WHERE id = ?
     `).get(id) as SqlRow | undefined;
     if (!row) {
@@ -214,7 +230,7 @@ export class TaskStore extends EventEmitter {
 
   getProject(id: string): Project | null {
     const row = this.db.prepare(`
-      SELECT id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at
+      SELECT id, name, goal, view_mode, color, parent_id, status, sort_order, created_at, updated_at
       FROM projects WHERE id = ?
     `).get(id) as SqlRow | undefined;
     return row ? rowToProject(row) : null;
@@ -292,9 +308,10 @@ export class TaskStore extends EventEmitter {
       this.db.prepare(`
         UPDATE tasks SET title = ?, notes = ?, status = ?, priority = ?, project_id = ?,
           parent_id = ?, planned_at = ?, due_at = ?, reminder_at = ?, recurrence_json = ?,
-          context = ?, remind_on_break = ?, estimate_minutes = ?, sort_order = ?, updated_at = ?, completed_at = ?
+          context = ?, remind_on_break = ?, estimate_minutes = ?, sort_order = ?, updated_at = ?, completed_at = ?,
+          section_id = ?
         WHERE id = ?
-      `).run(...taskSqlValues(next).slice(1, 15), next.updatedAt, next.completedAt, id);
+      `).run(...taskSqlValues(next).slice(1, 15), next.updatedAt, next.completedAt, next.sectionId, id);
       this.writeTaskTags(id, next.tags);
       if (next.status === 'done' || next.status === 'archived') {
         this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(id);
@@ -475,15 +492,16 @@ export class TaskStore extends EventEmitter {
       viewMode: input.viewMode,
       color: input.color,
       parentId: input.parentId,
+      status: input.status,
       sortOrder: this.nextProjectSortOrder(),
       createdAt: now,
       updatedAt: now
     })!;
     const parentId = project.parentId && this.getProject(project.parentId) ? project.parentId : null;
     this.db.prepare(`
-      INSERT INTO projects(id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(project.id, project.name, project.goal, project.viewMode, project.color, parentId, project.sortOrder, project.createdAt, project.updatedAt);
+      INSERT INTO projects(id, name, goal, view_mode, color, parent_id, status, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(project.id, project.name, project.goal, project.viewMode, project.color, parentId, project.status, project.sortOrder, project.createdAt, project.updatedAt);
     const result = this.getProject(project.id)!;
     this.emit('projects-changed', this.getProjects());
     return result;
@@ -503,8 +521,8 @@ export class TaskStore extends EventEmitter {
       ? next.parentId
       : current.parentId;
     this.db.prepare(`
-      UPDATE projects SET name = ?, goal = ?, view_mode = ?, color = ?, parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?
-    `).run(next.name, next.goal, next.viewMode, next.color, parentId, next.sortOrder, now, id);
+      UPDATE projects SET name = ?, goal = ?, view_mode = ?, color = ?, parent_id = ?, status = ?, sort_order = ?, updated_at = ? WHERE id = ?
+    `).run(next.name, next.goal, next.viewMode, next.color, parentId, next.status, next.sortOrder, now, id);
     const result = this.getProject(id);
     this.emit('projects-changed', this.getProjects());
     return result;
@@ -560,9 +578,9 @@ export class TaskStore extends EventEmitter {
       this.db.exec('UPDATE tasks SET project_id = NULL; DELETE FROM projects;');
       for (const project of safe) {
         this.db.prepare(`
-          INSERT INTO projects(id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
-        `).run(project.id, project.name, project.goal, project.viewMode, project.color, project.sortOrder, project.createdAt, project.updatedAt);
+          INSERT INTO projects(id, name, goal, view_mode, color, parent_id, status, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+        `).run(project.id, project.name, project.goal, project.viewMode, project.color, project.status, project.sortOrder, project.createdAt, project.updatedAt);
       }
       // Same cycle guard as replaceAll: skip any parent link that would close a
       // loop (or point at a missing project), leaving parent_id NULL instead.
@@ -630,13 +648,13 @@ export class TaskStore extends EventEmitter {
     this.transaction(() => {
       for (const project of projectsById.values()) {
         this.db.prepare(`
-          INSERT INTO projects(id, name, goal, view_mode, color, parent_id, sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+          INSERT INTO projects(id, name, goal, view_mode, color, parent_id, status, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET name = excluded.name, goal = excluded.goal,
             view_mode = excluded.view_mode, color = excluded.color,
-            parent_id = NULL, sort_order = excluded.sort_order,
+            parent_id = NULL, status = excluded.status, sort_order = excluded.sort_order,
             created_at = excluded.created_at, updated_at = excluded.updated_at
-        `).run(project.id, project.name, project.goal, project.viewMode, project.color, project.sortOrder, project.createdAt, project.updatedAt);
+        `).run(project.id, project.name, project.goal, project.viewMode, project.color, project.status, project.sortOrder, project.createdAt, project.updatedAt);
       }
       for (const task of byId.values()) {
         const normalized = this.normalizeRelations({ ...task, parentId: null });
@@ -1136,6 +1154,60 @@ export class TaskStore extends EventEmitter {
         expires_at INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
+      -- ── Schema v4 planning domain (USERPLAN 1.2 §九/§二十) ───────────────
+      CREATE TABLE IF NOT EXISTS daily_task_plans (
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        local_date TEXT NOT NULL CHECK(length(local_date) = 10),
+        planned_minutes INTEGER CHECK(planned_minutes IS NULL OR planned_minutes > 0),
+        daily_rank INTEGER CHECK(daily_rank IS NULL OR daily_rank IN (1,2,3)),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(task_id, local_date)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS daily_task_plans_date_rank
+        ON daily_task_plans(local_date, daily_rank) WHERE daily_rank IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS daily_task_plans_date
+        ON daily_task_plans(local_date, sort_order);
+      CREATE TABLE IF NOT EXISTS time_blocks (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        start_at INTEGER NOT NULL,
+        end_at INTEGER NOT NULL CHECK(end_at > start_at),
+        time_zone TEXT NOT NULL DEFAULT 'local',
+        source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','planner')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS time_blocks_task ON time_blocks(task_id, start_at);
+      CREATE INDEX IF NOT EXISTS time_blocks_start ON time_blocks(start_at);
+      CREATE TABLE IF NOT EXISTS project_sections (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS project_sections_project
+        ON project_sections(project_id, sort_order);
+      CREATE TABLE IF NOT EXISTS focus_sessions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        time_block_id TEXT REFERENCES time_blocks(id) ON DELETE SET NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER CHECK(ended_at IS NULL OR ended_at >= started_at),
+        active_ms INTEGER NOT NULL DEFAULT 0 CHECK(active_ms >= 0),
+        outcome TEXT CHECK(outcome IS NULL OR outcome IN ('completed','paused','interrupted')),
+        -- 1 while the session is live, 0 once ended. The partial unique index
+        -- enforces the global "only one live Focus Session" invariant in the
+        -- database itself, not just in service code (USERPLAN §二十).
+        live_slot INTEGER NOT NULL DEFAULT 1 CHECK(live_slot IN (0,1)),
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS focus_sessions_live
+        ON focus_sessions(live_slot) WHERE live_slot = 1;
+      CREATE INDEX IF NOT EXISTS focus_sessions_task ON focus_sessions(task_id, started_at);
       CREATE TABLE IF NOT EXISTS character_collection_state (
         id INTEGER PRIMARY KEY CHECK(id = 1),
         data_json TEXT NOT NULL,
@@ -1157,6 +1229,15 @@ export class TaskStore extends EventEmitter {
     const reminderColumns = this.db.prepare('PRAGMA table_info(task_reminders)').all() as SqlRow[];
     if (!reminderColumns.some((column) => column.name === 'consumed_at')) {
       this.db.exec('ALTER TABLE task_reminders ADD COLUMN consumed_at INTEGER');
+    }
+    // Schema v4 column additions for databases created before the planning domain.
+    const projectStatusColumns = this.db.prepare('PRAGMA table_info(projects)').all() as SqlRow[];
+    if (!projectStatusColumns.some((column) => column.name === 'status')) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','onHold','completed','archived'))");
+    }
+    const taskSectionColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
+    if (!taskSectionColumns.some((column) => column.name === 'section_id')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN section_id TEXT REFERENCES project_sections(id) ON DELETE SET NULL');
     }
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(SCHEMA_VERSION, Date.now());
@@ -1198,6 +1279,7 @@ export class TaskStore extends EventEmitter {
             context TEXT NOT NULL CHECK(context IN ('desk','away','any')),
             remind_on_break INTEGER NOT NULL DEFAULT 0,
             estimate_minutes INTEGER,
+            section_id TEXT,
             sort_order INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
@@ -1208,7 +1290,7 @@ export class TaskStore extends EventEmitter {
             CASE WHEN status IN ('inbox','active') THEN 'open' ELSE status END,
             priority, project_id, parent_id, planned_at, due_at, reminder_at,
             recurrence_json, context, remind_on_break, estimate_minutes,
-            sort_order, created_at, updated_at, completed_at
+            NULL, sort_order, created_at, updated_at, completed_at
           FROM tasks;
           DROP TABLE tasks;
           ALTER TABLE tasks_v2 RENAME TO tasks;
@@ -1272,6 +1354,410 @@ export class TaskStore extends EventEmitter {
     return Number(result.changes) === 1;
   }
 
+  // ── Schema v4 planning domain (USERPLAN 1.2 PR1) ──────────────────────────
+  // Invariants live HERE (database + store), never in UI code (USERPLAN §二十):
+  //   daily_task_plans  (task_id, local_date) unique · rank 1|2|3 unique per date
+  //   time_blocks       end_at > start_at · task FK CASCADE
+  //   project_sections  project FK CASCADE · deterministic sort_order
+  //   focus_sessions    ended_at >= started_at · active_ms >= 0 · one live globally
+
+  getDailyPlans(localDate: string): DailyTaskPlan[] {
+    const rows = this.db.prepare(`
+      SELECT task_id, local_date, planned_minutes, daily_rank, sort_order, created_at, updated_at
+      FROM daily_task_plans WHERE local_date = ?
+      ORDER BY sort_order, task_id
+    `).all(localDate) as SqlRow[];
+    return rows.map(rowToDailyTaskPlan);
+  }
+
+  getAllDailyTaskPlans(): DailyTaskPlan[] {
+    const rows = this.db.prepare(`
+      SELECT task_id, local_date, planned_minutes, daily_rank, sort_order, created_at, updated_at
+      FROM daily_task_plans ORDER BY local_date, sort_order, task_id
+    `).all() as SqlRow[];
+    return rows.map(rowToDailyTaskPlan);
+  }
+
+  /**
+   * Create or update one task's plan for one local date. Assigning a
+   * `dailyRank` moves the rank away from any other plan on the same date —
+   * the (local_date, daily_rank) uniqueness invariant holds transactionally.
+   */
+  upsertDailyPlan(input: DailyTaskPlanInput, now: number = Date.now()): DailyTaskPlan[] {
+    if (!this.getTask(input.taskId)) {
+      throw new Error('任务不存在，无法加入日计划');
+    }
+    const plan = sanitizeDailyTaskPlan({
+      taskId: input.taskId,
+      localDate: input.localDate,
+      plannedMinutes: input.plannedMinutes,
+      dailyRank: input.dailyRank,
+      sortOrder: input.sortOrder
+    }, now);
+    if (!plan) {
+      throw new Error('无效的日计划输入');
+    }
+    this.transaction(() => {
+      if (plan.dailyRank !== null) {
+        this.db.prepare(`
+          UPDATE daily_task_plans SET daily_rank = NULL, updated_at = ?
+          WHERE local_date = ? AND daily_rank = ? AND task_id <> ?
+        `).run(now, plan.localDate, plan.dailyRank, plan.taskId);
+      }
+      const existing = this.db.prepare(
+        'SELECT created_at, sort_order FROM daily_task_plans WHERE task_id = ? AND local_date = ?'
+      ).get(plan.taskId, plan.localDate) as SqlRow | undefined;
+      if (existing) {
+        this.db.prepare(`
+          UPDATE daily_task_plans
+          SET planned_minutes = ?, daily_rank = ?, sort_order = ?, updated_at = ?
+          WHERE task_id = ? AND local_date = ?
+        `).run(plan.plannedMinutes, plan.dailyRank, plan.sortOrder, now, plan.taskId, plan.localDate);
+      } else {
+        this.db.prepare(`
+          INSERT INTO daily_task_plans(task_id, local_date, planned_minutes, daily_rank, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(plan.taskId, plan.localDate, plan.plannedMinutes, plan.dailyRank, plan.sortOrder, now, now);
+      }
+    });
+    return this.getDailyPlans(plan.localDate);
+  }
+
+  removeDailyPlan(taskId: string, localDate: string, now: number = Date.now()): DailyTaskPlan[] {
+    this.db.prepare('DELETE FROM daily_task_plans WHERE task_id = ? AND local_date = ?').run(taskId, localDate);
+    return this.getDailyPlans(localDate);
+  }
+
+  replaceAllDailyTaskPlans(plans: DailyTaskPlan[], now: number = Date.now()): DailyTaskPlan[] {
+    const safe = sanitizeDailyTaskPlans(plans, now);
+    this.transaction(() => {
+      this.db.exec('DELETE FROM daily_task_plans;');
+      const insert = this.db.prepare(`
+        INSERT OR IGNORE INTO daily_task_plans(task_id, local_date, planned_minutes, daily_rank, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      // Ranks are exclusive per date: the first plan claiming a rank wins;
+      // later duplicates land without a rank instead of aborting the import.
+      const claimed = new Set<string>();
+      for (const plan of safe) {
+        if (!this.getTask(plan.taskId)) continue;
+        const rankKey = `${plan.localDate}:${plan.dailyRank}`;
+        const rank = plan.dailyRank !== null && claimed.has(rankKey) ? null : plan.dailyRank;
+        if (rank !== null) claimed.add(rankKey);
+        insert.run(plan.taskId, plan.localDate, plan.plannedMinutes, rank, plan.sortOrder, plan.createdAt, plan.updatedAt);
+      }
+    });
+    return this.getAllDailyTaskPlans();
+  }
+
+  getTimeBlocks(): TimeBlock[] {
+    const rows = this.db.prepare(`
+      SELECT id, task_id, start_at, end_at, time_zone, source, created_at, updated_at
+      FROM time_blocks ORDER BY start_at, id
+    `).all() as SqlRow[];
+    return rows.map(rowToTimeBlock);
+  }
+
+  getTimeBlocksForTask(taskId: string): TimeBlock[] {
+    const rows = this.db.prepare(`
+      SELECT id, task_id, start_at, end_at, time_zone, source, created_at, updated_at
+      FROM time_blocks WHERE task_id = ? ORDER BY start_at, id
+    `).all(taskId) as SqlRow[];
+    return rows.map(rowToTimeBlock);
+  }
+
+  /** One task may own N time blocks (ADR-001). Invalid intervals are rejected, not clamped. */
+  createTimeBlock(input: TimeBlockInput, now: number = Date.now()): TimeBlock {
+    if (!this.getTask(input.taskId)) {
+      throw new Error('任务不存在，无法创建时间块');
+    }
+    const block = sanitizeTimeBlock({
+      id: randomUUID(),
+      taskId: input.taskId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      timeZone: input.timeZone,
+      source: input.source
+    }, now);
+    if (!block) {
+      throw new Error('时间块的结束时间必须晚于开始时间');
+    }
+    this.db.prepare(`
+      INSERT INTO time_blocks(id, task_id, start_at, end_at, time_zone, source, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(block.id, block.taskId, block.startAt, block.endAt, block.timeZone, block.source, block.createdAt, block.updatedAt);
+    return block;
+  }
+
+  updateTimeBlock(id: string, input: Partial<TimeBlockInput>, now: number = Date.now()): TimeBlock | null {
+    const current = this.getTimeBlocks().find((block) => block.id === id);
+    if (!current) {
+      return null;
+    }
+    const next = sanitizeTimeBlock({ ...current, ...input, id, updatedAt: now }, now);
+    if (!next || this.getTask(next.taskId) === null) {
+      return current;
+    }
+    this.db.prepare(`
+      UPDATE time_blocks SET task_id = ?, start_at = ?, end_at = ?, time_zone = ?, source = ?, updated_at = ?
+      WHERE id = ?
+    `).run(next.taskId, next.startAt, next.endAt, next.timeZone, next.source, now, id);
+    return this.getTimeBlocks().find((block) => block.id === id) ?? null;
+  }
+
+  deleteTimeBlock(id: string, _now: number = Date.now()): boolean {
+    const result = this.db.prepare('DELETE FROM time_blocks WHERE id = ?').run(id);
+    return Number(result.changes) === 1;
+  }
+
+  replaceAllTimeBlocks(blocks: TimeBlock[], now: number = Date.now()): TimeBlock[] {
+    const safe = sanitizeTimeBlocks(blocks, now);
+    this.transaction(() => {
+      this.db.exec('DELETE FROM time_blocks;');
+      const insert = this.db.prepare(`
+        INSERT INTO time_blocks(id, task_id, start_at, end_at, time_zone, source, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const block of safe) {
+        if (!this.getTask(block.taskId)) continue;
+        insert.run(block.id, block.taskId, block.startAt, block.endAt, block.timeZone, block.source, block.createdAt, block.updatedAt);
+      }
+    });
+    return this.getTimeBlocks();
+  }
+
+  getProjectSections(projectId: string): ProjectSection[] {
+    const rows = this.db.prepare(`
+      SELECT id, project_id, name, sort_order, created_at, updated_at
+      FROM project_sections WHERE project_id = ? ORDER BY sort_order, created_at, id
+    `).all(projectId) as SqlRow[];
+    return rows.map(rowToProjectSection);
+  }
+
+  getAllProjectSections(): ProjectSection[] {
+    const rows = this.db.prepare(`
+      SELECT id, project_id, name, sort_order, created_at, updated_at
+      FROM project_sections ORDER BY project_id, sort_order, created_at, id
+    `).all() as SqlRow[];
+    return rows.map(rowToProjectSection);
+  }
+
+  getProjectSection(id: string): ProjectSection | null {
+    const row = this.db.prepare(`
+      SELECT id, project_id, name, sort_order, created_at, updated_at
+      FROM project_sections WHERE id = ?
+    `).get(id) as SqlRow | undefined;
+    return row ? rowToProjectSection(row) : null;
+  }
+
+  createProjectSection(input: ProjectSectionInput, now: number = Date.now()): ProjectSection {
+    if (!this.getProject(input.projectId)) {
+      throw new Error('项目不存在，无法创建分组');
+    }
+    const section = sanitizeProjectSection({
+      id: randomUUID(),
+      projectId: input.projectId,
+      name: input.name,
+      sortOrder: this.nextSectionSortOrder(input.projectId)
+    }, now);
+    if (!section) {
+      throw new Error('分组名称不能为空');
+    }
+    this.db.prepare(`
+      INSERT INTO project_sections(id, project_id, name, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(section.id, section.projectId, section.name, section.sortOrder, section.createdAt, section.updatedAt);
+    return section;
+  }
+
+  updateProjectSection(id: string, input: { name: string }, now: number = Date.now()): ProjectSection | null {
+    const current = this.getProjectSection(id);
+    if (!current) {
+      return null;
+    }
+    const next = sanitizeProjectSection({ ...current, name: input.name, updatedAt: now }, now);
+    if (!next) {
+      return current;
+    }
+    this.db.prepare('UPDATE project_sections SET name = ?, updated_at = ? WHERE id = ?').run(next.name, now, id);
+    return this.getProjectSection(id);
+  }
+
+  /** Reorder a section inside its project. `beforeSectionId === null` moves it to the end. */
+  moveProjectSection(id: string, beforeSectionId: string | null, now: number = Date.now()): ProjectSection[] {
+    const moving = this.getProjectSection(id);
+    if (!moving) {
+      return [];
+    }
+    const ordered = this.getProjectSections(moving.projectId);
+    const rest = ordered.filter((section) => section.id !== id);
+    const beforeIndex = beforeSectionId === null
+      ? rest.length
+      : rest.findIndex((section) => section.id === beforeSectionId);
+    if (beforeIndex < 0) {
+      return ordered;
+    }
+    rest.splice(beforeIndex, 0, moving);
+    this.transaction(() => {
+      const statement = this.db.prepare('UPDATE project_sections SET sort_order = ?, updated_at = ? WHERE id = ?');
+      rest.forEach((section, index) => statement.run(index, now, section.id));
+    });
+    return this.getProjectSections(moving.projectId);
+  }
+
+  deleteProjectSection(id: string, now: number = Date.now()): boolean {
+    // FK ON DELETE SET NULL detaches member tasks; they are never deleted.
+    const result = this.db.prepare('DELETE FROM project_sections WHERE id = ?').run(id);
+    if (Number(result.changes) === 1) {
+      this.emit('tasks-changed', this.getTasks());
+      return true;
+    }
+    return false;
+  }
+
+  /** Assign a task to a section of ITS OWN project (ADR-002). */
+  setTaskSection(taskId: string, sectionId: string | null, now: number = Date.now()): Task | null {
+    const task = this.getTask(taskId);
+    if (!task) {
+      return null;
+    }
+    if (sectionId !== null) {
+      const section = this.getProjectSection(sectionId);
+      if (!section || task.projectId === null || section.projectId !== task.projectId) {
+        throw new Error('任务只能放入自己所属项目的分组');
+      }
+    }
+    return this.updateTask(taskId, { sectionId }, now);
+  }
+
+  replaceAllProjectSections(sections: ProjectSection[], now: number = Date.now()): ProjectSection[] {
+    const safe = sanitizeProjectSections(sections, now);
+    this.transaction(() => {
+      this.db.exec('UPDATE tasks SET section_id = NULL; DELETE FROM project_sections;');
+      const insert = this.db.prepare(`
+        INSERT INTO project_sections(id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const section of safe) {
+        if (!this.getProject(section.projectId)) continue;
+        insert.run(section.id, section.projectId, section.name, section.sortOrder, section.createdAt, section.updatedAt);
+      }
+      // Re-attach tasks whose section survived the import.
+      for (const task of this.getTasks()) {
+        if (task.sectionId && this.getProjectSection(task.sectionId)) {
+          this.db.prepare('UPDATE tasks SET section_id = ? WHERE id = ?').run(task.sectionId, task.id);
+        }
+      }
+    });
+    return this.getAllProjectSections();
+  }
+
+  getLiveFocusSession(): FocusSession | null {
+    const row = this.db.prepare(`
+      SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, created_at
+      FROM focus_sessions WHERE ended_at IS NULL
+    `).get() as SqlRow | undefined;
+    return row ? rowToFocusSession(row) : null;
+  }
+
+  getFocusSessions(): FocusSession[] {
+    const rows = this.db.prepare(`
+      SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, created_at
+      FROM focus_sessions ORDER BY started_at DESC, id
+    `).all() as SqlRow[];
+    return rows.map(rowToFocusSession);
+  }
+
+  /**
+   * Start the single globally-allowed live focus session (ADR-005). Throws
+   * when one is already live or the task is missing/closed.
+   */
+  startFocusSession(input: FocusSessionStartInput, now: number = Date.now()): FocusSession {
+    if (this.getLiveFocusSession()) {
+      throw new Error('已经有一个专注会话正在进行');
+    }
+    const task = this.getTask(input.taskId);
+    if (!task || task.status !== 'open') {
+      throw new Error('任务不存在或已完成，无法开始专注');
+    }
+    const timeBlockId = input.timeBlockId ?? null;
+    if (timeBlockId) {
+      const block = this.getTimeBlocks().find((entry) => entry.id === timeBlockId);
+      if (!block || block.taskId !== task.id) {
+        throw new Error('时间块不属于该任务');
+      }
+    }
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO focus_sessions(id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, live_slot, created_at)
+      VALUES (?, ?, ?, ?, NULL, 0, NULL, 1, ?)
+    `).run(id, task.id, timeBlockId, now, now);
+    return this.getLiveFocusSession()!;
+  }
+
+  /** Add active milliseconds to the live session (checkpoint segments accumulate here). */
+  addFocusSessionActiveMs(id: string, deltaMs: number, now: number = Date.now()): FocusSession | null {
+    if (!Number.isFinite(deltaMs) || deltaMs <= 0) {
+      return this.getFocusSessions().find((session) => session.id === id) ?? null;
+    }
+    const result = this.db.prepare(`
+      UPDATE focus_sessions SET active_ms = active_ms + ? WHERE id = ? AND ended_at IS NULL
+    `).run(Math.round(deltaMs), id);
+    return Number(result.changes) === 1
+      ? this.getFocusSessions().find((session) => session.id === id) ?? null
+      : null;
+  }
+
+  /** End the live session with an outcome. After this a new session may start. */
+  endFocusSession(id: string, outcome: FocusSessionOutcome, now: number = Date.now()): FocusSession | null {
+    const result = this.db.prepare(`
+      UPDATE focus_sessions SET ended_at = ?, outcome = ?, live_slot = 0
+      WHERE id = ? AND ended_at IS NULL
+    `).run(now, outcome, id);
+    return Number(result.changes) === 1
+      ? this.getFocusSessions().find((session) => session.id === id) ?? null
+      : null;
+  }
+
+  replaceAllFocusSessions(sessions: FocusSession[], now: number = Date.now()): FocusSession[] {
+    const safe = sanitizeFocusSessions(sessions, now);
+    this.transaction(() => {
+      this.db.exec('DELETE FROM focus_sessions;');
+      const insert = this.db.prepare(`
+        INSERT INTO focus_sessions(id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, live_slot, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      let liveImported = false;
+      for (const session of safe) {
+        if (!this.getTask(session.taskId)) continue;
+        const live = session.endedAt === null;
+        if (live && liveImported) continue; // keep the one-live invariant on import
+        if (live) liveImported = true;
+        insert.run(
+          session.id,
+          session.taskId,
+          session.timeBlockId && this.getTimeBlocks().some((block) => block.id === session.timeBlockId)
+            ? session.timeBlockId
+            : null,
+          session.startedAt,
+          session.endedAt,
+          session.activeMs,
+          session.outcome,
+          live ? 1 : 0,
+          session.createdAt
+        );
+      }
+    });
+    return this.getFocusSessions();
+  }
+
+  private nextSectionSortOrder(projectId: string): number {
+    const row = this.db.prepare(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM project_sections WHERE project_id = ?'
+    ).get(projectId) as SqlRow;
+    return Number(row.value);
+  }
+
   private nextSortOrder(): number {
     const row = this.db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM tasks').get() as SqlRow;
     return Number(row.value);
@@ -1283,9 +1769,17 @@ export class TaskStore extends EventEmitter {
   }
 
   private normalizeRelations(task: Task): Task {
+    const projectId = task.projectId && this.getProject(task.projectId) ? task.projectId : null;
+    const section = task.sectionId ? this.getProjectSection(task.sectionId) : null;
+    // A section only counts when it exists AND belongs to the task's project;
+    // a dangling section reference is dropped rather than persisted.
+    const sectionId = projectId !== null && section && section.projectId === projectId
+      ? section.id
+      : null;
     return {
       ...task,
-      projectId: task.projectId && this.getProject(task.projectId) ? task.projectId : null,
+      sectionId,
+      projectId,
       parentId: task.parentId && task.parentId !== task.id && this.getTask(task.parentId) ? task.parentId : null
     };
   }
@@ -1320,8 +1814,8 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
         planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
-        estimate_minutes, sort_order, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(...taskSqlValues(task));
     if (task.reminderAt !== null) {
       this.db.prepare('INSERT OR IGNORE INTO task_reminders(task_id, fire_at, consumed_at) VALUES (?, ?, NULL)')
@@ -1333,8 +1827,8 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
         planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
-        estimate_minutes, sort_order, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET title = excluded.title, notes = excluded.notes,
         status = excluded.status, priority = excluded.priority,
         project_id = excluded.project_id, parent_id = excluded.parent_id,
@@ -1343,7 +1837,8 @@ export class TaskStore extends EventEmitter {
         context = excluded.context, remind_on_break = excluded.remind_on_break,
         estimate_minutes = excluded.estimate_minutes,
         sort_order = excluded.sort_order, created_at = excluded.created_at,
-        updated_at = excluded.updated_at, completed_at = excluded.completed_at
+        updated_at = excluded.updated_at, completed_at = excluded.completed_at,
+        section_id = excluded.section_id
     `).run(...taskSqlValues(task));
   }
 
@@ -1400,7 +1895,8 @@ const taskSqlValues = (task: Task): SqlValue[] => [
   task.sortOrder,
   task.createdAt,
   task.updatedAt,
-  task.completedAt
+  task.completedAt,
+  task.sectionId
 ];
 
 const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
@@ -1419,6 +1915,7 @@ const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
   context: String(row.context),
   remindOnBreak: Number(row.remind_on_break) === 1,
   estimateMinutes: nullableNumber(row.estimate_minutes),
+  sectionId: typeof row.section_id === 'string' ? row.section_id : null,
   sortOrder: Number(row.sort_order),
   createdAt: Number(row.created_at),
   updatedAt: Number(row.updated_at),
@@ -1432,6 +1929,7 @@ const rowToProject = (row: SqlRow): Project => sanitizeProject({
   viewMode: row.view_mode === 'board' ? 'board' : 'list',
   color: typeof row.color === 'string' ? row.color : null,
   parentId: typeof row.parent_id === 'string' ? row.parent_id : null,
+  status: typeof row.status === 'string' ? row.status : 'active',
   sortOrder: Number(row.sort_order),
   createdAt: Number(row.created_at),
   updatedAt: Number(row.updated_at)
@@ -1439,6 +1937,50 @@ const rowToProject = (row: SqlRow): Project => sanitizeProject({
 
 const nullableNumber = (value: SqlValue | undefined): number | null =>
   typeof value === 'number' || typeof value === 'bigint' ? Number(value) : null;
+
+const rowToDailyTaskPlan = (row: SqlRow): DailyTaskPlan => ({
+  taskId: String(row.task_id),
+  localDate: String(row.local_date),
+  plannedMinutes: nullableNumber(row.planned_minutes),
+  dailyRank: row.daily_rank === 1 || row.daily_rank === 2 || row.daily_rank === 3 ? row.daily_rank : null,
+  sortOrder: Number(row.sort_order),
+  createdAt: Number(row.created_at),
+  updatedAt: Number(row.updated_at)
+});
+
+const rowToTimeBlock = (row: SqlRow): TimeBlock => ({
+  id: String(row.id),
+  taskId: String(row.task_id),
+  startAt: Number(row.start_at),
+  endAt: Number(row.end_at),
+  timeZone: typeof row.time_zone === 'string' ? row.time_zone : 'local',
+  source: row.source === 'planner' ? 'planner' : 'manual',
+  createdAt: Number(row.created_at),
+  updatedAt: Number(row.updated_at)
+});
+
+const rowToProjectSection = (row: SqlRow): ProjectSection => ({
+  id: String(row.id),
+  projectId: String(row.project_id),
+  name: String(row.name),
+  sortOrder: Number(row.sort_order),
+  createdAt: Number(row.created_at),
+  updatedAt: Number(row.updated_at)
+});
+
+const rowToFocusSession = (row: SqlRow): FocusSession => ({
+  id: String(row.id),
+  taskId: String(row.task_id),
+  timeBlockId: typeof row.time_block_id === 'string' ? row.time_block_id : null,
+  startedAt: Number(row.started_at),
+  endedAt: nullableNumber(row.ended_at),
+  activeMs: Number(row.active_ms),
+  outcome:
+    row.outcome === 'completed' || row.outcome === 'paused' || row.outcome === 'interrupted'
+      ? row.outcome
+      : null,
+  createdAt: Number(row.created_at)
+});
 
 const parseJson = (value: SqlValue | undefined): unknown => {
   if (typeof value !== 'string') {
@@ -1493,6 +2035,7 @@ const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({
   context: todo.remindOnBreak || todo.context === 'away' ? 'away' : 'desk',
   remindOnBreak: todo.remindOnBreak === true,
   estimateMinutes: null,
+  sectionId: null,
   sortOrder,
   createdAt: todo.createdAt,
   updatedAt: now,

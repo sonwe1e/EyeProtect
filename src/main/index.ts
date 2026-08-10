@@ -937,7 +937,11 @@ app.whenReady().then(async () => {
         standaloneReminders: standaloneReminders.list(),
         activeTaskId: taskService.getActiveTaskId(),
         taskReminderOccurrences: taskStore.getTaskReminderOccurrences(),
-        characterCollection: characterService.getState()
+        characterCollection: characterService.getState(),
+        dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
+        timeBlocks: taskStore.getTimeBlocks(),
+        projectSections: taskStore.getAllProjectSections(),
+        focusSessions: taskStore.getFocusSessions()
       }),
       'utf8'
     );
@@ -983,7 +987,11 @@ app.whenReady().then(async () => {
           standaloneReminders: standaloneReminders.list(),
           activeTaskId: taskService.getActiveTaskId(),
           taskReminderOccurrences: taskStore.getTaskReminderOccurrences(),
-          characterCollection: characterService.getState()
+          characterCollection: characterService.getState(),
+          dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
+          timeBlocks: taskStore.getTimeBlocks(),
+          projectSections: taskStore.getAllProjectSections(),
+          focusSessions: taskStore.getFocusSessions()
         }
       );
       const rollbackPath = join(settingsStore.getDataDir(), `import-rollback-${Date.now()}.json`);
@@ -992,8 +1000,14 @@ app.whenReady().then(async () => {
       const applyBackup = (candidate: typeof backup): void => {
         // Apply the relational domain before preferences/history. If any step
         // rejects, the catch below restores the complete pre-import snapshot.
+        // Order matters: projects → sections → tasks (tasks carry section FKs)
+        // → plans/blocks (need tasks) → focus sessions (need tasks and blocks).
         taskStore.replaceProjects(candidate.projects);
+        taskStore.replaceAllProjectSections(candidate.projectSections);
         taskStore.replaceAll(candidate.tasks);
+        taskStore.replaceAllDailyTaskPlans(candidate.dailyTaskPlans);
+        taskStore.replaceAllTimeBlocks(candidate.timeBlocks);
+        taskStore.replaceAllFocusSessions(candidate.focusSessions);
         taskStore.replaceTaskReminderOccurrences(candidate.taskReminderOccurrences);
         taskStore.replaceStandaloneReminders(candidate.standaloneReminders);
         taskStore.setActiveTaskId(candidate.activeTaskId);

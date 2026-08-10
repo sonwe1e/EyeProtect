@@ -224,11 +224,17 @@ export interface Task {
   /** Whether an away/any task may be suggested inside a walk reminder. */
   remindOnBreak: boolean;
   estimateMinutes: number | null;
+  /** Project workflow section (Board column). Independent of focus state (ADR-002). */
+  sectionId: string | null;
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
 }
+
+export type ProjectStatus = 'active' | 'onHold' | 'completed' | 'archived';
+
+export const PROJECT_STATUSES: ProjectStatus[] = ['active', 'onHold', 'completed', 'archived'];
 
 export interface Project {
   id: string;
@@ -237,6 +243,8 @@ export interface Project {
   viewMode: 'list' | 'board';
   color: string | null;
   parentId: string | null;
+  /** Project lifecycle (USERPLAN 1.2 PR1). Deletion stays a rare destructive act. */
+  status: ProjectStatus;
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
@@ -257,6 +265,8 @@ export interface TaskInput {
   context?: TaskContext;
   remindOnBreak?: boolean;
   estimateMinutes?: number | null;
+  /** Board/workflow section within the task's project (schema v4). */
+  sectionId?: string | null;
 }
 
 /** Partial update; `status` is separate because it drives recurrence + stats. */
@@ -293,9 +303,106 @@ export interface ProjectInput {
   viewMode?: 'list' | 'board';
   color?: string | null;
   parentId?: string | null;
+  status?: ProjectStatus;
 }
 
 export type ProjectUpdateInput = Partial<ProjectInput>;
+
+// ── Schema v4 planning domain (USERPLAN 1.2 §九, PR1) ────────────────────────
+
+/**
+ * One task's commitment on one local calendar day. `plannedMinutes` is how
+ * much the user intends to invest THAT day — not the task's total estimate.
+ * `dailyRank` (max 3 per day) separates "today's real commitments" from the
+ * task's long-lived priority (Akiflow/Sunsama split, §五/§十).
+ */
+export interface DailyTaskPlan {
+  taskId: string;
+  /** Local calendar day, `YYYY-MM-DD` (civil date — never derived via +86_400_000). */
+  localDate: string;
+  plannedMinutes: number | null;
+  dailyRank: 1 | 2 | 3 | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DailyTaskPlanInput {
+  taskId: string;
+  localDate: string;
+  plannedMinutes?: number | null;
+  dailyRank?: 1 | 2 | 3 | null;
+  sortOrder?: number;
+}
+
+export type TimeBlockSource = 'manual' | 'planner';
+
+/**
+ * A scheduled interval of work on a task. One task may own N blocks (a 240m
+ * task can live on Monday 10:00–12:00 and Tuesday 14:00–16:00). Replaces the
+ * overloaded `plannedAt ≈ calendar block` interpretation (ADR-001).
+ */
+export interface TimeBlock {
+  id: string;
+  taskId: string;
+  startAt: number;
+  endAt: number;
+  /** IANA zone captured at scheduling time (display/audit aid). */
+  timeZone: string;
+  source: TimeBlockSource;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TimeBlockInput {
+  taskId: string;
+  startAt: number;
+  endAt: number;
+  timeZone?: string;
+  source?: TimeBlockSource;
+}
+
+/**
+ * A named stage/column inside a project (Todoist sections). Board columns
+ * ARE sections — never derived from the global active/focus task (ADR-002).
+ */
+export interface ProjectSection {
+  id: string;
+  projectId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectSectionInput {
+  projectId: string;
+  name: string;
+}
+
+export type FocusSessionOutcome = 'completed' | 'paused' | 'interrupted';
+
+/**
+ * One logical focus run on a task: start → (work, break, work…) → end.
+ * The existing work_sessions rows stay as the precise low-level segments
+ * underneath (ADR-005). At most ONE session may be live globally.
+ */
+export interface FocusSession {
+  id: string;
+  taskId: string;
+  /** Set when the session was started from a TimeBlock. */
+  timeBlockId: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  activeMs: number;
+  outcome: FocusSessionOutcome | null;
+  createdAt: number;
+}
+
+export interface FocusSessionStartInput {
+  taskId: string;
+  timeBlockId?: string | null;
+}
 
 export interface PetPosition {
   x: number;
@@ -1064,6 +1171,7 @@ export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | n
     candidate.priority === 'important' || candidate.priority === 'urgent' ? candidate.priority : 'normal';
   const projectId = typeof candidate.projectId === 'string' && candidate.projectId ? candidate.projectId : null;
   const parentId = typeof candidate.parentId === 'string' && candidate.parentId ? candidate.parentId : null;
+  const sectionId = typeof candidate.sectionId === 'string' && candidate.sectionId ? candidate.sectionId : null;
   const recurrence = sanitizeRecurrenceRule(candidate.recurrence);
   const context = asTaskContext(candidate.context);
   const remindOnBreak = candidate.remindOnBreak === true && context !== 'desk';
@@ -1093,6 +1201,7 @@ export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | n
     context,
     remindOnBreak,
     estimateMinutes,
+    sectionId,
     sortOrder,
     createdAt,
     updatedAt,
@@ -1144,6 +1253,9 @@ export const sanitizeProject = (value: unknown, now: number = Date.now()): Proje
     ? candidate.goal.trim().slice(0, PROJECT_GOAL_MAX) || null
     : null;
   const viewMode = candidate.viewMode === 'board' ? 'board' : 'list';
+  const status: ProjectStatus = PROJECT_STATUSES.includes(candidate.status as ProjectStatus)
+    ? (candidate.status as ProjectStatus)
+    : 'active';
   return {
     id: candidate.id,
     name,
@@ -1151,6 +1263,7 @@ export const sanitizeProject = (value: unknown, now: number = Date.now()): Proje
     viewMode,
     color: asProjectColor(candidate.color),
     parentId,
+    status,
     sortOrder,
     createdAt,
     updatedAt
@@ -1164,6 +1277,164 @@ export const sanitizeProjects = (value: unknown, now: number = Date.now()): Proj
   return value
     .map((entry) => sanitizeProject(entry, now))
     .filter((entry): entry is Project => Boolean(entry));
+};
+
+// ── Schema v4 sanitizers (USERPLAN 1.2 PR1) ──────────────────────────────────
+
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Strict civil-date key check: backups and IPC must never smuggle raw timestamps in here. */
+export const isLocalDateKey = (value: unknown): value is string =>
+  typeof value === 'string' && LOCAL_DATE_PATTERN.test(value);
+
+const normalizePositiveInt = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+
+export const sanitizeDailyTaskPlan = (value: unknown, now: number = Date.now()): DailyTaskPlan | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<DailyTaskPlan> & Record<string, unknown>;
+  if (typeof candidate.taskId !== 'string' || !candidate.taskId) return null;
+  if (!isLocalDateKey(candidate.localDate)) return null;
+  const rank =
+    candidate.dailyRank === 1 || candidate.dailyRank === 2 || candidate.dailyRank === 3
+      ? candidate.dailyRank
+      : null;
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  const updatedAt = normalizeTaskTimestamp(candidate.updatedAt, createdAt) ?? createdAt;
+  return {
+    taskId: candidate.taskId,
+    localDate: candidate.localDate,
+    plannedMinutes: normalizePositiveInt(candidate.plannedMinutes),
+    dailyRank: rank,
+    sortOrder:
+      typeof candidate.sortOrder === 'number' && Number.isFinite(candidate.sortOrder)
+        ? Math.round(candidate.sortOrder)
+        : 0,
+    createdAt,
+    updatedAt
+  };
+};
+
+export const sanitizeDailyTaskPlans = (value: unknown, now: number = Date.now()): DailyTaskPlan[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => sanitizeDailyTaskPlan(entry, now))
+    .filter((entry): entry is DailyTaskPlan => Boolean(entry));
+};
+
+export const sanitizeTimeBlock = (value: unknown, now: number = Date.now()): TimeBlock | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<TimeBlock> & Record<string, unknown>;
+  if (typeof candidate.id !== 'string' || !candidate.id) return null;
+  if (typeof candidate.taskId !== 'string' || !candidate.taskId) return null;
+  const startAt = normalizeTaskTimestamp(candidate.startAt, null);
+  const endAt = normalizeTaskTimestamp(candidate.endAt, null);
+  // Invariant: end_at > start_at (USERPLAN §二十). Reject, don't clamp.
+  if (startAt === null || endAt === null || endAt <= startAt) return null;
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  const updatedAt = normalizeTaskTimestamp(candidate.updatedAt, createdAt) ?? createdAt;
+  return {
+    id: candidate.id,
+    taskId: candidate.taskId,
+    startAt,
+    endAt,
+    timeZone:
+      typeof candidate.timeZone === 'string' && candidate.timeZone.trim()
+        ? candidate.timeZone.trim().slice(0, 64)
+        : 'local',
+    source: candidate.source === 'planner' ? 'planner' : 'manual',
+    createdAt,
+    updatedAt
+  };
+};
+
+export const sanitizeTimeBlocks = (value: unknown, now: number = Date.now()): TimeBlock[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => sanitizeTimeBlock(entry, now))
+    .filter((entry): entry is TimeBlock => Boolean(entry));
+};
+
+export const SECTION_NAME_MAX = 60;
+
+export const sanitizeProjectSection = (value: unknown, now: number = Date.now()): ProjectSection | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<ProjectSection> & Record<string, unknown>;
+  if (typeof candidate.id !== 'string' || !candidate.id) return null;
+  if (typeof candidate.projectId !== 'string' || !candidate.projectId) return null;
+  if (typeof candidate.name !== 'string') return null;
+  const name = candidate.name.trim().slice(0, SECTION_NAME_MAX);
+  if (!name) return null;
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  const updatedAt = normalizeTaskTimestamp(candidate.updatedAt, createdAt) ?? createdAt;
+  return {
+    id: candidate.id,
+    projectId: candidate.projectId,
+    name,
+    sortOrder:
+      typeof candidate.sortOrder === 'number' && Number.isFinite(candidate.sortOrder)
+        ? Math.round(candidate.sortOrder)
+        : 0,
+    createdAt,
+    updatedAt
+  };
+};
+
+export const sanitizeProjectSections = (value: unknown, now: number = Date.now()): ProjectSection[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => sanitizeProjectSection(entry, now))
+    .filter((entry): entry is ProjectSection => Boolean(entry));
+};
+
+export const sanitizeFocusSession = (value: unknown, now: number = Date.now()): FocusSession | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<FocusSession> & Record<string, unknown>;
+  if (typeof candidate.id !== 'string' || !candidate.id) return null;
+  if (typeof candidate.taskId !== 'string' || !candidate.taskId) return null;
+  const startedAt = normalizeTaskTimestamp(candidate.startedAt, null);
+  if (startedAt === null) return null;
+  const endedAt = normalizeTaskTimestamp(candidate.endedAt, null);
+  // Invariants: ended_at >= started_at, active_ms >= 0.
+  if (endedAt !== null && endedAt < startedAt) return null;
+  const activeMs =
+    typeof candidate.activeMs === 'number' && Number.isFinite(candidate.activeMs) && candidate.activeMs >= 0
+      ? Math.round(candidate.activeMs)
+      : null;
+  if (activeMs === null) return null;
+  const outcome: FocusSessionOutcome | null =
+    candidate.outcome === 'completed' || candidate.outcome === 'paused' || candidate.outcome === 'interrupted'
+      ? candidate.outcome
+      : null;
+  // A finished session must carry an outcome; a live one must not.
+  if (endedAt !== null && outcome === null) return null;
+  if (endedAt === null && outcome !== null) return null;
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  return {
+    id: candidate.id,
+    taskId: candidate.taskId,
+    timeBlockId: typeof candidate.timeBlockId === 'string' && candidate.timeBlockId ? candidate.timeBlockId : null,
+    startedAt,
+    endedAt,
+    activeMs,
+    outcome,
+    createdAt
+  };
+};
+
+export const sanitizeFocusSessions = (value: unknown, now: number = Date.now()): FocusSession[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => sanitizeFocusSession(entry, now))
+    .filter((entry): entry is FocusSession => Boolean(entry));
 };
 
 /**

@@ -4,16 +4,24 @@ import {
   sanitizeProject,
   sanitizeStandaloneReminder,
   sanitizeTask,
+  sanitizeDailyTaskPlans,
+  sanitizeTimeBlocks,
+  sanitizeProjectSections,
+  sanitizeFocusSessions,
   type CharacterCollectionState,
+  type DailyTaskPlan,
+  type FocusSession,
   type Project,
+  type ProjectSection,
   type ReminderEvent,
   type Settings,
   type StandaloneReminder,
-  type Task
+  type Task,
+  type TimeBlock
 } from '../shared/types';
 import type { TaskReminderOccurrence } from './taskStore';
 
-const BACKUP_SCHEMA_VERSION = 4;
+const BACKUP_SCHEMA_VERSION = 5;
 type PreferenceSettings = Omit<Settings, 'todos' | 'alarms' | 'activeTaskId'>;
 
 export interface BackupDomainData {
@@ -23,10 +31,15 @@ export interface BackupDomainData {
   activeTaskId: string | null;
   taskReminderOccurrences: TaskReminderOccurrence[];
   characterCollection: CharacterCollectionState | null;
+  /** Schema v4 planning domain (USERPLAN 1.2 PR1). Empty for v1–v4 backups. */
+  dailyTaskPlans: DailyTaskPlan[];
+  timeBlocks: TimeBlock[];
+  projectSections: ProjectSection[];
+  focusSessions: FocusSession[];
 }
 
 export interface EyeProtectBackup extends BackupDomainData {
-  version: 4;
+  version: 5;
   createdAt: number;
   appVersion: string;
   settings: PreferenceSettings;
@@ -39,12 +52,20 @@ const emptyDomain = (): BackupDomainData => ({
   standaloneReminders: [],
   activeTaskId: null,
   taskReminderOccurrences: [],
-  characterCollection: null
+  characterCollection: null,
+  dailyTaskPlans: [],
+  timeBlocks: [],
+  projectSections: [],
+  focusSessions: []
 });
 
 type BackupDomainInput = Omit<BackupDomainData, 'taskReminderOccurrences' | 'characterCollection'> & {
   taskReminderOccurrences?: TaskReminderOccurrence[];
   characterCollection?: CharacterCollectionState | null;
+  dailyTaskPlans?: DailyTaskPlan[];
+  timeBlocks?: TimeBlock[];
+  projectSections?: ProjectSection[];
+  focusSessions?: FocusSession[];
 };
 
 const preferenceSettings = (settings: Settings): PreferenceSettings => {
@@ -66,13 +87,17 @@ export const createBackup = (
   reminderHistory: [...reminderHistory],
   ...domain,
   taskReminderOccurrences: domain.taskReminderOccurrences ?? [],
-  characterCollection: domain.characterCollection ?? null
+  characterCollection: domain.characterCollection ?? null,
+  dailyTaskPlans: domain.dailyTaskPlans ?? [],
+  timeBlocks: domain.timeBlocks ?? [],
+  projectSections: domain.projectSections ?? [],
+  focusSessions: domain.focusSessions ?? []
 } satisfies EyeProtectBackup, null, 2)}\n`;
 
 export const parseBackup = (text: string): EyeProtectBackup => {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (
-    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
+    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
     !Number.isFinite(parsed.createdAt) ||
     typeof parsed.appVersion !== 'string' ||
     !parsed.settings || typeof parsed.settings !== 'object' ||
@@ -112,6 +137,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         context: todo.remindOnBreak || todo.context === 'away' ? 'away' as const : 'desk' as const,
         remindOnBreak: todo.remindOnBreak === true,
         estimateMinutes: null,
+        sectionId: null,
         sortOrder,
         createdAt: todo.createdAt,
         updatedAt: todo.createdAt,
@@ -158,6 +184,37 @@ export const parseBackup = (text: string): EyeProtectBackup => {
     ? parsed.characterCollection as CharacterCollectionState
     : null;
 
+  // Schema v4 planning domain. Older backups simply carry empty arrays.
+  // Referential integrity is enforced here: a plan/block/session pointing at a
+  // task (or a section at a project) that did not survive sanitizing is dropped.
+  const projectIds = new Set(projects.map((project) => project.id));
+  const dailyTaskPlans = sanitizeDailyTaskPlans(parsed.dailyTaskPlans)
+    .filter((plan) => taskIds.has(plan.taskId));
+  const timeBlocks = sanitizeTimeBlocks(parsed.timeBlocks)
+    .filter((block) => taskIds.has(block.taskId));
+  const timeBlockIds = new Set(timeBlocks.map((block) => block.id));
+  const projectSections = sanitizeProjectSections(parsed.projectSections)
+    .filter((section) => projectIds.has(section.projectId));
+  const sectionIds = new Set(projectSections.map((section) => section.id));
+  // A task may only keep a section reference that survived the import; the
+  // store's FK would reject anything else, so normalize here instead.
+  for (const task of tasks) {
+    if (task.sectionId && !sectionIds.has(task.sectionId)) {
+      task.sectionId = null;
+    }
+    // Sections outside the task's own project are invalid by definition.
+    const section = task.sectionId ? projectSections.find((entry) => entry.id === task.sectionId) : null;
+    if (section && section.projectId !== task.projectId) {
+      task.sectionId = null;
+    }
+  }
+  const focusSessions = sanitizeFocusSessions(parsed.focusSessions)
+    .map((session) => ({
+      ...session,
+      timeBlockId: session.timeBlockId && timeBlockIds.has(session.timeBlockId) ? session.timeBlockId : null
+    }))
+    .filter((session) => taskIds.has(session.taskId));
+
   // Tasks and projects each form their own parent forest. A backup must be a
   // DAG: reject multi-node cycles (A->B->A) that the per-row self-check misses.
   if (hasParentCycle(tasks)) {
@@ -178,6 +235,10 @@ export const parseBackup = (text: string): EyeProtectBackup => {
     standaloneReminders,
     taskReminderOccurrences,
     characterCollection,
+    dailyTaskPlans,
+    timeBlocks,
+    projectSections,
+    focusSessions,
     activeTaskId: typeof (parsed.activeTaskId ?? legacyActiveTaskId) === 'string' &&
       tasks.some((task) => task.id === (parsed.activeTaskId ?? legacyActiveTaskId))
       ? (parsed.activeTaskId ?? legacyActiveTaskId) as string
