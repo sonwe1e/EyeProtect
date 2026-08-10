@@ -4,6 +4,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  TASK_STALE_WRITE_MESSAGE,
   sanitizeProject,
   sanitizeProjects,
   sanitizeTask,
@@ -194,7 +195,8 @@ export class TaskStore extends EventEmitter {
     const rows = this.db.prepare(`
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
-             remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at
+             remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at,
+             revision
       FROM tasks
       ORDER BY sort_order, created_at, id
     `).all() as SqlRow[];
@@ -214,7 +216,8 @@ export class TaskStore extends EventEmitter {
     const row = this.db.prepare(`
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
-             remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at
+             remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at,
+             revision
       FROM tasks WHERE id = ?
     `).get(id) as SqlRow | undefined;
     if (!row) {
@@ -285,6 +288,7 @@ export class TaskStore extends EventEmitter {
     });
     const result = this.getTask(task.id)!;
     this.emit('tasks-changed', this.getTasks());
+    this.emit('task-upserted', result);
     return result;
   }
 
@@ -292,6 +296,12 @@ export class TaskStore extends EventEmitter {
     const current = this.getTask(id);
     if (!current) {
       return null;
+    }
+    // Stale-write rejection (USERPLAN PR2): an autosave that carries the
+    // revision it was based on must not clobber a newer write made elsewhere
+    // (another window, recurrence rollover, undo, backup import).
+    if (typeof input.baseRevision === 'number' && input.baseRevision !== current.revision) {
+      throw new Error(TASK_STALE_WRITE_MESSAGE);
     }
     const candidate = sanitizeTask({ ...current, ...input, id, updatedAt: now });
     if (!candidate) {
@@ -309,7 +319,7 @@ export class TaskStore extends EventEmitter {
         UPDATE tasks SET title = ?, notes = ?, status = ?, priority = ?, project_id = ?,
           parent_id = ?, planned_at = ?, due_at = ?, reminder_at = ?, recurrence_json = ?,
           context = ?, remind_on_break = ?, estimate_minutes = ?, sort_order = ?, updated_at = ?, completed_at = ?,
-          section_id = ?
+          section_id = ?, revision = tasks.revision + 1
         WHERE id = ?
       `).run(...taskSqlValues(next).slice(1, 15), next.updatedAt, next.completedAt, next.sectionId, id);
       this.writeTaskTags(id, next.tags);
@@ -319,6 +329,7 @@ export class TaskStore extends EventEmitter {
     });
     const result = this.getTask(id);
     this.emit('tasks-changed', this.getTasks());
+    if (result) this.emit('task-upserted', result);
     return result;
   }
 
@@ -368,6 +379,11 @@ export class TaskStore extends EventEmitter {
       rest.forEach((entry, index) => statement.run(index, now, entry.id));
     });
     this.emit('tasks-changed', this.getTasks());
+    // Delta stream: every reordered sibling changed its sort_order.
+    for (const entry of rest) {
+      const fresh = this.getTask(entry.id);
+      if (fresh) this.emit('task-upserted', fresh);
+    }
     return this.getTasks();
   }
 
@@ -375,12 +391,18 @@ export class TaskStore extends EventEmitter {
     if (!this.getTask(id)) {
       return false;
     }
+    const promotedChildren = this.getTasks().filter((task) => task.parentId === id);
     this.transaction(() => {
       this.db.prepare('UPDATE tasks SET parent_id = NULL, updated_at = ? WHERE parent_id = ?').run(now, id);
       this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
       this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(id);
     });
     this.emit('tasks-changed', this.getTasks());
+    this.emit('task-removed', id);
+    for (const child of promotedChildren) {
+      const fresh = this.getTask(child.id);
+      if (fresh) this.emit('task-upserted', fresh);
+    }
     return true;
   }
 
@@ -406,6 +428,9 @@ export class TaskStore extends EventEmitter {
       }
     });
     this.emit('tasks-changed', this.getTasks());
+    for (const task of removed) {
+      this.emit('task-removed', task.id);
+    }
     return removed;
   }
 
@@ -477,6 +502,8 @@ export class TaskStore extends EventEmitter {
       this.db.prepare('DELETE FROM undo_operations WHERE id = ?').run(operationId);
     });
     this.emit('tasks-changed', this.getTasks());
+    // Undo restores/removes whole trees — broadcast the full list as truth.
+    this.emit('tasks-replaced', this.getTasks());
     return true;
   }
 
@@ -504,6 +531,7 @@ export class TaskStore extends EventEmitter {
     `).run(project.id, project.name, project.goal, project.viewMode, project.color, parentId, project.status, project.sortOrder, project.createdAt, project.updatedAt);
     const result = this.getProject(project.id)!;
     this.emit('projects-changed', this.getProjects());
+    this.emit('project-upserted', result);
     return result;
   }
 
@@ -525,6 +553,7 @@ export class TaskStore extends EventEmitter {
     `).run(next.name, next.goal, next.viewMode, next.color, parentId, next.status, next.sortOrder, now, id);
     const result = this.getProject(id);
     this.emit('projects-changed', this.getProjects());
+    if (result) this.emit('project-upserted', result);
     return result;
   }
 
@@ -532,6 +561,7 @@ export class TaskStore extends EventEmitter {
     if (!this.getProject(id)) {
       return false;
     }
+    const detachedTasks = this.getTasks().filter((task) => task.projectId === id);
     this.transaction(() => {
       this.db.prepare('UPDATE tasks SET project_id = NULL, updated_at = ? WHERE project_id = ?').run(now, id);
       this.db.prepare('UPDATE projects SET parent_id = NULL, updated_at = ? WHERE parent_id = ?').run(now, id);
@@ -539,6 +569,11 @@ export class TaskStore extends EventEmitter {
     });
     this.emit('projects-changed', this.getProjects());
     this.emit('tasks-changed', this.getTasks());
+    this.emit('project-removed', id);
+    for (const task of detachedTasks) {
+      const fresh = this.getTask(task.id);
+      if (fresh) this.emit('task-upserted', fresh);
+    }
     return true;
   }
 
@@ -566,6 +601,7 @@ export class TaskStore extends EventEmitter {
       }
     });
     this.emit('tasks-changed', this.getTasks());
+    this.emit('tasks-replaced', this.getTasks());
     return this.getTasks();
   }
 
@@ -594,6 +630,8 @@ export class TaskStore extends EventEmitter {
     });
     this.emit('projects-changed', this.getProjects());
     this.emit('tasks-changed', this.getTasks());
+    this.emit('projects-replaced', this.getProjects());
+    this.emit('tasks-replaced', this.getTasks());
     return this.getProjects();
   }
 
@@ -704,6 +742,7 @@ export class TaskStore extends EventEmitter {
     const result = this.getTasks();
     if (result.length > 0) {
       this.emit('tasks-changed', result);
+      this.emit('tasks-replaced', result);
     }
     return result;
   }
@@ -1073,7 +1112,10 @@ export class TaskStore extends EventEmitter {
         sort_order INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        completed_at INTEGER
+        completed_at INTEGER,
+        -- Schema v4.1 (USERPLAN PR2): monotonic row version for stale-write
+        -- rejection in the autosave path. Bumped by every updateTask write.
+        revision INTEGER NOT NULL DEFAULT 1
       );
       CREATE INDEX IF NOT EXISTS tasks_status_sort ON tasks(status, sort_order);
       CREATE INDEX IF NOT EXISTS tasks_reminder ON tasks(reminder_at) WHERE reminder_at IS NOT NULL;
@@ -1239,6 +1281,9 @@ export class TaskStore extends EventEmitter {
     if (!taskSectionColumns.some((column) => column.name === 'section_id')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN section_id TEXT REFERENCES project_sections(id) ON DELETE SET NULL');
     }
+    if (!taskSectionColumns.some((column) => column.name === 'revision')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
+    }
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(SCHEMA_VERSION, Date.now());
     const defensiveDb = this.db as DatabaseSync & { enableDefensive?: (active: boolean) => void };
@@ -1280,6 +1325,7 @@ export class TaskStore extends EventEmitter {
             remind_on_break INTEGER NOT NULL DEFAULT 0,
             estimate_minutes INTEGER,
             section_id TEXT,
+            revision INTEGER NOT NULL DEFAULT 1,
             sort_order INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
@@ -1290,7 +1336,7 @@ export class TaskStore extends EventEmitter {
             CASE WHEN status IN ('inbox','active') THEN 'open' ELSE status END,
             priority, project_id, parent_id, planned_at, due_at, reminder_at,
             recurrence_json, context, remind_on_break, estimate_minutes,
-            NULL, sort_order, created_at, updated_at, completed_at
+            NULL, 1, sort_order, created_at, updated_at, completed_at
           FROM tasks;
           DROP TABLE tasks;
           ALTER TABLE tasks_v2 RENAME TO tasks;
@@ -1607,9 +1653,14 @@ export class TaskStore extends EventEmitter {
 
   deleteProjectSection(id: string, now: number = Date.now()): boolean {
     // FK ON DELETE SET NULL detaches member tasks; they are never deleted.
+    const detached = this.getTasks().filter((task) => task.sectionId === id);
     const result = this.db.prepare('DELETE FROM project_sections WHERE id = ?').run(id);
     if (Number(result.changes) === 1) {
       this.emit('tasks-changed', this.getTasks());
+      for (const task of detached) {
+        const fresh = this.getTask(task.id);
+        if (fresh) this.emit('task-upserted', fresh);
+      }
       return true;
     }
     return false;
@@ -1814,8 +1865,8 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
         planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
-        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(...taskSqlValues(task));
     if (task.reminderAt !== null) {
       this.db.prepare('INSERT OR IGNORE INTO task_reminders(task_id, fire_at, consumed_at) VALUES (?, ?, NULL)')
@@ -1827,8 +1878,8 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
         planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
-        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET title = excluded.title, notes = excluded.notes,
         status = excluded.status, priority = excluded.priority,
         project_id = excluded.project_id, parent_id = excluded.parent_id,
@@ -1838,7 +1889,7 @@ export class TaskStore extends EventEmitter {
         estimate_minutes = excluded.estimate_minutes,
         sort_order = excluded.sort_order, created_at = excluded.created_at,
         updated_at = excluded.updated_at, completed_at = excluded.completed_at,
-        section_id = excluded.section_id
+        section_id = excluded.section_id, revision = excluded.revision
     `).run(...taskSqlValues(task));
   }
 
@@ -1896,7 +1947,8 @@ const taskSqlValues = (task: Task): SqlValue[] => [
   task.createdAt,
   task.updatedAt,
   task.completedAt,
-  task.sectionId
+  task.sectionId,
+  task.revision
 ];
 
 const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
@@ -1919,8 +1971,9 @@ const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
   sortOrder: Number(row.sort_order),
   createdAt: Number(row.created_at),
   updatedAt: Number(row.updated_at),
-  completedAt: nullableNumber(row.completed_at)
-})!;
+  completedAt: nullableNumber(row.completed_at),
+  revision: Math.max(1, Number(row.revision) || 1)
+})!;;
 
 const rowToProject = (row: SqlRow): Project => sanitizeProject({
   id: String(row.id),
@@ -2036,6 +2089,7 @@ const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({
   remindOnBreak: todo.remindOnBreak === true,
   estimateMinutes: null,
   sectionId: null,
+  revision: 1,
   sortOrder,
   createdAt: todo.createdAt,
   updatedAt: now,

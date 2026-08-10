@@ -230,7 +230,16 @@ export interface Task {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  /**
+   * Monotonic row version bumped by every persisted update (USERPLAN PR2).
+   * Autosave sends the revision its draft was based on; the store rejects
+   * stale writes instead of silently overwriting newer content.
+   */
+  revision: number;
 }
+
+/** Error surfaced when an autosave is rejected because the task moved on. */
+export const TASK_STALE_WRITE_MESSAGE = '写入冲突：任务已被其他操作更新，请基于最新内容重试';
 
 export type ProjectStatus = 'active' | 'onHold' | 'completed' | 'archived';
 
@@ -274,6 +283,11 @@ export type TaskUpdateInput = Partial<TaskInput> & {
   status?: TaskStatus;
   /** Used by the Workbench's explicit move controls. */
   sortOrder?: number;
+  /**
+   * Optimistic-concurrency guard: the `revision` the draft was based on. When
+   * present and different from the stored revision the write is rejected.
+   */
+  baseRevision?: number;
 };
 
 export interface TaskMoveInput {
@@ -739,12 +753,18 @@ export interface EyeProtectApi {
   undoTaskOperation: (operationId: string) => Promise<Task[]>;
   onUndoChanged: (callback: (state: UndoState | null) => void) => () => void;
   onTasksChanged: (callback: (tasks: Task[]) => void) => () => void;
+  /** Schema v4.1 delta stream (USERPLAN PR2): hydration stays on task:list /
+   *  onTasksChanged (bulk), single-entity mutations arrive incrementally. */
+  onTaskUpserted: (callback: (task: Task) => void) => () => void;
+  onTaskRemoved: (callback: (taskId: string) => void) => () => void;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
   updateProject: (id: string, input: ProjectUpdateInput) => Promise<Project[]>;
   deleteProject: (id: string) => Promise<Project[]>;
   onProjectsChanged: (callback: (projects: Project[]) => void) => () => void;
+  onProjectUpserted: (callback: (project: Project) => void) => () => void;
+  onProjectRemoved: (callback: (projectId: string) => void) => () => void;
   getActiveTaskId: () => Promise<string | null>;
   setActiveTask: (id: string | null) => Promise<Task[]>;
   onActiveTaskChanged: (callback: (id: string | null) => void) => () => void;
@@ -1205,7 +1225,11 @@ export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | n
     sortOrder,
     createdAt,
     updatedAt,
-    completedAt
+    completedAt,
+    revision:
+      typeof candidate.revision === 'number' && Number.isFinite(candidate.revision) && candidate.revision >= 1
+        ? Math.round(candidate.revision)
+        : 1
   };
 };
 

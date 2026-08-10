@@ -26,6 +26,15 @@ import type {
 export class TaskService extends EventEmitter {
   constructor(private readonly store: TaskStore) {
     super();
+    // Delta stream pass-through (USERPLAN PR2): single-entity mutations travel
+    // as task/project upsert+remove events; bulk operations (undo, import,
+    // legacy migration) additionally carry a *-replaced full-list event.
+    store.on('task-upserted', (task: Task) => this.emit('task-upserted', task));
+    store.on('task-removed', (id: string) => this.emit('task-removed', id));
+    store.on('project-upserted', (project: Project) => this.emit('project-upserted', project));
+    store.on('project-removed', (id: string) => this.emit('project-removed', id));
+    store.on('tasks-replaced', (tasks: Task[]) => this.emit('tasks-replaced', tasks));
+    store.on('projects-replaced', (projects: Project[]) => this.emit('projects-replaced', projects));
   }
 
   // ── Read pass-throughs ─────────────────────────────────────────────────────

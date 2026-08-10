@@ -711,13 +711,30 @@ app.whenReady().then(async () => {
 
   // v1.1 Task Core events → renderer. The workbench subscribes to these push
   // channels via the preload bridge; other windows ignore them.
+  // USERPLAN 1.2 PR2: `tasks-changed` stays an internal main-process signal
+  // (scheduler/health); renderers receive per-entity deltas, with the full
+  // list reserved for bulk `*-replaced` operations (undo, import, migration).
   taskService.on('tasks-changed', (tasks: Task[]) => {
     scheduler.updateTasks(tasks);
-    windows.broadcastTasks(tasks);
     taskScheduler.arm();
   });
-  taskService.on('projects-changed', (projects: Project[]) => {
+  taskService.on('tasks-replaced', (tasks: Task[]) => {
+    windows.broadcastTasks(tasks);
+  });
+  taskService.on('task-upserted', (task: Task) => {
+    windows.broadcastTaskUpserted(task);
+  });
+  taskService.on('task-removed', (taskId: string) => {
+    windows.broadcastTaskRemoved(taskId);
+  });
+  taskService.on('projects-replaced', (projects: Project[]) => {
     windows.broadcastProjects(projects);
+  });
+  taskService.on('project-upserted', (project: Project) => {
+    windows.broadcastProjectUpserted(project);
+  });
+  taskService.on('project-removed', (projectId: string) => {
+    windows.broadcastProjectRemoved(projectId);
   });
   taskService.on('active-task-changed', (id: string | null) => {
     taskWorkTracker.setActiveTask(id);

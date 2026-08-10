@@ -138,6 +138,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         remindOnBreak: todo.remindOnBreak === true,
         estimateMinutes: null,
         sectionId: null,
+        revision: 1,
         sortOrder,
         createdAt: todo.createdAt,
         updatedAt: todo.createdAt,

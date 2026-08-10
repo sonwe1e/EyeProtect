@@ -140,6 +140,11 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskRef = useRef(task);
   taskRef.current = task;
+  // Local revision guard (USERPLAN PR2): the task revision this draft is based
+  // on. Sent as `baseRevision` with every autosave/flush; the store rejects
+  // the write when the row moved on, and we resync from the fresh server
+  // state instead of clobbering it.
+  const baseRevisionRef = useRef(task.revision);
   const latestDraftRef = useRef<TaskUpdateInput>({});
   latestDraftRef.current = {
     title: title.trim() || task.title,
@@ -179,31 +184,40 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     setStatus(task.status);
   }, [task.id, task.status]);
 
-  // Re-sync local state when the selected task changes.
-  useEffect(() => {
-    setTitle(task.title);
-    setNotes(task.notes ?? '');
-    setPriority(task.priority);
-    setContext(task.context);
-    setRemindOnBreak(task.remindOnBreak);
-    setProjectId(task.projectId);
-    setPlannedAt(toLocalInputValue(task.plannedAt ?? Date.now()));
-    setDueAt(toLocalInputValue(task.dueAt ?? Date.now()));
-    setReminderAt(toLocalInputValue(task.reminderAt ?? Date.now()));
-    setHasPlanned(task.plannedAt !== null);
-    setHasDue(task.dueAt !== null);
-    setHasReminder(task.reminderAt !== null);
-    setEstimateMinutes(String(task.estimateMinutes ?? ''));
-    setTags(task.tags.join(', '));
-    setRecurrenceType(parseRecurrenceType(task.recurrence));
-    setRecurrenceInterval('interval' in (task.recurrence ?? {}) ? String((task.recurrence as { interval: number }).interval) : '1');
-    setRecurrenceWeekdays(task.recurrence?.type === 'weekly' ? task.recurrence.weekdays : [new Date(task.reminderAt ?? task.dueAt ?? Date.now()).getDay()]);
-    setMonthlyDay(task.recurrence?.type === 'monthly' ? task.recurrence.day : new Date(task.dueAt ?? Date.now()).getDate());
-    setAfterDays(task.recurrence?.type === 'after-completion' ? task.recurrence.days : 1);
-    setParentId(task.parentId);
-    setStatus(task.status);
+  // Re-sync local state when the selected task changes (also used to recover
+  // after a stale-write rejection).
+  const resyncFieldsFrom = useCallback((source: Task): void => {
+    setTitle(source.title);
+    setNotes(source.notes ?? '');
+    setPriority(source.priority);
+    setContext(source.context);
+    setRemindOnBreak(source.remindOnBreak);
+    setProjectId(source.projectId);
+    setPlannedAt(toLocalInputValue(source.plannedAt ?? Date.now()));
+    setDueAt(toLocalInputValue(source.dueAt ?? Date.now()));
+    setReminderAt(toLocalInputValue(source.reminderAt ?? Date.now()));
+    setHasPlanned(source.plannedAt !== null);
+    setHasDue(source.dueAt !== null);
+    setHasReminder(source.reminderAt !== null);
+    setEstimateMinutes(String(source.estimateMinutes ?? ''));
+    setTags(source.tags.join(', '));
+    setRecurrenceType(parseRecurrenceType(source.recurrence));
+    setRecurrenceInterval('interval' in (source.recurrence ?? {}) ? String((source.recurrence as { interval: number }).interval) : '1');
+    setRecurrenceWeekdays(source.recurrence?.type === 'weekly' ? source.recurrence.weekdays : [new Date(source.reminderAt ?? source.dueAt ?? Date.now()).getDay()]);
+    setMonthlyDay(source.recurrence?.type === 'monthly' ? source.recurrence.day : new Date(source.dueAt ?? Date.now()).getDate());
+    setAfterDays(source.recurrence?.type === 'after-completion' ? source.recurrence.days : 1);
+    setParentId(source.parentId);
+    setStatus(source.status);
+    baseRevisionRef.current = source.revision;
     initialSyncRef.current = true;
     setSaveError(null);
+  }, []);
+
+  useEffect(() => {
+    resyncFieldsFrom(task);
+    // Keyed by task id only: external updates to the SAME task must not wipe
+    // a dirty draft; they reconcile via the revision guard instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id]);
 
   // Serialize autosave requests so rapid edits can't reorder behind a slow
@@ -211,15 +225,22 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   // real error message instead of a generic string.
   const persist = useCallback((input: TaskUpdateInput): void => {
     saveQueueRef.current = saveQueueRef.current.then(async () => {
-      const result = await update.run(input);
+      const result = await update.run({ ...input, baseRevision: baseRevisionRef.current });
       if (result.ok) {
+        const fresh = result.data.find((entry) => entry.id === taskRef.current.id);
+        if (fresh) baseRevisionRef.current = fresh.revision;
         setSaveError(null);
         onUpdated?.();
       } else {
+        if (result.code === 'conflict') {
+          // Stale autosave: the server copy is newer. Drop the draft and
+          // resync from the latest known state instead of overwriting.
+          resyncFieldsFrom(taskRef.current);
+        }
         setSaveError(result.message);
       }
     });
-  }, [update.run, onUpdated]);
+  }, [update.run, onUpdated, resyncFieldsFrom]);
 
   useEffect(() => {
     if (initialSyncRef.current) {
@@ -261,10 +282,14 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     const draft = { ...latestDraftRef.current };
     if (draftEqualsTask(draft, source)) return;
     saveQueueRef.current = saveQueueRef.current.then(async () => {
-      const result = await commands.tasks.update(source.id, draft);
-      if (!result.ok) {
+      const result = await commands.tasks.update(source.id, { ...draft, baseRevision: baseRevisionRef.current });
+      if (result.ok) {
+        const fresh = result.data.find((entry) => entry.id === source.id);
+        if (fresh) baseRevisionRef.current = fresh.revision;
+      } else {
         // The component is usually unmounted at this point, so surface the
-        // failure on the console instead of a dead setState.
+        // failure on the console instead of a dead setState. A stale flush is
+        // intentionally dropped: the newer server copy wins.
         console.error(`[TaskDetail] draft flush failed for task ${source.id}: ${result.message}`);
       }
     });

@@ -1030,6 +1030,26 @@ export class AppWindows {
     this.sendTo([this.workbenchWindow], 'project:changed', projects);
   }
 
+  // Delta stream (USERPLAN 1.2 PR2): single-entity mutations no longer
+  // broadcast the entire Task[] — typing one character updates one row.
+  broadcastTaskUpserted(task: Task): void {
+    this.sendTo([this.petWindow, this.bubbleWindow, this.workbenchWindow], 'task:upserted', task);
+    this.refreshBubble();
+  }
+
+  broadcastTaskRemoved(taskId: string): void {
+    this.sendTo([this.petWindow, this.bubbleWindow, this.workbenchWindow], 'task:removed', taskId);
+    this.refreshBubble();
+  }
+
+  broadcastProjectUpserted(project: Project): void {
+    this.sendTo([this.workbenchWindow], 'project:upserted', project);
+  }
+
+  broadcastProjectRemoved(projectId: string): void {
+    this.sendTo([this.workbenchWindow], 'project:removed', projectId);
+  }
+
   broadcastActiveTask(id: string | null): void {
     this.sendTo([this.workbenchWindow, this.bubbleWindow], 'task:active-changed', id);
   }
