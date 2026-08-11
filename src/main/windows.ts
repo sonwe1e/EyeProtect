@@ -7,6 +7,7 @@ import type {
   AppHealth,
   CareStatus,
   CharacterCollectionState,
+  FocusStatus,
   HotkeyStatus,
   Project,
   ReminderStatus,
@@ -110,7 +111,12 @@ export class AppWindows {
   private dimWindows: BrowserWindow[] = [];
   private workbenchWindow: BrowserWindow | null = null;
   private workbenchLoading: Promise<void> | null = null;
-  private workbenchSection: 'today' | 'settings' | 'reminders' | 'collection' = 'today';
+  private workbenchSection:
+    | 'today'
+    | 'settings'
+    | 'reminders'
+    | 'collection'
+    | 'review' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
   private applyingBounds = false;
@@ -239,7 +245,14 @@ export class AppWindows {
    * Upcoming/Projects/Completed views. Unlike the pet/panel it is not a
    * floating overlay — it is a real workspace the user switches to.
    */
-  showWorkbenchWindow(section: 'today' | 'settings' | 'reminders' | 'collection' = 'today'): void {
+  showWorkbenchWindow(
+    section:
+      | 'today'
+      | 'settings'
+      | 'reminders'
+      | 'collection'
+      | 'review' = 'today'
+  ): void {
     this.workbenchSection = section;
     if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
       // A window already exists: if its renderer is mid-load, let that load
@@ -326,7 +339,7 @@ export class AppWindows {
     }
   }
 
-  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'collection' {
+  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'collection' | 'review' {
     return this.workbenchSection;
   }
 
@@ -1048,6 +1061,11 @@ export class AppWindows {
 
   broadcastProjectRemoved(projectId: string): void {
     this.sendTo([this.workbenchWindow], 'project:removed', projectId);
+  }
+
+  /** Focus session state push (USERPLAN 1.2 PR6). */
+  broadcastFocusStatus(status: FocusStatus): void {
+    this.sendTo([this.workbenchWindow], 'focus:session-changed', status);
   }
 
   /** Generic workbench-only push for planning-domain change signals. */

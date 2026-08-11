@@ -4,6 +4,7 @@ import type {
   CharacterAppearanceMode,
   CharacterCollectionState,
   CharacterMaterial,
+  DailyReviewSummary,
   DailyTaskPlan,
   DailyTaskPlanInput,
   DataActionResult,
@@ -11,6 +12,7 @@ import type {
   AppHealth,
   EyeProtectApi,
   FailedDeliveryNotice,
+  FocusStatus,
   HotkeyStatus,
   PetAccessory,
   PreAlertAction,
@@ -90,6 +92,8 @@ const api: EyeProtectApi = {
   onProjectRemoved: (callback) => on<string>('project:removed', callback),
   getDailyPlans: (localDate: string) =>
     ipcRenderer.invoke('plan:day:list', localDate) as Promise<DailyTaskPlan[]>,
+  getDailyReview: (localDate: string) =>
+    ipcRenderer.invoke('daily:review', localDate) as Promise<DailyReviewSummary>,
   upsertDailyPlan: (input: DailyTaskPlanInput) =>
     ipcRenderer.invoke('plan:upsert', input) as Promise<DailyTaskPlan[]>,
   removeDailyPlan: (taskId: string, localDate: string) =>
@@ -115,6 +119,13 @@ const api: EyeProtectApi = {
   onProjectSectionsChanged: (callback) => on<{ projectId: string | null }>('section:changed', callback),
   setTaskSection: (taskId: string, sectionId: string | null) =>
     ipcRenderer.invoke('task:set-section', taskId, sectionId) as Promise<Task>,
+  getFocusStatus: () => ipcRenderer.invoke('focus:get') as Promise<FocusStatus>,
+  startFocus: (taskId: string, timeBlockId?: string | null) =>
+    ipcRenderer.invoke('focus:start', taskId, timeBlockId ?? null) as Promise<FocusStatus>,
+  pauseFocus: () => ipcRenderer.invoke('focus:pause') as Promise<FocusStatus>,
+  resumeFocus: () => ipcRenderer.invoke('focus:resume') as Promise<FocusStatus>,
+  completeFocus: () => ipcRenderer.invoke('focus:complete') as Promise<FocusStatus>,
+  onFocusStatusChanged: (callback) => on<FocusStatus>('focus:session-changed', callback),
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),
@@ -164,9 +175,9 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection'>,
+    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review'>,
   onWorkbenchNavigate: (callback) =>
-    on<'today' | 'settings' | 'reminders' | 'collection'>('workbench:navigate', callback),
+    on<'today' | 'settings' | 'reminders' | 'collection' | 'review'>('workbench:navigate', callback),
   getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
   getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
   clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,

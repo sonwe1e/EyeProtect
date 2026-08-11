@@ -412,12 +412,75 @@ export interface FocusSession {
   endedAt: number | null;
   activeMs: number;
   outcome: FocusSessionOutcome | null;
+  /**
+   * Live sessions only: true while a health break is presented (USERPLAN
+   * PR6). Accumulation stops; the session survives and resumes after the
+   * break so "本次专注" keeps its meaning across eye/walk breaks (ADR-005).
+   */
+  onBreak: boolean;
   createdAt: number;
 }
 
 export interface FocusSessionStartInput {
   taskId: string;
   timeBlockId?: string | null;
+}
+
+/**
+ * Renderer-facing focus state (USERPLAN 1.2 PR6 / §十四): the live session
+ * plus the task-level time layers the Focus surface displays — today's
+ * tracked work, the all-time total, and the plan to compare against.
+ */
+export interface FocusStatus {
+  session: FocusSession | null;
+  /** Active task's tracked work since local midnight (segments incl. live). */
+  todayTaskMs: number;
+  /** Active task's tracked work across all days. */
+  totalTaskMs: number;
+  /** Today's committed minutes for the active task (plan ?? estimate). */
+  plannedMinutes: number | null;
+  /** The TimeBlock the live session is anchored to, if any. */
+  block: TimeBlock | null;
+}
+
+export interface DailyReviewTaskSummary {
+  taskId: string;
+  title: string;
+  status: TaskStatus;
+  /** Today's committed minutes for the task (`dailyPlan.plannedMinutes ?? null`). */
+  plannedMinutes: number | null;
+  /** Actual tracked work for this task today (segments since local midnight). */
+  todayWorkMs: number;
+  /** All-time tracked work for this task. */
+  totalWorkMs: number;
+}
+
+export interface DailyReviewSummary {
+  localDate: string;
+  /** 今日计划时长（分钟）：来自 DailyTaskPlan 叠加。 */
+  plannedMinutes: number;
+  /** 今日实际工作时长（毫秒），取今日被计时任务总和。 */
+  actualWorkMs: number;
+  /** 今日完成计划任务数。 */
+  completedPlannedTaskCount: number;
+  /** 今日计划任务总数。 */
+  plannedTaskCount: number;
+  /** 今日优先承诺（daily_rank 1/2/3）完成数。 */
+  completedTodaysThreeCount: number;
+  /** 今日优先承诺（daily_rank 1/2/3）总数。 */
+  todaysThreeCount: number;
+  /** 今日健康提醒表现（包括 complete/snooze/skip/natural-break）。 */
+  reminderStats: ReminderPeriodStats;
+  /** 今日开始的专注会话数。 */
+  focusSessionCount: number;
+  /** 今日专注会话结束方式分布：完成/暂停/中断。 */
+  focusCompletedSessions: number;
+  focusPausedSessions: number;
+  focusInterruptedSessions: number;
+  /** 今日专注累计活跃时长（所有会话 activeMs 求和）。 */
+  focusWorkMs: number;
+  /** 本日涉及到的日计划任务明细。 */
+  tasks: DailyReviewTaskSummary[];
 }
 
 export interface PetPosition {
@@ -792,6 +855,14 @@ export interface EyeProtectApi {
   deleteProjectSection: (id: string) => Promise<boolean>;
   onProjectSectionsChanged: (callback: (payload: { projectId: string | null }) => void) => () => void;
   setTaskSection: (taskId: string, sectionId: string | null) => Promise<Task>;
+  /** Focus session lifecycle (USERPLAN 1.2 PR6, ADR-005). */
+  getFocusStatus: () => Promise<FocusStatus>;
+  startFocus: (taskId: string, timeBlockId?: string | null) => Promise<FocusStatus>;
+  pauseFocus: () => Promise<FocusStatus>;
+  resumeFocus: () => Promise<FocusStatus>;
+  completeFocus: () => Promise<FocusStatus>;
+  onFocusStatusChanged: (callback: (status: FocusStatus) => void) => () => void;
+  getDailyReview: (localDate: string) => Promise<DailyReviewSummary>;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
@@ -825,10 +896,10 @@ export interface EyeProtectApi {
   setCharacterMaterial: (id: string, material: CharacterMaterial) => Promise<CharacterCollectionState>;
   setCharacterAccessory: (id: string, accessory: PetAccessory) => Promise<CharacterCollectionState>;
   onCharacterCollectionChanged: (callback: (state: CharacterCollectionState) => void) => () => void;
-  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection') => Promise<void>;
+  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection' | 'review') => Promise<void>;
   closeWorkbench: () => Promise<void>;
-  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection'>;
-  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'collection') => void) => () => void;
+  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review'>;
+  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'collection' | 'review') => void) => () => void;
   getWeeklyReport: () => Promise<WeeklyReport>;
   getCareStatus: () => Promise<CareStatus>;
   clearReminderHistory: () => Promise<WeeklyReport>;
@@ -1491,6 +1562,7 @@ export const sanitizeFocusSession = (value: unknown, now: number = Date.now()): 
     endedAt,
     activeMs,
     outcome,
+    onBreak: endedAt === null && candidate.onBreak === true,
     createdAt
   };
 };

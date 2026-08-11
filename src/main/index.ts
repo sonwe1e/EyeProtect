@@ -61,7 +61,9 @@ import { StandaloneReminderService } from './standaloneReminders';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { TaskWorkTracker } from './taskWorkTracker';
+import { FocusSessionService } from './focusSession';
 import { CharacterService } from './characterService';
+import { buildDailyReview } from './dailyReview';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -407,6 +409,7 @@ app.whenReady().then(async () => {
   const characterService = new CharacterService(taskStore);
   characterService.getState();
   const taskWorkTracker = new TaskWorkTracker(taskStore, (id) => taskService.getTask(id));
+  const focusSessionService = new FocusSessionService(taskStore);
   const taskScheduler = new TaskScheduler(kernel, () => taskService.getTasks(), Date.now, {
     persist: (events) => taskStore.replaceScheduledEvents('task', events),
     isConsumed: (task) =>
@@ -516,6 +519,10 @@ app.whenReady().then(async () => {
     );
   });
   taskWorkTracker.on('changed', (summary) => windows.broadcastTaskWork(summary));
+  taskWorkTracker.on('segment', ({ taskId, activeMs }: { taskId: string; activeMs: number }) =>
+    focusSessionService.addWorkSegment(taskId, activeMs)
+  );
+  focusSessionService.on('changed', (status) => windows.broadcastFocusStatus(status));
   let hotkeyStatus: HotkeyStatus = {
     enabled: settingsStore.get().hotkeysEnabled,
     registered: [],
@@ -681,8 +688,12 @@ app.whenReady().then(async () => {
     const active = status.activeReminder;
     if (active) {
       taskWorkTracker.pause();
+      // Health break pauses the live focus session without ending it;
+      // the break surface going away resumes the same session (§十五).
+      focusSessionService.beginBreak();
     } else if (activityMonitor.getState() === 'active') {
       taskWorkTracker.resume(false);
+      focusSessionService.endBreak();
     }
     if (!active) {
       presentedReminderId = null;
@@ -1381,9 +1392,34 @@ app.whenReady().then(async () => {
       return result;
     })
   );
+
+  // ── Focus sessions (USERPLAN 1.2 PR6) ──────────────────────────────────
+  handleIpc('focus:get', () => focusSessionService.getStatus());
+  handleIpc('focus:start', (taskId, timeBlockId) =>
+    requireWritableTaskDatabase(() =>
+      focusSessionService.start(
+        asString(taskId),
+        typeof timeBlockId === 'string' && timeBlockId ? timeBlockId : null
+      )
+    )
+  );
+  handleIpc('focus:pause', () => requireWritableTaskDatabase(() => focusSessionService.pause()));
+  handleIpc('focus:resume', () => requireWritableTaskDatabase(() => focusSessionService.resume()));
+  handleIpc('focus:complete', () => requireWritableTaskDatabase(() => focusSessionService.complete()));
+  handleIpc(
+    'daily:review',
+    (localDate) => isLocalDateKey(localDate) ? buildDailyReview(taskStore, historyStore, localDate) : (() => {
+      throw new Error('无效的日期输入');
+    })()
+  );
   handleIpc('window:workbench:open', (section) =>
     windows.showWorkbenchWindow(
-      section === 'settings' || section === 'reminders' || section === 'collection' ? section : 'today'
+      section === 'settings' ||
+      section === 'reminders' ||
+      section === 'collection' ||
+      section === 'review'
+        ? section
+        : 'today'
     )
   );
   handleIpc('task:move', (input) => {

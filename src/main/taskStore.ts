@@ -965,6 +965,14 @@ export class TaskStore extends EventEmitter {
     return Number(row.value);
   }
 
+  /** Tracked work for one task since a timestamp (e.g. local midnight). */
+  getTaskWorkMsSince(taskId: string, since: number): number {
+    const row = this.db.prepare(`
+      SELECT COALESCE(SUM(active_ms), 0) AS value FROM work_sessions WHERE task_id = ? AND started_at >= ?
+    `).get(taskId, since) as SqlRow;
+    return Number(row.value);
+  }
+
   isTimeboxNotified(taskId: string): boolean {
     const row = this.db.prepare('SELECT timebox_notified FROM task_work_state WHERE task_id = ?').get(taskId) as SqlRow | undefined;
     return Number(row?.timebox_notified ?? 0) === 1;
@@ -1241,6 +1249,8 @@ export class TaskStore extends EventEmitter {
         ended_at INTEGER CHECK(ended_at IS NULL OR ended_at >= started_at),
         active_ms INTEGER NOT NULL DEFAULT 0 CHECK(active_ms >= 0),
         outcome TEXT CHECK(outcome IS NULL OR outcome IN ('completed','paused','interrupted')),
+        -- Live sessions only: 1 while a health break is presented (PR6).
+        on_break INTEGER NOT NULL DEFAULT 0 CHECK(on_break IN (0,1)),
         -- 1 while the session is live, 0 once ended. The partial unique index
         -- enforces the global "only one live Focus Session" invariant in the
         -- database itself, not just in service code (USERPLAN §二十).
@@ -1283,6 +1293,10 @@ export class TaskStore extends EventEmitter {
     }
     if (!taskSectionColumns.some((column) => column.name === 'revision')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
+    }
+    const focusColumns = this.db.prepare('PRAGMA table_info(focus_sessions)').all() as SqlRow[];
+    if (!focusColumns.some((column) => column.name === 'on_break')) {
+      this.db.exec('ALTER TABLE focus_sessions ADD COLUMN on_break INTEGER NOT NULL DEFAULT 0 CHECK(on_break IN (0,1))');
     }
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(SCHEMA_VERSION, Date.now());
@@ -1721,7 +1735,7 @@ export class TaskStore extends EventEmitter {
 
   getLiveFocusSession(): FocusSession | null {
     const row = this.db.prepare(`
-      SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, created_at
+      SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, on_break, created_at
       FROM focus_sessions WHERE ended_at IS NULL
     `).get() as SqlRow | undefined;
     return row ? rowToFocusSession(row) : null;
@@ -1729,7 +1743,7 @@ export class TaskStore extends EventEmitter {
 
   getFocusSessions(): FocusSession[] {
     const rows = this.db.prepare(`
-      SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, created_at
+      SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, on_break, created_at
       FROM focus_sessions ORDER BY started_at DESC, id
     `).all() as SqlRow[];
     return rows.map(rowToFocusSession);
@@ -1756,10 +1770,24 @@ export class TaskStore extends EventEmitter {
     }
     const id = randomUUID();
     this.db.prepare(`
-      INSERT INTO focus_sessions(id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, live_slot, created_at)
-      VALUES (?, ?, ?, ?, NULL, 0, NULL, 1, ?)
+      INSERT INTO focus_sessions(id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, on_break, live_slot, created_at)
+      VALUES (?, ?, ?, ?, NULL, 0, NULL, 0, 1, ?)
     `).run(id, task.id, timeBlockId, now, now);
     return this.getLiveFocusSession()!;
+  }
+
+  /**
+   * Toggle the break sub-state of the live session (USERPLAN PR6). While on
+   * break the session stays live but `addFocusSessionActiveMs` refuses to
+   * accumulate — health breaks belong to the rhythm, not to the task.
+   */
+  setFocusSessionOnBreak(id: string, onBreak: boolean, _now: number = Date.now()): FocusSession | null {
+    const result = this.db.prepare(`
+      UPDATE focus_sessions SET on_break = ? WHERE id = ? AND ended_at IS NULL
+    `).run(onBreak ? 1 : 0, id);
+    return Number(result.changes) === 1
+      ? this.getFocusSessions().find((session) => session.id === id) ?? null
+      : null;
   }
 
   /** Add active milliseconds to the live session (checkpoint segments accumulate here). */
@@ -1768,7 +1796,7 @@ export class TaskStore extends EventEmitter {
       return this.getFocusSessions().find((session) => session.id === id) ?? null;
     }
     const result = this.db.prepare(`
-      UPDATE focus_sessions SET active_ms = active_ms + ? WHERE id = ? AND ended_at IS NULL
+      UPDATE focus_sessions SET active_ms = active_ms + ? WHERE id = ? AND ended_at IS NULL AND on_break = 0
     `).run(Math.round(deltaMs), id);
     return Number(result.changes) === 1
       ? this.getFocusSessions().find((session) => session.id === id) ?? null
@@ -2048,6 +2076,7 @@ const rowToFocusSession = (row: SqlRow): FocusSession => ({
     row.outcome === 'completed' || row.outcome === 'paused' || row.outcome === 'interrupted'
       ? row.outcome
       : null,
+  onBreak: Number(row.on_break) === 1,
   createdAt: Number(row.created_at)
 });
 

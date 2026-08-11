@@ -202,6 +202,14 @@ await waitForValue('#workbench', `(async () => {
 
 await evaluate(projectTarget, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('专注')))?.click()`);
 await waitForValue('#workbench', `Boolean(document.querySelector('.focus-surface'))`, Boolean);
+// PR6 flow: start a session for the active task, then pause it. Pausing ends
+// the session and releases the active task, returning to the empty state.
+await evaluate(projectTarget, `(() => {
+  const start = [...document.querySelectorAll('.focus-actions button')].find((entry) => entry.textContent?.includes('开始专注'));
+  if (start instanceof HTMLButtonElement && !start.disabled) { start.click(); return true; }
+  return false;
+})()`);
+await waitForValue('#workbench', `[...document.querySelectorAll('.focus-actions button')].some((entry) => entry.textContent?.includes('暂停专注'))`, Boolean);
 await evaluate(projectTarget, `([...document.querySelectorAll('.focus-actions button')].find((entry) => entry.textContent?.includes('暂停专注')))?.click()`);
 await waitForValue('#workbench', `Boolean(document.querySelector('.focus-empty'))`, Boolean);
 const focusedJourney = (await waitForValue('#workbench', `(() => {

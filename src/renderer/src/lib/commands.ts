@@ -12,11 +12,13 @@
  */
 import type {
   CharacterCollectionState,
+  DailyReviewSummary,
   CommandResult,
   DailyTaskPlan,
   DailyTaskPlanInput,
   DataActionResult,
   FailedDeliveryNotice,
+  FocusStatus,
   Project,
   ProjectInput,
   ProjectSection,
@@ -106,6 +108,19 @@ export const commands = {
       run<ProjectSection[]>(() => window.eyeProtect.moveProjectSection(id, beforeSectionId)),
     remove: (id: string) =>
       run<boolean>(() => window.eyeProtect.deleteProjectSection(id))
+  },
+
+  // Focus sessions (USERPLAN 1.2 PR6, ADR-005)
+  focus: {
+    start: (taskId: string, timeBlockId?: string | null) =>
+      run<FocusStatus>(() => window.eyeProtect.startFocus(taskId, timeBlockId)),
+    pause: () => run<FocusStatus>(() => window.eyeProtect.pauseFocus()),
+    resume: () => run<FocusStatus>(() => window.eyeProtect.resumeFocus()),
+    complete: () => run<FocusStatus>(() => window.eyeProtect.completeFocus())
+  },
+  review: {
+    getDaily: (localDate: string) =>
+      run<DailyReviewSummary>(() => window.eyeProtect.getDailyReview(localDate))
   },
 
   // ── Characters ─────────────────────────────────────────────────────────────

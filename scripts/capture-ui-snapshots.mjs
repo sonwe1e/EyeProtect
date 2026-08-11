@@ -292,6 +292,14 @@ for (const [label, file, ready] of [
   })()`);
   await capture(workbench, file);
   if (label === '专注') {
+    // PR6: an active task without a live session offers "开始专注"; starting
+    // the session reveals the pause/complete pair and the four time layers.
+    await evaluate(workbench, `(() => {
+      const start = [...document.querySelectorAll('.focus-actions button')].find((entry) => entry.textContent?.includes('开始专注'));
+      if (start instanceof HTMLButtonElement && !start.disabled) start.click();
+      return Boolean(start);
+    })()`);
+    await waitFor(workbench, `[...document.querySelectorAll('.focus-actions button')].some((entry) => entry.textContent?.includes('暂停专注'))`);
     const focusActions = await evaluate(workbench, `([...document.querySelectorAll('.focus-actions button')].map((button) => ({ disabled: button.disabled, opacity: getComputedStyle(button).opacity })))`);
     if (focusActions.length !== 2 || focusActions.some((button) => button.disabled || Number(button.opacity) < 1)) {
       throw new Error(`Focus actions are unexpectedly unavailable: ${JSON.stringify(focusActions)}`);

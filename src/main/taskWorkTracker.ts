@@ -88,6 +88,9 @@ export class TaskWorkTracker extends EventEmitter {
     const activeMs = Math.max(0, this.monotonic() - this.segmentMonoAt);
     if (this.taskId && activeMs > 0) {
       this.store.recordWorkSegment(this.taskId, this.segmentWallAt, endedAt, activeMs);
+      // Feed the logical focus session (USERPLAN PR6): segments are the
+      // precise layer; the session accumulates only its own task's work.
+      this.emit('segment', { taskId: this.taskId, activeMs });
       const task = this.getTask(this.taskId);
       const total = this.store.getTaskWorkMs(this.taskId);
       if (task?.estimateMinutes && !this.store.isTimeboxNotified(task.id) && total >= task.estimateMinutes * 60_000) {

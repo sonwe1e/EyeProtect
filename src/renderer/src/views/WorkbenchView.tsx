@@ -20,13 +20,14 @@ import {
   type FailedDeliveryNotice,
   type Task
 } from '../../../shared/types';
-import { localDateKey, sameLocalDate, startOfLocalDate } from '../../../shared/calendar';
+import { addLocalDays, localDateKey, sameLocalDate, startOfLocalDate } from '../../../shared/calendar';
 import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
 import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
 import { CommandButton } from '../components/CommandButton';
 import { Button, IconButton, NavItem, SideSheet, StatusChip, Toast } from '../components/primitives';
 import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
+import { DailyReview } from '../features/review/DailyReview';
 import { StandaloneReminderSection } from '../features/reminders/StandaloneReminderSection';
 import { ProjectList } from '../features/tasks/ProjectList';
 import { ProjectWorkspace } from '../features/tasks/ProjectWorkspace';
@@ -44,6 +45,7 @@ import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 import { useTasks } from '../hooks/useTasks';
 import { useDailyPlans } from '../hooks/useDailyPlans';
+import { useDailyReview } from '../hooks/useDailyReview';
 import { useTimeBlocks } from '../hooks/useTimeBlocks';
 import { useTaskWork } from '../hooks/useTaskWork';
 import { useUndo } from '../hooks/useUndo';
@@ -58,7 +60,8 @@ type WorkbenchSection =
   | 'projects'
   | 'reminders'
   | 'collection'
-  | 'settings';
+  | 'settings'
+  | 'review';
 
 const formatMinutes = (value: number): string => `${Math.max(0, Math.floor(value / 60_000))}m`;
 
@@ -86,15 +89,25 @@ export default function WorkbenchView(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [failedDeliveries, setFailedDeliveries] = useState<FailedDeliveryNotice[]>([]);
+  const [reviewDate, setReviewDate] = useState(localDateKey(now));
+  const reviewDateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
+    .format(new Date(`${reviewDate}T00:00:00`));
+  const { summary: reviewSummary, refresh: refreshReview } = useDailyReview(reviewDate);
 
   useEffect(() => {
-    const navigate = (target: 'today' | 'settings' | 'reminders' | 'collection'): void => {
+    const navigate = (target: WorkbenchSection): void => {
       setSection(target);
       if (target === 'today') setSelectedProjectId(null);
     };
     void window.eyeProtect.getWorkbenchSection().then(navigate);
     return window.eyeProtect.onWorkbenchNavigate(navigate);
   }, []);
+
+  useEffect(() => {
+    if (section !== 'review') {
+      setReviewDate(localDateKey(now));
+    }
+  }, [section, now]);
 
   useEffect(() => {
     void window.eyeProtect.getFailedDeliveries().then(setFailedDeliveries);
@@ -215,7 +228,8 @@ export default function WorkbenchView(): JSX.Element {
     { id: 'inbox', label: '收件箱', icon: Inbox, count: inboxTasks.length },
     { id: 'plan', label: '计划', icon: CalendarDays },
     { id: 'focus', label: '专注', icon: Target },
-    { id: 'projects', label: '项目', icon: FolderKanban }
+    { id: 'projects', label: '项目', icon: FolderKanban },
+    { id: 'review', label: '今日复盘', icon: CalendarDays }
   ];
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     { id: 'today', label: '前往：今天', keywords: 'today', run: () => selectSection('today') },
@@ -224,6 +238,7 @@ export default function WorkbenchView(): JSX.Element {
     { id: 'plan', label: '前往：计划', hint: 'P', keywords: 'plan', run: () => selectSection('plan') },
     { id: 'focus', label: '前往：专注', hint: 'F', keywords: 'focus', run: () => selectSection('focus') },
     { id: 'projects', label: '前往：项目', keywords: 'projects', run: () => selectSection('projects') },
+    { id: 'review', label: '前往：今日复盘', keywords: 'review', run: () => selectSection('review') },
     { id: 'reminders', label: '前往：独立提醒', run: () => selectSection('reminders') },
     { id: 'collection', label: '前往：公仔收藏', run: () => selectSection('collection') },
     { id: 'settings', label: '前往：设置', run: () => selectSection('settings') },
@@ -253,10 +268,25 @@ export default function WorkbenchView(): JSX.Element {
     />
   );
 
+  const advanceReviewDate = (days: number): void => {
+    const base = new Date(`${reviewDate}T00:00:00`).getTime();
+    setReviewDate(localDateKey(addLocalDays(base, days)));
+  };
+
   const renderWorkspace = (): JSX.Element => {
     if (section === 'settings') return <div className="workbench-embedded-page"><SettingsView embedded /></div>;
     if (section === 'reminders') return <div className="workbench-embedded-page"><StandaloneReminderSection /></div>;
     if (section === 'collection') return <div className="workbench-embedded-page"><CharacterCollectionView /></div>;
+    if (section === 'review') return (
+      <DailyReview
+        dateLabel={reviewDateLabel}
+        summary={reviewSummary}
+        onTomorrow={() => advanceReviewDate(1)}
+        onRearrange={() => selectSection('plan')}
+        onBacklog={() => selectSection('inbox')}
+        onRefresh={refreshReview}
+      />
+    );
     if (searchOpen && query) {
       return (
         <div className="workspace-page">
@@ -271,7 +301,7 @@ export default function WorkbenchView(): JSX.Element {
           activeTask={activeTask}
           candidates={todayTasks.length ? todayTasks : openTasks}
           tasks={tasks}
-          activeMs={work.taskActiveMs}
+          liveSegmentMs={work.currentSessionMs}
           eyeRemaining={eyeRemaining}
           onOpen={setSelectedTaskId}
         />

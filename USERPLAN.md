@@ -1,775 +1,2267 @@
-[![Digital Planners That Sync With Google Calendar: 2025’s Top Picks - Akiflow](https://images.openai.com/static-rsc-4/zmQecCBJvzzjPilphvtivbO1lIy34i1EMHTVkCJpeAJ_hdaPbx5ptZPuOtJVJVtN6VNbjEw3kAE88SktMbECRIIzjJDWHpw6G-_0_TpPjhbFvI8jYOItTR2WLCOoyw634ggYcpJeOQZ_wt3T-FvydWnrWM5LpMFFcLZ27od3yLQ?purpose=inline)](https://akiflow.com/blog/best-digital-planners-sync-google-calendar?utm_source=chatgpt.com)
+结论先给：**下一版不应该继续把重点放在“再补几个页面”，而应该正式把 UI 2.0 背后的任务管理领域模型升级。** 当前 Workbench 的外形已经明显进步，但 `Plan / Project Board / Focus` 仍大量借用 1.1 的字段来模拟成熟任务管理器的概念；如果继续在这个基础上堆功能，会形成“看起来像 Sunsama/Todoist，底层却不是同一种语义”的技术债。
 
-## 核心结论
+我在结束审查前重新确认了分支：HEAD 仍是 `49518cfc9c5457a778a6c0014b33b6890d9f3eeb`，`Rebuild workbench UI 2.0`。 最新 Windows CI 仍然是失败状态：Typecheck、316 个测试、UI contract、Build、Windows packaging 都通过，但 packaged smoke 失败，后续 UI snapshot、DPI matrix、emergency smoke、pet failure smoke 和 installer upload 全部被跳过。 所以当前分支还不能视为下一版开发的稳定基线。
 
-我建议 **不要继续修补现有 Workbench 的视觉样式，而是把 1.2 的 UI 层视为一次重建**。保留业务能力、Command Layer、Scheduler、SQLite 等后端成果，但重新建立 Design System、AppShell、导航、任务视图和视觉验收体系。
+# EyeProtect 1.2：任务管理与健康工作流重构计划
 
-当前分支我重新确认到 HEAD `ff204a3fff9a19addaa2e2b49a5464dc992dac65`。这个提交已经开始解决上一轮的 silent mutation，加入了 `CommandButton / useCommand / AppHealth`，方向是对的；但它**没有解决视觉架构本身的问题**。
+## 一、当前项目真正处于什么阶段
 
-而且现在甚至不能把这个 HEAD 当作“可发布基线”：最新 Windows CI 中 Typecheck、Test、Build、Windows packaging 都通过，但 **Packaged application smoke 失败**，后续 emergency/pet smoke 和 artifact upload 被跳过。 当前 smoke 在打开 Collection 后只固定等 500ms 就检查 `.collection-page`，本身也带有明显竞态风险；究竟是测试竞态还是 Workbench navigation/load 的真实回归，应通过可重复实验判定，而不是直接把 delay 改大。
+当前 UI 2.0 已经解决了上一版相当多“产品根本不像任务管理器”的问题：
 
-我建议 1.2 的视觉目标明确成：
+* 一级导航已经收敛成 Today / Inbox / Plan / Focus / Projects；
+* Task Detail 改成 SideSheet；
+* 有 Command Palette；
+* Today 有 NOW；
+* 有时间线式 Plan；
+* 有全屏 Focus；
+* Project 有 List / Board；
+* mutation 已进入 Command Layer；
+* Design System、theme token、UI contract 和 packaged journey 测试都已经开始建立。
 
-> **Quiet Focus / Calm Productivity**
-> 大面积中性表面 + 一个品牌色 + 极少量语义色；任务是主体，颜色不是主体；桌宠是唯一允许明显活泼的视觉区域。
+这些都应该保留。当前 Workbench 的一级结构已经比旧版合理很多。
 
-参考成熟产品时，只吸收交互结构，不复制外观。Todoist 当前 Today 强调“今天真正要完成什么”，Task View 将任务属性集中到一个详情视图；Board 通过 section 表达项目阶段。([Todoist][1]) Sunsama 和 Akiflow 值得吸收的是 Task 与 Calendar/Timebox 的关系，以及 planned workload，而不是它们的具体皮肤。([Sunsama User Manual][2])
+问题是：
 
----
+> **UI 已经进入 2.0，Task Domain 仍基本停留在 1.1。**
 
-# 一、视觉根因审计：为什么现在图标颜色和整体风格会失控
-
-这次五个独立审查视角得到的核心结论一致：**颜色异常是 Design System 架构问题，不是一个 `.svg { color }` 小 bug。**
-
-### 1. Token 系统与真实 CSS 已经脱节
-
-当前 `tokens.css` 很小，只定义了一部分基础颜色；深色模式主要改变文字和 surface。与此同时，Renderer 仍背着一个约 **70KB 的单体 `styles.css`**。
-
-结果就是：
+SQLite 当前核心仍然只有：
 
 ```text
-理论：
-Component → semantic token → theme
-
-实际：
-Component → feature CSS → #217a70 / #fff / #f7f8f4 /
-                       #c0392b / #bd5176 / ...
+projects
+tasks
+work_sessions
+task_work_state
+reminder_delivery
+...
 ```
 
-这意味着换 Theme 只能改变“部分页面”。
+没有：
 
-其他地方仍然生活在 Light Theme。
+```text
+DailyPlan
+DailyTaskPlan
+TimeBlock
+ProjectSection
+FocusSession
+```
+
+因此现在三个非常重要的页面都在“借字段”。
+
+```text
+Plan
+plannedAt + estimateMinutes
+≈ TimeBlock
+
+Project Board
+open + global activeTask + done
+≈ Kanban Columns
+
+Focus
+taskActiveMs
+≈ Focus Session
+```
+
+这就是下一版必须首先解决的核心架构问题。
 
 ---
 
-### 2. Sidebar 图标被 CSS 全部强制刷成同一个绿色
+# 二、独立正确性审查：当前版本还存在什么问题
 
-现在有：
+## P0：Task Detail 仍存在实际数据丢失窗口
 
-```css
-.nav-item svg {
-  color: #217a70;
-}
+备注使用：
+
+```text
+500ms debounce
 ```
 
-而 Lucide 图标通常使用 `stroke="currentColor"`，所以父级/自身 `color` 正是它的 stroke 来源。([Lucide Studio][3])
+保存。
+
+effect cleanup 会：
+
+```ts
+clearTimeout(timer)
+```
+
+但当前 TaskDetail 已经没有 unmount flush。
+
+Workbench 关闭 SideSheet 时则直接：
+
+```text
+selectedTaskId = null
+→ TaskDetail unmount
+```
+
+所以一个非常简单的路径：
+
+```text
+编辑备注
+↓
+立即关闭任务详情
+↓
+< 500ms
+↓
+timer 被取消
+↓
+内容没有写入
+```
+
+这是确定性的用户数据丢失，不是理论风险。
+
+**1.2 开发开始前必须修。**
+
+建议：
+
+```text
+local draft
+   ↓
+debounced persist
+
+blur / close / unmount
+   ↓
+flushLatestDraft()
+   ↓
+await or synchronously enqueue latest revision
+```
+
+同时引入 revision，防止旧 autosave 覆盖新内容。
+
+---
+
+## P1：任务列表的拖动排序目前实际上没有实现
+
+Task Row 被设置：
+
+```tsx
+draggable={canReorder}
+```
+
+也会进入：
+
+```tsx
+onDragStart
+onDragOver
+onDrop
+```
+
+但 `onDrop` 只：
+
+```tsx
+setDraggingId(null)
+```
+
+根本没有调用 `onMove()`。
+
+所以当前：
+
+```text
+鼠标可以抓住任务
+↓
+可以拖
+↓
+可以放
+↓
+什么也不会发生
+```
+
+这尤其值得重视，因为当前 PR #2 的说明已经把：
+
+> functional drag and resize interactions
+
+列为已经完成的能力。
+
+这是“实现声明”和代码事实冲突的典型例子。
+
+处理方式不是修改文档，而是增加 packaged pointer regression：
+
+```text
+Task A
+Task B
+
+drag B above A
+
+DB:
+B.sort_order < A.sort_order
+
+UI:
+B rendered above A
+
+restart:
+still B above A
+```
+
+三层全部通过才算完成。
+
+---
+
+## P1：现在的 Plan 会显示错误的时间事实
+
+当前 Plan 固定为：
+
+```text
+07:00 – 21:00
+```
+
+Task 的：
+
+```text
+plannedAt
+```
+
+被直接解释为 timeline block 起点。
+
+Task 的：
+
+```text
+estimateMinutes
+```
+
+被直接解释为 timeline block 高度。
+
+然后：
+
+```ts
+baseTop = clamp(...)
+baseDuration = clamp(...)
+```
+
+于是：
+
+### 情况 A：Task 是 06:00
+
+UI 不显示：
+
+> 06:00
+
+而会把它 clamp 到：
+
+> 07:00
+
+### 情况 B：Task 是 23:00
+
+UI 会把它挤回时间线底部。
+
+### 情况 C：estimateMinutes = null
+
+代码直接：
+
+```ts
+task.estimateMinutes ?? 30
+```
+
+也就是说 UI 会把：
+
+> 未估时
+
+当成：
+
+> 30 分钟
+
+然后还纳入：
+
+> 已计划 xxx 分钟
+
+统计。
+
+这不是简单的 UI approximation。
+
+**Planner 不应该向用户展示数据库里不存在的计划事实。**
+
+应该改成：
+
+```text
+未估时
+→ block 使用最低视觉高度
+→ planned workload 中显示“未估时 3 项”
+→ 不加入分钟总量
+```
+
+而 07:00–21:00 之外：
+
+```text
+06:00 Task
+→ 时间线扩展
+
+或者：
+
+“工作时间之外”
+06:00 Task
+```
+
+绝对不能偷偷改成 07:00。
+
+---
+
+## P1：Plan 目前存在明确的 DST 错误
+
+当前计算“明天”：
+
+```ts
+today + 86_400_000
+```
+
+计算当天 09:00：
+
+```ts
+day + 9 * 60 * 60_000
+```
+
+这在 DST 时区不是“日历运算”。
+
+我独立按照 `America/Los_Angeles` 2026 年 DST 边界复现：
+
+```text
+2026-03-08 00:00
++ 9 real hours
+=
+10:00 local
+
+不是 09:00
+```
+
+并且：
+
+```text
+2026-03-08 00:00
++ 24 real hours
+=
+2026-03-09 01:00
+```
+
+秋季切换则会得到相反的一小时偏移。
+
+因此时间系统必须统一禁止：
+
+```ts
+day + 86_400_000
+```
+
+这种 calendar-day arithmetic。
+
+建立唯一：
+
+```text
+CivilDate
+CivilTime
+CalendarMath
+```
+
+utility：
+
+```text
+addLocalDays()
+localDateAtTime()
+sameLocalDate()
+startOfLocalDate()
+```
+
+Planner、Today、Upcoming、recurrence 都只能调用这一套。
+
+---
+
+## P1：Project Board 的“进行中”不是项目阶段
+
+当前三列：
+
+```text
+待处理
+进行中
+已完成
+```
+
+看起来非常合理。
+
+但是代码定义是：
+
+```text
+待处理
+= open && task.id !== globalActiveTaskId
+
+进行中
+= open && task.id === globalActiveTaskId
+
+已完成
+= done
+```
 
 也就是说：
 
-```text
-Today      绿色
-Inbox      绿色
-Upcoming   绿色
-Overdue    绿色
-Away       绿色
-Completed  绿色
-Projects   绿色
-Settings   绿色
-```
+> Board 的“进行中”列其实是 Focus Engine 的 global active task。
 
-激活、未激活、普通、异常基本没有视觉语义区别。
+整个 EyeProtect 同时只能有一个 Active Task。
 
-正确方式应该是：
+所以如果有：
 
 ```text
-Inactive Nav
-icon + text = secondary foreground
-
-Hover
-icon + text = primary foreground
-
-Selected
-icon + text = brand foreground
-background = brand subtle
-
-Danger
-仅危险操作使用 danger
-
-Warning
-仅异常状态使用 warning
+Project Research
+Project Personal
 ```
 
-**Icon 不应该自己决定颜色。Component state 才应该决定颜色。**
+那么两个项目也不可能各自拥有正常意义上的：
+
+> Doing
+
+任务。
+
+这与真正的 Kanban 完全不是一个概念。
+
+Todoist 的 Board 采用的是：
+
+> Project Section = Column
+
+Section 可以表示阶段，任务可以在 Section 之间拖动，而且 Section 自身可以增删和排序。([Todoist][1])
+
+EyeProtect 应该采用同样的领域分离：
+
+```text
+Project workflow state
+≠
+Task execution state
+```
+
+也就是：
+
+```text
+Section = Doing
+
+task 当前处于 Doing
+```
+
+并不意味着：
+
+```text
+用户此刻正在 Focus 这个 Task
+```
+
+Active Task 应该只是在 Board Card 上显示：
+
+```text
+● 正在专注
+```
+
+而不是决定 Card 属于哪一列。
 
 ---
 
-### 3. 当前主品牌绿在 Dark surface 上甚至存在实际对比度问题
+## P1：Focus 目前没有真正的 Focus Session
 
-当前：
+当前 Focus 页面显示：
 
 ```text
-accent       #217a70
-dark raised  #222d2a
+已工作 38m / 60m
 ```
 
-按 WCAG 相对亮度公式计算，对比度约：
+但传入的是：
 
-**2.76 : 1**
+```ts
+work.taskActiveMs
+```
 
-而有信息含义的 UI component / graphical object 要求至少约 3:1；W3C 还特别指出细线型图标由于抗锯齿，实际视觉对比可能比颜色数值计算更弱。([W3C][4])
+TaskWorkTracker 中：
 
-因此用户说“图标颜色异常”，至少有一部分是能够从代码和对比度计算中解释的。
+```text
+taskActiveMs
+= 该任务历史累计 active time
+
+currentSessionMs
+= 当前 checkpoint 之后的 live segment
+```
+
+而 checkpoint 每 30 秒重新开始 segment。
+
+所以：
+
+```text
+currentSessionMs
+```
+
+甚至也不是真正的 Focus Session。
+
+数据库只有：
+
+```text
+work_sessions
+
+started_at
+ended_at
+active_ms
+```
+
+这些实际上更像 checkpoint segment。
+
+缺少：
+
+```text
+用户 14:00 开始一次 Focus
+→ 工作 21m
+→ Eye Break
+→ 回来继续
+→ 工作 19m
+→ 手动结束
+
+这一整个逻辑 Session
+```
+
+下一版必须正式加入：
+
+```text
+FocusSession
+```
 
 ---
 
-### 4. 彩色 Emoji 与 Lucide 混合是另一个明显的不协调来源
+## P1：Task Detail autosave 架构会随着 Task 数量增长迅速变差
 
-Workbench 顶部现在直接写：
-
-```tsx
-<span>👁 ...</span>
-<span>🚶 ...</span>
-```
-
-而 Sidebar 和其他按钮则使用 Lucide。
-
-这会形成：
+除了 Notes 之外，其余大量字段变化都使用几乎：
 
 ```text
-Windows 彩色系统 Emoji
-+
-2px monochrome Lucide
-+
-10px priority dot
-+
-Project 自定义 RGB
-+
-Character procedural SVG
+0ms autosave
 ```
 
-五套不同的图形语言。
+而每次 TaskService.updateTask 后：
 
-1.2 应规定：
-
-**产品 Chrome 内彻底禁止 Emoji 图标。**
-
-改为：
-
-```tsx
-<Eye />
-<Footprints />
+```text
+emit('tasks-changed', getTasks())
 ```
 
-Emoji 可以出现在用户内容、桌宠对白等地方，但不能作为系统导航语言。
+会重新读取并广播**整个 Task List**。
+
+Renderer：
+
+```ts
+onTasksChanged(setTasks)
+```
+
+再整体替换数组。
+
+所以标题连续输入：
+
+```text
+敲一个字符
+→ IPC
+→ SQLite UPDATE
+→ SQLite SELECT all tasks
+→ broadcast full Task[]
+→ Workbench re-render
+
+下一个字符
+→ 再来一次
+```
+
+任务几十条时感觉不到。
+
+几千条时这会成为架构问题。
+
+下一版应改成：
+
+```text
+task:list
+仅首次 hydration
+
+task:upserted(Task)
+task:removed(id)
+```
+
+Renderer 使用 normalized Map：
+
+```text
+Map<TaskId, Task>
+```
+
+增量更新。
 
 ---
 
-### 5. Native form icon 很可能正是另一类“颜色异常”
+## P1：Project 删除的风险级别过低
 
-`App.tsx` 会设置：
+当前 Project Item 的删除按钮直接调用：
+
+```text
+commands.projects.remove()
+```
+
+没有 confirmation，也没有 Project undo。
+
+TaskService 删除 Project 后会把它的任务脱离 Project。
+
+也就是说误点：
+
+```text
+Research
+[Delete]
+```
+
+项目组织结构立即消失。
+
+Task 数据还在并不能代表这是安全的。
+
+下一版应该采用：
+
+```text
+Archive Project
+```
+
+作为正常操作。
+
+真正 Delete：
+
+```text
+Project Settings
+→ Delete
+→ destructive confirmation
+```
+
+---
+
+## P1：当前 CI 本身仍然证明不了 UI 2.0 已完成
+
+当前 UI contract 会检查：
+
+* semantic colors；
+* raw CSS color；
+* emoji；
+* hit targets；
+* navigation 数量；
+* forced colors；
+* reduced motion；
+* contrast。
+
+这是很好的方向。
+
+但是当前最新 CI 的事实是：
+
+```text
+verify:ui-contract       PASS
+build                    PASS
+package                  PASS
+
+packaged smoke           FAIL
+```
+
+后续 screenshot / DPI / fallback tests 全部没有运行。
+
+这很好地证明：
+
+> Static UI Contract ≠ Runtime UI Correctness。
+
+Theme 当前同时存在 CSS：
+
+```css
+color-scheme: dark;
+```
+
+和 App：
 
 ```ts
 document.documentElement.style.colorScheme = ...
 ```
 
-所以 Chromium 原生的：
+两套 authority。
 
-* `datetime-local`
-* `select`
-* checkbox
-* date picker indicator
+不应该先猜究竟是谁错。
 
-会按照 color-scheme 调整自身绘制。
-
-但现有 CSS 又强制：
-
-```css
-background: #f7f8f4;
-color: #1f2a2e;
-```
-
-给 datetime/select 使用。
-
-于是 Dark Theme 很容易形成：
-
-> Dark UA icon + Light hard-coded field
-> 或者另一种 UA/theme 混搭。
-
-1.2 应统一处理：
-
-```css
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-}
-```
-
-同时所有 Input/Select 背景必须来自 semantic token。
-
-不能一边要求 Chromium Dark，一边自己把 Input 画成 Light。
-
----
-
-### 6. BrowserWindow 自己也不理解 Theme
-
-Workbench 创建时仍然：
-
-```ts
-backgroundColor: '#f7f2e8'
-```
-
-用户选择 Dark Theme 后：
-
-```text
-Window native background = cream
-Renderer             = dark
-```
-
-冷启动、renderer reload、窗口 resize/paint 时都可能短暂看到不一致背景。
-
-应根据：
+应该 instrumentation：
 
 ```text
 settings.theme
-+
+dataset.theme
+inline colorScheme
+computed colorScheme
+matchMedia(prefers-color-scheme)
 nativeTheme.shouldUseDarkColors
+BrowserWindow.backgroundColor
 ```
 
-解析真正的 Window background。
+一次性输出。
+
+然后用 packaged reproduction 决定究竟是：
+
+```text
+product bug
+还是
+CDP emulation/test bug
+```
+
+不投票、不猜测。
 
 ---
 
-### 7. Collection 与 Workbench 像两个产品
+# 三、优秀产品应该分别借什么，而不是复制什么
 
-Collection 当前同时存在：
+## Todoist：借“组织结构”
 
-* 深绿色 gradient hero；
-* 24px 大圆角；
-* pink favorite；
-* light-red danger hover；
-* 大面积 character illustration。
+Todoist 最值得 EyeProtect 借鉴的是：
 
-而 Workbench 是：
+```text
+Inbox
+→ Project
+→ Section
+→ Task / Subtask
 
-* 奶油背景；
-* 白色任务卡；
-* teal icon；
-* dense form；
-* 大量小控件。
+Today / Upcoming
+```
 
-Character 可以活泼。
+而不是它的协作体系。
 
-**但活泼应该被限定在 illustration layer，而不是让它重新定义整个页面 UI。**
+目前 Todoist 的 Section 正式承担“把大项目拆成部分或阶段”的角色；Board 中 Section 直接成为列。([Todoist][1])
+
+其 Inbox 也非常明确：
+
+> 不知道该放哪个 Project 的内容先进入 Inbox，然后再整理。
+
+([Todoist][2])
+
+另外值得保留 EyeProtect 已经做对的一点：
+
+```text
+计划做的时间
+≠
+硬 Deadline
+```
+
+Todoist 当前同样把普通 date/time 与 deadline 区分。([Todoist][3])
+
+### EyeProtect 应吸收
+
+```text
+Project Section
+List / Board
+Inbox capture
+Task detail
+Date ≠ Deadline
+```
+
+### 不吸收
+
+```text
+team
+assignee
+comments
+sharing
+workspace permissions
+```
 
 ---
 
-### 8. Project Color 目前也被当成装饰色使用
+# 四、Sunsama：借“每天怎么决定做什么”
 
-项目创建直接从：
+这是我认为 EyeProtect 下一版最应该重点参考的产品。
 
-```text
-teal
-orange
-red
-blue
-purple
-green
-```
+Sunsama 的 Daily Planning 不是一个 Dashboard。
 
-这一组硬编码 palette 分配颜色。
-
-1.2 我建议借鉴一种更克制的原则：
-
-> Project Color 只用于识别，不用于渲染整条任务。
-
-例如仅显示：
+它是流程：
 
 ```text
-● Research
+Review yesterday
+↓
+Add tasks to today
+↓
+Check predicted workload
+↓
+Defer excessive work
+↓
+Order tasks
+↓
+Optional timebox
+↓
+Start day
 ```
 
-或者 TimeBlock 左边 3px accent rail。
+([Sunsama User Manual][4])
 
-这样有十个项目时，整个 Task List 不会变成彩虹。
+同时它明确区分：
+
+```text
+planned time
+actual time
+working session
+task
+```
+
+Timebox 产生的是一个 Working Session，而不是把 Task 本身改造成日历事件。([Sunsama User Manual][5])
+
+这正是当前 EyeProtect 最缺的领域抽象。
 
 ---
 
-# 二、UI 2.0：直接换一套视觉和信息架构
+# 五、Akiflow：借“计划日期”和“时间块”的分层
 
-我推荐的新 Workbench 不再默认三栏。
-
-当前永久：
+Akiflow 当前 Planning 支持：
 
 ```text
-Sidebar + Task list + 320px Task Detail
+Today
+Tomorrow
+具体时间
+时间段
+This Week
+Next Month
 ```
 
-会让内容区长期受压。
+也就是说“我要什么时候处理这件事”和“具体几点做”并不是同一个层级。([Akiflow][6])
 
-改为：
+它还明确推荐每天只确定少数高价值 Goals，典型是 2–3 件，而不是把所有 high-priority task 自动当“今日最重要”。([Akiflow][7])
+
+当前 EyeProtect：
+
+```ts
+importantToday =
+todayTasks.filter(priority !== normal)
+```
+
+所以：
 
 ```text
-Sidebar + Workspace
-
-Task Detail = 按需出现的 Side Sheet
+今天有 9 个 Important
+→ UI 显示 9 个“今天最重要”
 ```
 
-### 新导航
+语义已经失效。
+
+**Global Priority 和 Daily Commitment 必须分离。**
+
+---
+
+# 六、TickTick：作为“不要过度扩张”的参照
+
+TickTick 当前同时覆盖：
+
+* Task；
+* Calendar；
+* Timeline；
+* Kanban；
+* Focus；
+* Statistics；
+* Habit 等。
+
+([TickTick][8])
+
+EyeProtect 不应该跟它拼 feature count。
+
+TickTick 对 EyeProtect 的价值主要是证明：
 
 ```text
-┌──────────────────────┐
-│ EyeProtect           │
-│                      │
-│  ☀  今天             │
-│  ↓  收件箱       3   │
-│  ▦  计划             │
-│  ◎  专注             │
-│  ▣  项目             │
-│                      │
-│ ──────────────────── │
-│  🔔 独立提醒          │
-│  ◇  公仔收藏          │
-│  ⚙  设置             │
-└──────────────────────┘
+Task
+Calendar
+Focus
 ```
 
-实际代码全部使用 Lucide，上面的字符仅是 wireframe。
+本来就应该协同。
 
-**Overdue、Away、Completed 不再霸占一级导航。**
+但 1.2 不应该因此加入：
 
-Overdue：
+```text
+Habits
+Eisenhower
+Notes System
+Team
+多日历同步
+```
+
+---
+
+# 七、Super Productivity：最值得关注的工程型同行
+
+它和 EyeProtect 的定位最接近：
+
+```text
+desktop
+task
+time tracking
+timeboxing
+focus
+local-first tendency
+```
+
+其近期版本持续在解决：
+
+* Focus Mode；
+* Planner；
+* planned vs available time；
+* single-day schedule；
+* break；
+* recurring task；
+* project completion；
+* accessibility；
+* sync/data safety。
+
+([GitHub][9])
+
+这给 EyeProtect 一个很重要的产品启示：
+
+> Focus / Planner / Break 不是三个菜单，它们其实是一条状态机。
+
+---
+
+# 八、EyeProtect 1.2 最终产品定义
+
+我建议正式把产品定义改成：
+
+> **EyeProtect 1.2 = Local-first Healthy Execution Planner**
+
+核心 workflow：
+
+```text
+Capture
+   ↓
+Triage
+   ↓
+Daily Plan
+   ↓
+Timebox / Order
+   ↓
+Focus
+   ↓
+Healthy Break
+   ↓
+Resume
+   ↓
+Review
+```
+
+其中真正独特于 Todoist / Sunsama / Akiflow 的是：
+
+```text
+Healthy Break
++
+Away Task
++
+Resume Context
+```
+
+也就是说：
+
+> EyeProtect 不只是知道你“有什么事要做”，而是知道你现在正在做哪件事、什么时候应该离开屏幕，以及回来以后应该继续哪件事。
+
+---
+
+# 九、1.2 数据模型：这是整个版本最重要的一次改动
+
+## Task 不再承担 Calendar Event 的职责
+
+保留：
+
+```ts
+Task {
+  id
+
+  title
+  notes
+
+  status
+
+  priority
+
+  projectId
+  sectionId
+
+  parentId
+  tags
+  context
+
+  dueAt          // 真正硬 deadline
+
+  estimateMinutes
+
+  recurrence
+
+  ...
+}
+```
+
+`plannedAt` 不再作为 TimeBlock。
+
+---
+
+## 新增 DailyTaskPlan
+
+```ts
+DailyTaskPlan {
+  taskId
+
+  localDate        // YYYY-MM-DD
+
+  plannedMinutes   // 今天准备投入多少，而非 Task 总 estimate
+
+  dailyRank        // null | 1 | 2 | 3
+  sortOrder
+
+  createdAt
+  updatedAt
+}
+```
+
+这样：
+
+```text
+Task priority
+```
+
+表示长期重要性。
+
+而：
+
+```text
+dailyRank
+```
+
+表示：
+
+> 今天我真正承诺完成什么。
+
+---
+
+## 新增 TimeBlock
+
+```ts
+TimeBlock {
+  id
+  taskId
+
+  startAt
+  endAt
+
+  timeZone
+
+  source:
+    manual
+    planner
+
+  createdAt
+  updatedAt
+}
+```
+
+关键关系：
+
+```text
+1 Task
+→ N TimeBlocks
+```
+
+于是一个：
+
+```text
+240 分钟
+```
+
+的大任务可以安排：
+
+```text
+周一 10:00–12:00
+周二 14:00–16:00
+```
+
+而不是现在：
+
+```text
+plannedAt = 周一 10:00
+estimate = 240
+```
+
+强制变成一块四小时。
+
+Sunsama 当前也允许一个 Task 拥有多个 working sessions，这正是成熟 Timeboxing 应有的抽象。([Sunsama User Manual][10])
+
+---
+
+## 新增 ProjectSection
+
+```ts
+ProjectSection {
+  id
+  projectId
+
+  name
+  sortOrder
+
+  createdAt
+  updatedAt
+}
+```
+
+Task：
+
+```ts
+sectionId: string | null
+```
+
+Project Board：
+
+```text
+Section
+=
+Column
+```
+
+Focus Active State 与 Section 完全无关。
+
+---
+
+## Project 增加 lifecycle
+
+```ts
+Project {
+  ...
+
+  status:
+    active
+    onHold
+    completed
+    archived
+}
+```
+
+真正删除项目降级为非常少用的 destructive operation。
+
+---
+
+## 新增 FocusSession
+
+```ts
+FocusSession {
+  id
+  taskId
+
+  timeBlockId
+
+  startedAt
+  endedAt
+
+  activeMs
+
+  outcome:
+    completed
+    paused
+    interrupted
+
+  createdAt
+}
+```
+
+现有：
+
+```text
+work_sessions
+```
+
+继续作为精确底层 segment。
+
+改成：
+
+```text
+FocusSession
+  ├─ WorkSegment
+  ├─ WorkSegment
+  ├─ Break
+  └─ WorkSegment
+```
+
+于是终于可以同时显示：
+
+```text
+本次专注      24m
+今日实际      62m
+任务累计      138m
+计划          180m
+```
+
+而不会把这些概念混在一起。
+
+---
+
+# 十、Daily Planning：1.2 的首要新功能
+
+不需要照搬 Sunsama 做成很重的 ritual。
+
+EyeProtect 可以压缩成四步。
+
+## Step 1：昨天留下什么
+
+```text
+昨天还有 4 件未完成
+
+修改 Figure 4
+[今天] [明天] [稍后]
+
+Benchmark
+[今天] [明天] [稍后]
+```
+
+不要自动把所有 overdue 堆到 Today。
+
+---
+
+## Step 2：今天做什么
+
+从：
+
+```text
+Inbox
+Projects
+Backlog
+```
+
+挑任务。
+
+然后：
+
+```text
+今日目标
+
+1. 修改论文
+2. Edge Benchmark
+3. 回复导师
+```
+
+**最多 3 个。**
+
+它们不依赖 Task priority。
+
+---
+
+## Step 3：今天装得下吗
+
+例如：
+
+```text
+计划投入      5h 20m
+可工作容量    6h 00m
+未估时        2 项
+
+护眼节奏
+预计有 4 次屏幕休息窗口
+```
+
+没有 estimate 的 Task：
+
+> 不参与假的分钟统计。
+
+而是明确显示：
+
+> 2 项未估时。
+
+Sunsama 的 predicted workload 正是在 Daily Planning 阶段用于避免过量安排。([Sunsama User Manual][4])
+
+---
+
+## Step 4：是否 Timebox
+
+用户可以选择：
+
+```text
+只排序
+```
+
+或者：
+
+```text
+放进时间线
+```
+
+Sunsama 也明确把“playlist method”和 timeboxing 当作两种合理工作方式，而不是强制所有 Task 都必须进入 calendar。([Sunsama User Manual][11])
+
+这非常适合 EyeProtect。
+
+---
+
+# 十一、Today 2.1
+
+最终 Today 应只有四个真正重要的区域：
+
+```text
+NOW
+
+TODAY'S 3
+
+SCHEDULED
+
+FLEXIBLE
+```
+
+然后最下面：
+
+```text
+3 件需要重新安排
+```
+
+不是：
+
+```text
+Important Task 全部自动放“最重要”
+```
+
+---
+
+## NOW
+
+```text
+修改论文
+
+本次 24m
+今日 62m
+计划 90m
+
+下一次护眼 11m
+
+[继续]
+```
+
+---
+
+## Today's 3
+
+明确来自 DailyPlan：
+
+```text
+1 修改论文
+2 Benchmark
+3 回复导师
+```
+
+---
+
+## Scheduled
+
+来自：
+
+```text
+TimeBlock
+```
+
+而不是 `plannedAt`。
+
+---
+
+## Flexible
+
+已进入 Daily Plan，但没有 TimeBlock。
+
+这意味着用户可以选择：
+
+> 今天要做，但不想精确排时间。
+
+---
+
+# 十二、Plan 2.0
+
+当前只支持：
 
 ```text
 今天
-└─ 3 件需要重新安排
+明天
 ```
 
-Away：
+下一版改成：
 
 ```text
-Task context = away
+‹  10  11  12  13  14  15  16  ›
 ```
 
-Completed：
+仍然保持单日 timeline。
 
-```text
-Review / Project history
-```
+不要现在就开发复杂 Month Calendar。
+
+Super Productivity 最近专门增加 single-day schedule，本身也说明单日执行视角仍然非常重要。([GitHub][9])
 
 ---
 
-## Today
+## 工作时间可配置
 
-这是 1.2 最重要的页面。
+例如：
 
 ```text
-┌─────────────┬───────────────────────────────────────────────┐
-│             │ 今天 · 8月10日                    👁 18m  🚶42m│
-│ 今天        │                                               │
-│ 收件箱   3  │ ┌───────────────────────────────────────────┐ │
-│ 计划        │ │ NOW                                       │ │
-│ 专注        │ │                                           │ │
-│ 项目        │ │ 修改论文                                  │ │
-│             │ │ 38 / 60 min                               │ │
-│ Research    │ │                                           │ │
-│ Personal    │ │ [继续专注]                                │ │
-│             │ └───────────────────────────────────────────┘ │
-│             │                                               │
-│             │ 今天最重要                                    │
-│             │ ○ 修改 Figure 4                       60m     │
-│             │ ○ Edge Benchmark                      90m     │
-│             │ ○ 回复导师                            15m     │
-│             │                                               │
-│             │ 之后                                          │
-│             │ ○ 整理训练记录                        30m     │
-│             │ ○ 购买咖啡豆        Personal          15m     │
-│             │                                               │
-│             │ ⚠ 2 件昨天留下的任务          [重新安排]       │
-└─────────────┴───────────────────────────────────────────────┘
+08:00–18:00
 ```
 
-注意这里没有：
+或者：
 
-* 三个 permanent Filter；
-* Status Select；
-* Up / Down；
-* 一堆 metadata icon；
-* 永久 Task Detail。
+```text
+10:00–22:00
+```
 
-**默认屏幕只告诉用户应该做什么。**
-
-Todoist 当前 Today 也明确围绕“今天安排的任务”和最重要的少数任务组织，而不是默认暴露全部数据库字段。([Todoist][1])
+不能硬编码 07–21。
 
 ---
 
-## Plan
+## TimeBlock 不等于 Task
 
-这是 EyeProtect 1.2 真正应该大幅投入的页面。
+左：
 
 ```text
-┌────────────┬──────────────────────┬─────────────────────────┐
-│            │ 未安排               │ 今天                    │
-│            │                      │                         │
-│            │ 修改论文       60m   │ 09:00                   │
-│            │ Benchmark      90m   │                         │
-│            │ 回邮件         20m   │ 10:00 ┌──────────────┐ │
-│            │                      │       │ 修改论文 60m │ │
-│            │                      │       └──────────────┘ │
-│            │                      │                         │
-│            │                      │ 11:10  ── 护眼预测 ──    │
-│            │                      │                         │
-│            │                      │ 13:30 ┌──────────────┐ │
-│            │                      │       │ Benchmark    │ │
-│            │                      │       └──────────────┘ │
-│            │                      │                         │
-│            │                      │ 计划工作 5h20m           │
-│            │                      │ 可用时间  6h             │
-└────────────┴──────────────────────┴─────────────────────────┘
+Today's Flexible
+Backlog
 ```
 
-Task 可以拖进时间轴。
+右：
 
-Sunsama 当前也是用 planned time 形成每日 workload，并支持把 Task 直接 drag/drop 到 calendar 形成 timebox；Akiflow Today 也支持把当天任务直接拖入 Calendar。([Sunsama User Manual][5])
+```text
+Calendar Timeline
+```
 
-EyeProtect 的差异化是额外显示：
-
-> **预计健康休息占用**
-
-而不是假设人能连续工作 7 小时。
+一个 Task 可以出现多个块。
 
 ---
 
-## Focus
-
-点击“开始”以后应该进入真正的 Focus Surface：
+## 没有估时就诚实显示
 
 ```text
-                    Research
-
-                    修改论文
-
-
-                     38:42
-                  已工作 / 60m
-
-
-                  下一次护眼 11m
-
-
-              ✓ 整理实验结果
-              ○ 修改 Figure 4
-              ○ 完成 Conclusion
-
-
-         [暂停专注]       [完成任务]
-
-
-              EyeProtect · 安静工作中
+未估时
 ```
 
-Sidebar、Filters、统计、Collection 全部消失。
-
-休息结束后：
-
-```text
-休息完成
-
-刚才正在：
-修改论文
-
-已完成 48 / 60 分钟
-
-[继续修改论文]
-
-[选择下一项]
-```
-
-这里才能真正完成：
-
-**Focus → Rest → Resume**
+而不是 30m。
 
 ---
 
-## Project
+## 时间线外的任务不允许偷偷 clamp
 
-不要再只是“按 projectId 过滤 Task”。
+应显示：
 
-默认：
+```text
+工作时间之外
+
+06:00 送文件
+22:30 夜间构建检查
+```
+
+或者动态扩展 timeline。
+
+---
+
+## Eye / Walk 都进入节奏层
+
+计划页可以显示：
+
+```text
+──── 👁 护眼窗口
+──── 🚶 走动窗口
+```
+
+但只能作为辅助计划信息。
+
+不要自动移动用户的 Task。
+
+---
+
+# 十三、Projects 2.0
+
+Project 页重点：
+
+```text
+Goal
+Status
+Sections
+Next action
+```
+
+而不是精美的百分比。
+
+当前 progress 是：
+
+```text
+done count / task count
+```
+
+对于：
+
+* parent + subtasks；
+* recurring task history；
+* 不同大小任务；
+
+这个百分比并不真的表示项目完成程度。
+
+我的建议是：
+
+**1.2 第一阶段甚至可以删除百分比。**
+
+改成：
+
+```text
+7 open · 12 completed
+```
+
+等真正定义 project scope/progress 后再加。
+
+---
+
+## 默认 Section
+
+可以提供模板：
+
+```text
+Backlog
+Next
+Doing
+Waiting
+```
+
+或者：
 
 ```text
 Research
-
-完成插帧论文实验并投稿
-
-██████████████░░░░  71%
-
-[List] [Board]
-
-Next
-────────────────────────────
-○ Edge device benchmark   P1
-○ 修改 Figure 4
-○ 写 Discussion
-
 Experiments
-────────────────────────────
-✓ Baseline
-✓ Loss comparison
-○ Mobile benchmark
-
 Paper
-────────────────────────────
-○ Figure
+```
+
+由用户决定。
+
+不要把 Focus Active 变成 Doing。
+
+---
+
+# 十四、Focus 2.0
+
+Focus UI：
+
+```text
+修改论文
+
+本次专注
+24:31
+
+今日实际
+62 / 90m
+
+任务累计
+138m
+
+────────────────
+
+✓ Figure 3
+○ Figure 4
 ○ Discussion
-○ Proofread
+
+────────────────
+
+下一次护眼
+11m
+
+[暂停]          [完成任务]
 ```
 
-Board：
+如果来自 TimeBlock：
 
 ```text
-BACKLOG        NEXT          DOING        DONE
-
-Task           Task          Task         Task
-Task           Task                       Task
-```
-
-Todoist 的 Board 也是以 Section 作为列，并允许 task 在阶段之间拖动，这是值得吸收的项目模型。([Todoist][6])
-
----
-
-# 三、全新的视觉系统
-
-我会直接删除“warm cream + teal everywhere + 彩色状态散落各处”的逻辑。
-
-推荐初始 palette：
-
-| Semantic token  | Light     | Dark      | 用途    |
-| --------------- | --------- | --------- | ----- |
-| `bg.app`        | `#F7F8F6` | `#111614` | 应用背景  |
-| `bg.sidebar`    | `#F1F3F1` | `#141A17` | 导航    |
-| `surface`       | `#FFFFFF` | `#171D1A` | 主表面   |
-| `surface.hover` | `#F3F5F3` | `#202823` | hover |
-| `fg.primary`    | `#1B211F` | `#ECF1EE` | 正文    |
-| `fg.secondary`  | `#66706C` | `#A7B2AC` | 次要信息  |
-| `brand`         | `#2E6F61` | `#7FC1A6` | 品牌/选择 |
-| `danger`        | `#B4473D` | `#E58C84` | 危险操作  |
-
-这里不是为了漂亮随便选色。我做了基础 contrast 校验，例如：
-
-```text
-Light primary / app     ≈ 15.35 : 1
-Light secondary / app   ≈  4.81 : 1
-White / Light brand     ≈  5.89 : 1
-
-Dark primary / app      ≈ 16.00 : 1
-Dark secondary / app    ≈  8.36 : 1
-Dark brand / app        ≈  8.78 : 1
-```
-
-后续仍必须通过自动化 contrast gate，而不是靠肉眼。
-
-### Icon 规范
-
-整个产品只保留一种系统图标库：**Lucide**。Lucide 本身支持统一修改 color、size 和 stroke width。([Lucide][7])
-
-统一规定：
-
-```text
-Navigation     18px / 1.8 stroke
-Toolbar        18px
-Inline meta    14px
-Task action    16px
-Empty state    28px
-```
-
-颜色永远：
-
-```css
-.icon {
-  color: currentColor;
-}
-```
-
-绝对禁止重新出现：
-
-```css
-.nav-item svg {
-  color: #217a70;
-}
-```
-
-颜色由父状态控制。
-
-项目颜色只允许进入：
-
-```text
-ProjectDot
-TimeBlock accent
-Board column hint
-```
-
-不得修改：
-
-```text
-task title
-system icon
-navigation icon
-body text
+当前计划块
+14:00–15:30
 ```
 
 ---
 
-### 控件尺寸
+# 十五、Break → Resume 才是 EyeProtect 的核心差异
 
-W3C 2.5.8 的 AA 基线是 24×24 CSS px，增强目标为 44×44。([W3C][8])
+用户：
 
-EyeProtect Desktop 自己采用更高的内部标准：
+```text
+Focus: 修改论文
+```
 
-| 控件                        |       1.2 |
-| ------------------------- | --------: |
-| Icon button               |     36×36 |
-| 高频/关键操作                   |    ≥40×40 |
-| Nav row                   |      44px |
-| Task row                  |     ≥44px |
-| Primary button            | 40px high |
-| Checkbox visible glyph    |      18px |
-| Checkbox clickable hitbox |      36px |
+休息到期：
 
-所以视觉上 checkbox 仍然可以很轻。
+```text
+休息一下眼睛
+```
 
-但是用户不用精准射击 18px 小圆点。
+休息完成：
+
+```text
+刚才正在：
+
+修改论文
+
+本次已专注 47m
+
+[继续修改论文]
+[结束本次专注]
+```
+
+如果是 Walk Reminder：
+
+```text
+站起来走走
+
+顺手可以：
+
+取快递
+打印论文
+倒水
+```
+
+来自：
+
+```text
+context = away
+```
+
+这是 EyeProtect 自己真正值得形成壁垒的地方。
 
 ---
 
-### Shape / Shadow / Typography
+# 十六、Daily Shutdown / Review
 
-圆角只保留三个等级：
+这是 1.2 最后一个核心闭环。
 
-```text
-6px   small control
-10px  button/input/card
-14px  dialog/sheet/hero
-```
+不用做复杂 statistics dashboard。
 
-不再随页面出现：
+每天结束：
 
 ```text
-5 / 6 / 8 / 10 / 14 / 18 / 22 / 24...
+今天
+
+计划        5h
+实际        4h12m
+
+完成 Today's 3
+2 / 3
+
+健康休息
+4 次完成
+1 次跳过
+
+还有 3 件任务：
+
+[明天]
+[重新安排]
+[Backlog]
 ```
 
-普通 Task/Card **不使用阴影**，靠 surface + 1px border 分层。
+这让：
 
-只有：
-
-* Dialog
-* Popover
-* Side Sheet
-* Toast
-
-允许 elevation。
-
-字体改成：
-
-```css
-font-family:
-  "Segoe UI Variable",
-  "Segoe UI",
-  "Microsoft YaHei UI",
-  system-ui,
-  sans-serif;
+```text
+Review
 ```
 
-让数字、计时和 Windows chrome 更协调，中文由雅黑正常 fallback。
+成为第二天：
+
+```text
+Daily Planning
+```
+
+的输入。
 
 ---
 
-### Collection 成为“受控的活泼区域”
+# 十七、Quick Add 下一步怎么增强
 
-Collection 可以更丰富。
-
-但形式改成：
+当前：
 
 ```text
-neutral UI
+输入标题 + Enter
+```
+
+一定保留。
+
+然后可以逐步支持：
+
+```text
+修改论文 tomorrow ~60 #Research !important
+```
+
+不需要 AI。
+
+只需要 deterministic parser。
+
+但是优先级排在：
+
+```text
+TimeBlock
+ProjectSection
+FocusSession
+DailyPlan
+```
+
+之后。
+
+---
+
+# 十八、下一版明确不做
+
+这是防止再次功能膨胀的关键。
+
+EyeProtect 1.2 **不做**：
+
+```text
+Cloud Sync
+Team Collaboration
+Mobile Client
+Habits
+Eisenhower Matrix
+AI Auto Scheduler
+Google / Outlook 双向同步
+Jira / Slack / GitHub integration
+复杂 Monthly Calendar
+Gantt
+```
+
+外部 Calendar Read-only busy overlay 可以考虑 1.3。
+
+不是 1.2。
+
+---
+
+# 十九、工程实现顺序
+
+我建议不要再做一个 18k-line 级的大 PR。
+
+当前 Draft PR #2 相对 master 已经是 176 个 changed files、18k+ additions 的大型变更。
+
+1.2 开始后严格分 PR。
+
+### PR 0 — Stabilization
+
+必须首先完成：
+
+```text
+当前 CI 全绿
+Notes close data-loss
+Task drag reorder
+Plan out-of-hours correctness
+DST calendar math
+Theme runtime authority
+Project delete safety
+Task status failure rollback
+```
+
+**任何一个没完成，不进入新模型。**
+
+---
+
+### PR 1 — Domain Schema v4
+
+只实现：
+
+```text
+DailyTaskPlan
+TimeBlock
+ProjectSection
+Project lifecycle
+FocusSession
+CivilTime utilities
+```
+
+不改大 UI。
+
+要求 SQLite migration / fresh DB path、transaction、FK、sanitizer、backup 全测试。
+
+---
+
+### PR 2 — Incremental Renderer State
+
+修改：
+
+```text
+task:list
+```
+
+只负责 hydration。
+
+mutation 改成：
+
+```text
+task:upsert
+task:delete
+project:upsert
+...
+```
+
+不再每个字符广播整张 Task[]。
+
+同时修 TaskDetail autosave：
+
+```text
+local revision
+debounce
+flush-on-blur
+flush-on-close
+stale-write rejection
+```
+
+---
+
+### PR 3 — Daily Planning + Today
+
+只实现：
+
+```text
+Daily Planning
+Today's 3
+Flexible
+Scheduled
+Overdue triage
+Capacity
+```
+
+---
+
+### PR 4 — TimeBlock Planner
+
+删除：
+
+```text
+plannedAt ≈ Calendar Block
+```
+
+Plan 完全改读：
+
+```text
+DailyTaskPlan
 +
-colorful character
+TimeBlock
 ```
 
-而不是：
+支持：
 
 ```text
-colorful UI
-+
-colorful character
+date strip
+drag
+keyboard schedule
+resize
+multiple blocks
+working hours
+off-hours
 ```
-
-今日来访可以是：
-
-```text
-┌─────────────────────────────────────────┐
-│                                         │
-│            [ Character ]                │
-│                                         │
-│  今天遇到了 Momo                        │
-│  喜欢偶尔提醒你看看远处                 │
-│                                         │
-│  [收下它]            这次先不了          │
-└─────────────────────────────────────────┘
-```
-
-角色自己成为视觉焦点。
-
-背景无需深绿色大渐变。
 
 ---
 
-# 四、修改方案与质量验收
+### PR 5 — Project Sections
 
-我会把这次工作拆成下面五个**独立验证阶段**。当前环境不能真的创建并行 subagent，所以这里对应的是五套彼此独立的审查/实施上下文；后续实际执行时也应保持这种边界。
-
-1. **Architecture / root-cause investigation。** 第一件事不是写新 CSS，而是先修到当前 HEAD 的 packaged smoke 完全绿；目前 CI 明确卡在 packaged application smoke。 随后生成视觉债务 inventory：所有 raw hex/rgb、全局 SVG selector、emoji chrome、native form、project color、light/dark computed style。建立 `semantic tokens → primitive → feature` 三层设计体系。现有 70KB `styles.css` 不作为新 UI 的继续演进基础。
-
-2. **Implementation。** 新增 `theme.css / primitives/`，并以 CSS Modules 拆分页面。新增 `Button、IconButton、NavItem、Field、Select、DateTimeField、StatusChip、Dialog、SideSheet、Toast、ProjectDot`。`CommandButton` 不再自己形成第二套视觉系统，而是复用统一 Button primitive，只提供 command state。重做 `WorkbenchView.tsx` 为新的 AppShell；去掉 Emoji 和六个一级 Smart View。重做 Project 创建为 Dialog；TaskDetail 改 SideSheet。`windows.ts` 改成 theme-aware BrowserWindow background。`package.json` 目前也没有 Windows 品牌 icon 配置，应同时补齐 `.ico` 和 builder 配置。
-
-3. **Independent correctness review。** 不看实现者的“设计意图说明”，直接从构建后的页面做 computed-style 审计。必须验证每个 icon 的最终 `color/stroke/fill`、light/dark/system 三主题、Button 所有状态、错误状态、键盘焦点、禁用状态。特别检查 `datetime-local/select/checkbox`，避免 `color-scheme` 与自定义 background 再次冲突。任何重要图标的实际 contrast 不低于 3:1，并预留余量，不以刚好 3.00 为目标。([W3C][4])
-
-4. **Regression / edge-case review。** 测试矩阵至少覆盖 Light / Dark / System、1280×720 / 1920×1080 / 2560×1440、100% / 125% / 150% / 200% scale、Windows High Contrast / `forced-colors`、keyboard-only、reduced-motion、超长中文任务/项目名、空数据、1000+ tasks、DB read-only、Notification unavailable、renderer reload。所有 drag 行为必须同时提供非 drag 的可操作路径，因为 WCAG 2.2 也要求 dragging 功能存在单指针替代方式。([W3C][9])
-
-5. **Final verification。** CI 增加 `verify:ui-contract`、真实 UI E2E、visual snapshots 和 packaged E2E。现在 CI 虽然会启动真正的 `EyeProtect.exe`，但 smoke 仍大量直接通过 `window.eyeProtect.*` 操作后台，再检查 DOM；例如 Collection 入口就是 API 调用后固定等待再查 selector。 1.2 必须增加真实 pointer/key 路径：点击“公仔收藏”→点击“收下它”；点击“新建项目”→输入→确认；创建 Task→Plan→Focus→Break→Resume。发布条件不是“DOM 存在”，而是完整用户旅程全部成功。
-
-建议同时加一个机器可执行的 `verify-ui-contract`，Release 直接禁止：
+实现：
 
 ```text
-Renderer feature CSS 中新增 raw hex/rgb
-全局 svg { color: ... }
-产品 chrome 使用 Emoji 代替系统 icon
-低于内部 hit-target 标准
-Dark theme 中出现 light-only surface
-Command mutation 没有 pending/error feedback
+Section CRUD
+Section sort
+Task section move
+List grouping
+Board columns
 ```
 
-并把 visual regression 截图作为 CI artifact：
+删除：
 
 ```text
-today-light-100.png
-today-dark-100.png
-today-dark-150.png
-plan-light.png
-plan-dark.png
-focus-light.png
-focus-dark.png
-project-list.png
-project-board.png
-collection.png
-settings.png
-reminder.png
+global Active Task = Board Doing
 ```
 
-最终我会把 **1.2 UI 重构本身设为 release blocker，而不是 polish task**。当前 Command Layer 的修复值得保留，但视觉上不应该继续继承现在这套“70KB 全局 CSS + 少量 tokens + 每个 feature 自己上颜色”的结构。最优先的顺序应该是：
+---
 
-**先让当前 CI 基线恢复全绿 → 建立 Design System → 重建 AppShell/Today → Plan/Focus → Projects → Collection/Settings → 真正用户操作 E2E + visual regression。**
+### PR 6 — FocusSession
 
-这条路线的目标不是单纯“看起来更现代”，而是让颜色、图标、交互状态、信息层级、Dark Theme 和 Windows DPI 全部成为**可机器验证的产品契约**，从工程上阻止现在这类“不协调 UI”重新长回来。
+实现：
 
-[1]: https://www.todoist.com/help/articles/plan-your-day-with-the-today-view-UVUXaiSs?utm_source=chatgpt.com "Plan your day with the Today view"
-[2]: https://help.sunsama.com/docs/usage-guides/timeboxing/?utm_source=chatgpt.com "Timeboxing — Sunsama User Manual"
-[3]: https://studio.lucide.dev/edit?branch=studio%2Ffix-cog-icons&dialog=false&name=folder-cog&value=%3Cpath+d%3D%22M13.5+8h-3%22+%2F%3E%3Cpath+d%3D%22m15+2-1+2h3a2+2+0+0+1+2+2v14a2+2+0+0+1-2+2H7a2+2+0+0+1-2-2V6a2+2+0+0+1+2-2h3%22+%2F%3E%3Cpath+d%3D%22M16.899+22A5+5+0+0+0+7.1+22%22+%2F%3E%3Cpath+d%3D%22m9+2+3+6%22+%2F%3E%3Ccircle+cx%3D%2212%22+cy%3D%2215%22+r%3D%223%22+%2F%3E&utm_source=chatgpt.com "Lucide Studio"
-[4]: https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast?country=255&utm_source=chatgpt.com "Understanding Success Criterion 1.4.11: Non-text Contrast | WAI | W3C"
-[5]: https://help.sunsama.com/docs/usage-guides/tasks/planned-and-actual-times/?utm_source=chatgpt.com "Planned and Actual Times — Sunsama User Manual"
-[6]: https://www.todoist.com/help/articles/board-layout-in-todoist-nutzen-AiAVsyEI?utm_source=chatgpt.com "Use the board layout in Todoist"
-[7]: https://lucide.dev/?utm_source=chatgpt.com "Lucide"
-[8]: https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum?utm_source=chatgpt.com "Understanding Success Criterion 2.5.8: Target Size (Minimum) | WAI | W3C"
-[9]: https://www.w3.org/TR/WCAG22/?utm_source=chatgpt.com "Web Content Accessibility Guidelines (WCAG) 2.2"
+```text
+Start
+Pause
+Resume
+Break pause
+Break resume
+Complete
+actual time
+planned vs actual
+```
+
+---
+
+### PR 7 — Daily Shutdown / Review
+
+完成整个：
+
+```text
+Capture
+→ Plan
+→ Focus
+→ Break
+→ Resume
+→ Review
+```
+
+闭环。
+
+---
+
+# 二十、数据库 invariant 必须提前写死
+
+例如：
+
+```text
+DailyTaskPlan
+
+(task_id, local_date) UNIQUE
+daily_rank = NULL | 1 | 2 | 3
+(local_date, daily_rank) UNIQUE WHERE daily_rank IS NOT NULL
+```
+
+---
+
+```text
+TimeBlock
+
+end_at > start_at
+task_id FK CASCADE
+0..N blocks per task
+```
+
+---
+
+```text
+ProjectSection
+
+project_id FK CASCADE
+sort_order deterministic
+```
+
+---
+
+```text
+FocusSession
+
+task_id FK
+ended_at >= started_at
+active_ms >= 0
+only one live Focus Session globally
+```
+
+这些 invariant 应该首先存在于数据库/Service。
+
+UI 只能表现它们。
+
+不能让 UI 自己成为业务规则。
+
+---
+
+# 二十一、时间系统需要单独做 correctness suite
+
+必须加入：
+
+```text
+US DST spring forward
+US DST fall back
+Europe DST
+UTC+8
+UTC
+timezone change
+midnight
+23:59
+cross-midnight block
+leap day
+month end
+```
+
+现有 Plan 的：
+
+```text
++ 86_400_000
+```
+
+应该通过 lint/test 直接禁止。
+
+---
+
+# 二十二、Interaction regression suite
+
+真正点击：
+
+```text
+Inbox
+→ New Task
+→ Enter
+
+Task
+→ open
+→ edit note
+→ immediately close
+→ reopen
+→ note exists
+```
+
+---
+
+```text
+Task A
+Task B
+
+drag B above A
+→ UI order changed
+→ DB order changed
+→ restart
+→ still changed
+```
+
+---
+
+```text
+Project
+→ Add Section
+→ drag task across sections
+→ restart
+→ section survives
+```
+
+---
+
+```text
+Plan
+→ unscheduled task
+→ drag 14:00
+→ resize 60 → 90
+→ restart
+→ block remains
+```
+
+---
+
+```text
+Focus
+→ start
+→ break
+→ complete break
+→ resume same session
+→ pause
+→ restart
+→ history correct
+```
+
+---
+
+# 二十三、CI 应改变失败行为
+
+当前 Pipeline 是串行：
+
+```text
+packaged smoke fails
+↓
+snapshot upload skipped
+↓
+scale-factor skipped
+↓
+fallback smoke skipped
+```
+
+这对于诊断反而很差。
+
+至少：
+
+```text
+Upload UI snapshots
+Upload trace
+Upload renderer console
+Upload reminder trace
+```
+
+应：
+
+```yaml
+if: always()
+```
+
+这样失败的时候才有证据可看。
+
+测试可以 Fail。
+
+**诊断 artifact 不应该跟着被 Skip。**
+
+---
+
+# 二十四、Final Verification Gate
+
+1.2 发布必须同时满足：
+
+```text
+Domain unit
+PASS
+
+SQLite invariants
+PASS
+
+Migration / backup
+PASS
+
+Civil-time / DST
+PASS
+
+Command / IPC
+PASS
+
+Renderer interaction
+PASS
+
+Keyboard interaction
+PASS
+
+Packaged Windows E2E
+PASS
+
+Theme runtime audit
+PASS
+
+100 / 125 / 150 / 200% DPI
+PASS
+
+Fault injection
+PASS
+
+Crash / restart
+PASS
+
+Visual regression
+PASS
+```
+
+而且：
+
+```text
+核心 gate 不允许 skipped
+```
+
+---
+
+# 二十五、性能验收
+
+下一版至少固定大数据 benchmark：
+
+```text
+5,000 open tasks
+5,000 completed tasks
+100 projects
+500 time blocks
+```
+
+重点不是设一个随意的“必须 37ms”。
+
+而是验证架构属性：
+
+```text
+编辑 1 个 Task
+不能 SELECT / broadcast 10,000 Tasks
+
+TaskList render
+不能 O(n²) 反复寻找 siblings
+
+Plan
+不能一次渲染整个历史 backlog
+
+Focus timer
+不能触发整个 Workbench 高频 re-render
+```
+
+当前 TaskList 对每一个 Task 都重新：
+
+```ts
+orderedTasks.filter(...)
+```
+
+寻找 siblings。
+
+下一版直接预建：
+
+```text
+childrenByParent
+siblingsByParent
+taskById
+```
+
+---
+
+# 二十六、文档也需要重新组织
+
+当前 `USERPLAN.md` 本身已经出现一个明显信号：
+
+里面仍然写：
+
+```text
+当前 HEAD = ff204...
+```
+
+而实际 HEAD 已经是：
+
+```text
+49518...
+```
+
+它实际上更像一份长篇审查报告，而不是 living spec。
+
+1.2 建议拆成：
+
+```text
+docs/1.2/product-spec.md
+docs/1.2/task-domain.md
+docs/1.2/planning-domain.md
+docs/1.2/focus-state-machine.md
+docs/1.2/interaction-contract.md
+docs/1.2/release-gates.md
+```
+
+同时用 ADR 固定关键决策：
+
+```text
+ADR-001 TimeBlock separate from Task
+ADR-002 Board Section separate from Active Task
+ADR-003 Civil-time calendar arithmetic
+ADR-004 Renderer delta events
+ADR-005 FocusSession lifecycle
+```
+
+这样代码和设计不会再次漂移。
+
+---
+
+# 最终优先级
+
+如果下一版只能做好四件事，我选择：
+
+## 1
+
+**真正的 Daily Plan + TimeBlock 模型**
+
+这是从 Todo List 变成 Planner 的基础。
+
+## 2
+
+**真正的 Project Section / Board**
+
+这是从 Project Filter 变成 Project Management 的基础。
+
+## 3
+
+**真正的 FocusSession + Break → Resume**
+
+这是 EyeProtect 区别于 Todoist/TickTick 的核心。
+
+## 4
+
+**把整个用户旅程做成不可回归的 packaged E2E**
+
+这是避免再次出现：
+
+> 测试全绿，用户却根本用不了
+
+的唯一可靠办法。
+
+最终不要把 EyeProtect 做成：
+
+> “功能少一点的 TickTick”
+
+也不要做成：
+
+> “带桌宠的 Todoist”。
+
+应该做成：
+
+> **Todoist 的组织能力
+>
+> * Sunsama/Akiflow 的日计划和 Timebox
+> * Super Productivity 的桌面 Focus/Time Tracking
+> * EyeProtect 自己独有的 Healthy Break / Away Task / Resume Context。**
+
+这条产品路线有足够清晰的差异化，而且与现在已经做出来的 Scheduler、Activity Monitor、Break、Active Task、Command Layer 和 local-first SQLite 是连续的，不需要推翻项目真正有价值的部分。
+
+本轮我没有修改仓库。最后一次复核时，分支仍停在 `49518cfc...`，最新 CI 仍为失败状态。 因此最合理的下一动作不是直接开始 Daily Planning，而是先把上面的 **PR 0 Stabilization** 做成真正全绿基线，然后再进入 schema v4；否则新领域模型会建立在一个仍有数据丢失、死拖拽和时间显示错误的 UI 基线上。
+
+[1]: https://www.todoist.com/help/articles/360013988740-Het-boardoverzicht-gebruiken-in-Todoist "https://www.todoist.com/help/articles/360013988740-Het-boardoverzicht-gebruiken-in-Todoist"
+[2]: https://www.todoist.com/help/articles/get-started-with-todoist-OgNNJR "https://www.todoist.com/help/articles/get-started-with-todoist-OgNNJR"
+[3]: https://lp-regional-test.todoist.com/help/articles/does-todoist-support-start-dates-qhqlgZhk "https://lp-regional-test.todoist.com/help/articles/does-todoist-support-start-dates-qhqlgZhk"
+[4]: https://help.sunsama.com/docs/usage-guides/daily-planning/ "https://help.sunsama.com/docs/usage-guides/daily-planning/"
+[5]: https://help.sunsama.com/docs/usage-guides/tasks/planned-and-actual-times/ "https://help.sunsama.com/docs/usage-guides/tasks/planned-and-actual-times/"
+[6]: https://product.akiflow.com/en/help/articles/8286936-task-planning "https://product.akiflow.com/en/help/articles/8286936-task-planning"
+[7]: https://product.akiflow.com/help/articles/6614520-setting-goals "https://product.akiflow.com/help/articles/6614520-setting-goals"
+[8]: https://ticktick.com/features?language=en_US "https://ticktick.com/features?language=en_US"
+[9]: https://github.com/super-productivity/super-productivity/releases "https://github.com/super-productivity/super-productivity/releases"
+[10]: https://help.sunsama.com/docs/usage-guides/timeboxing/timeboxing-how-to-timebox/ "https://help.sunsama.com/docs/usage-guides/timeboxing/timeboxing-how-to-timebox/"
+[11]: https://help.sunsama.com/docs/usage-guides/timeboxing/timeboxing-concepts-and-principles/ "https://help.sunsama.com/docs/usage-guides/timeboxing/timeboxing-concepts-and-principles/"
