@@ -2,7 +2,7 @@
 
 ## 项目整体功能
 
-EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、electron-vite、React 和 TypeScript。应用启动后常驻系统托盘，并显示一个可拖动的透明桌宠窗口。它会按设置触发护眼提醒、走动提醒，两个提醒接近时会合并为一次提醒；提醒出现后支持完成、稍后、跳过和暂停。用户可以在设置窗口调整提醒间隔、稍后时长、桌宠缩放、开机自启，并查看下次提醒时间。配置保存到本地 `data/settings.json`，打包后生成 Windows x64 portable exe。
+EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈是 Electron、electron-vite、React 和 TypeScript。应用启动后常驻系统托盘，并显示一个可拖动的透明桌宠窗口。它会按设置触发护眼提醒、走动提醒，两个提醒接近时会合并为一次提醒；提醒出现后支持完成、稍后、跳过和暂停。统一工作台还提供任务、项目、每日计划、TimeBlock、专注会话和每日回顾。配置和运行数据保存在本地，打包后生成 Windows x64 NSIS 安装包与 portable exe。
 
 ## 项目结构
 
@@ -11,7 +11,7 @@ EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、
 - `src/shared/`：主进程、preload、renderer 共用的类型、默认设置和设置范围。
 - `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放待办、闹钟、提醒和桌宠组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌。
 - `tests/`：Node 内置 test runner 测试，覆盖提醒调度、运行状态恢复、系统生命周期、闹钟、设置事件和 IPC 页面白名单。
-- `public/assets/`：静态资源。`tray-icon.png` 是托盘图标，`pet/` 和 `reminders/` 分别保存桌宠与提醒图片。
+- `public/assets/`：静态资源。包含托盘图标和应用图标；桌宠与提醒主体由程序化内联 SVG 渲染。
 - `out/`、`release/`、`node_modules/`：构建产物、发行产物和依赖目录，通常不要手动修改。
 
 ## 功能修改位置速查
@@ -28,8 +28,8 @@ EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、
 | 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
 | 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。 |
 | 公仔生成、收藏、材质、配饰和低频动作 | `src/shared/characters.ts`、`src/main/characterService.ts`、`src/renderer/src/features/characters/` | 角色由种子确定性生成；用户改名/材质/配饰不能改变角色指纹。默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
-| 托盘图标或程序化提醒视觉 | `public/assets/tray-icon.png`、`src/renderer/src/features/reminders/ReminderArtwork.tsx` | 托盘图标必须继续包含在 portable 包中；公仔与提醒为内联 SVG，不依赖旧固定 PNG。修改后运行 `npm run package`。 |
-| 打包配置、产物名称、Windows portable 目标 | `package.json` | 修改 `build` 字段；默认输出目录是 `release/`。 |
+| 托盘图标或程序化提醒视觉 | `public/assets/tray-icon.png`、`src/renderer/src/features/reminders/ReminderArtwork.tsx` | 托盘图标必须继续包含在两个发行包中；公仔与提醒为内联 SVG，不依赖旧固定 PNG。修改后运行 `npm run package`。 |
+| 打包配置、产物名称、Windows NSIS/portable 目标 | `package.json` | 修改 `build` 字段；默认输出目录是 `release/`。 |
 | electron-vite 入口、renderer public 目录 | `electron.vite.config.ts` | main、preload、renderer 的入口都在这里声明。 |
 
 ## 构建、测试与运行命令
@@ -40,7 +40,8 @@ EyeProtect 是一个 Windows 桌面护眼提醒应用，技术栈是 Electron、
 - `npm test`：执行 `tsx --test tests/*.test.ts`。
 - `npm run build`：用 electron-vite 构建到 `out/`。
 - `npm run start`：预览已构建应用。
-- `npm run package`：先构建，再通过 electron-builder 生成 Windows x64 portable exe 到 `release/`。
+- `npm run verify:ui-contract`：检查语义颜色、CSS 所有权、可访问性模式、命中区域和对比度。
+- `npm run package`：先构建，再通过 electron-builder 生成 Windows x64 NSIS 安装包和 portable exe 到 `release/`。
 
 ## 代码风格与约定
 

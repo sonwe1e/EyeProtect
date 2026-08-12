@@ -1,5 +1,7 @@
 # Alarm & Todo UI Fix — Implementation Plan
 
+> Historical archive: this plan describes the 2026-07-09 implementation baseline. It is not the current product or release checklist; use the repository README, AGENTS.md, and `docs/release-checklist.md` for current guidance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the broken alarm-clock and todo UI — panels that clip/overflow so controls can't be reached, todo list not updating live, and alarms lost on restart.

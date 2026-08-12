@@ -2,7 +2,7 @@
 
 EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应用常驻托盘并显示透明桌宠；统一工作台负责今日任务、项目、独立提醒、健康节奏和设置。
 
-## 1.1 功能
+## 当前功能
 
 - 护眼与走动提醒使用统一调度内核，接近到期时合并展示；支持完成、稍后、跳过、暂停和重新开始周期。
 - 护眼周期按“活跃使用时间”推进。系统空闲、锁屏或休眠时冻结；达到可配置的自然离开阈值（默认 5 分钟）后，返回时重新开始两个周期。
@@ -35,6 +35,7 @@ npm install
 npm run dev
 npm run typecheck
 npm test
+npm run verify:ui-contract
 npm run build
 ```
 
@@ -51,4 +52,4 @@ npm run smoke:emergency -- 9333
 npm run package
 ```
 
-默认在 `release/` 生成 Windows 10/11 x64 的 NSIS 安装包和 portable exe。发行前按 [1.1 发布检查表](docs/1.1-release-checklist.md) 完成实体机验证。
+默认在 `release/` 生成 Windows 10/11 x64 的 NSIS 安装包和 portable exe。发行前按[发布检查表](docs/release-checklist.md)完成实体机验证；界面配色和验收约束见[配色系统](docs/color-system.md)。

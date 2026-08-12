@@ -1,5 +1,7 @@
 # EyeProtect 运行时与便携版路径修复设计
 
+> 历史归档：本文记录已完成的 0.5.1 preload 与 portable 路径修复。当前发行行为以代码和 `docs/release-checklist.md` 为准。
+
 日期：2026-07-27  
 目标版本：0.5.1  
 状态：已批准，待实施

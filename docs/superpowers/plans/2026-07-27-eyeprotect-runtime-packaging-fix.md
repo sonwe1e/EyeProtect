@@ -1,5 +1,7 @@
 # EyeProtect Runtime and Portable Packaging Fix — Implementation Plan
 
+> Historical archive: this completed 0.5.1 plan is retained as a decision record. Current packaging targets and validation steps live in `package.json` and `docs/release-checklist.md`.
+
 **Goal:** Ship EyeProtect 0.5.1 with visible sandboxed renderer windows, portable-local data storage, and a valid startup shortcut target.
 
 **Architecture:** Keep every renderer sandboxed, but compile the single preload entry as a CommonJS `.cjs` bundle that Electron can execute inside the sandbox. Resolve portable storage and launch paths through small pure helpers that prefer electron-builder's `PORTABLE_EXECUTABLE_DIR` and `PORTABLE_EXECUTABLE_FILE`, then feed those helpers into the existing settings store and startup shortcut code. Make the preload contract part of every build and perform a real portable EXE smoke test before completion.

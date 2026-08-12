@@ -1,18 +1,20 @@
+> 状态：UI-H1 已于提交 `f7bb98c` 实现。本文件保留为实施背景和决策记录，不再表示待执行的“下一步”。当前配色与验收规范见 `docs/color-system.md`，实际实现以代码和自动门禁为准。
+
 ## 核心结论
 
-我建议下一步不要继续“大改功能”，也不要引入 MUI、Ant Design、Tailwind/Shadcn 之类新的 UI 体系，而是做一个边界非常明确的 **UI-H1：Workbench Visual Hardening**：**保持现有任务领域模型、Command Layer、SideSheet、Plan、Project List/Board 不动，集中重构 CSS 所有权、视觉层级、信息密度和真实 UI 验收链路。**
+UI-H1 的实施边界是不引入 MUI、Ant Design、Tailwind/Shadcn 等新 UI 体系，并保持现有任务领域模型、Command Layer、SideSheet、Plan、Project List/Board 不动，集中重构 CSS 所有权、视觉层级、信息密度和真实 UI 验收链路。
 
 参考方向以 **Linear 为主，Notion 为辅，Asana 只借项目视图组织方式**。Linear 的关键并不是某个颜色，而是“列表/看板共享同一数据、每个 View 决定显示哪些属性、详情按需展开”；Notion 同样允许不同视图独立控制属性可见性；Asana 强项则是同一项目在 List / Board / Timeline 等视图间切换。EyeProtect 现在其实已经具备这些结构，因此应该**借设计原则，不重新造产品架构**。([Linear][1])
 
 我检查了 `codex/eyeprotect-runtime-hardening` 当前代码和最新 Windows CI。现在的 Workbench 已经有 Sidebar、Toolbar、Today、Plan、Project List/Board、Task SideSheet、Command Palette，方向没有问题。 真正需要优先解决的是两个基础问题：
 
-**第一，CSS 仍有两个权威来源。** `main.tsx` 同时加载旧的 `styles.css` 和新的 `primitives.css/workbench.css`；而旧 `styles.css` 里至今还存在 `.task-row`、`.project-item`、`.detail-card` 等工作台样式，并且含硬编码颜色。  这会导致现在看起来“基本正常”，以后某次改样式却突然被旧规则覆盖。**这是这次整改首先要消灭的根因。**
+**第一，CSS 曾有两个权威来源。** 基线中的 `main.tsx` 同时加载旧的 `styles.css` 和新的 `primitives.css/workbench.css`；旧 `styles.css` 仍含工作台选择器和硬编码颜色。当前实现已将 `styles.css` 限定为桌宠/提醒 surface，并用自动测试阻止 Workbench 选择器和 raw color 回流。
 
-**第二，当前 UI 自动验收本身不稳定。** 最新 HEAD `0a4d768…` 上，Typecheck、410 个测试、UI Contract、Build 和 Windows 打包全部通过，但 packaged smoke 在 UI journey 阶段失败，因此 DPI/scale matrix 被跳过。 我进一步检查日志后确认：第一次 Plan pointer drag 没提交，fallback 后 resize 又没有得到预期 75 分钟；第二次重试复用了第一次已经被修改的数据，因此待拖动任务直接不存在了。换句话说，**当前截图脚本不是完全幂等的**。不先解决它，后面很难对“UI 无误”给出高置信度结论。
+**第二，旧 UI 自动验收不稳定。** 基线提交 `0a4d768…` 的 packaged smoke 会修改并复用 fixture，重试时可能找不到待拖动任务，并导致 DPI/scale matrix 被跳过。当前实现已将交互 smoke 与截图分离、每轮重置 fixture，并在 CI 中连续运行确定性截图；本段保留用于解释这项工程决策。
 
 我还下载并检查了最新 CI 实际产出的 6 张 Workbench 截图。当前画面最明显的问题不是“丑”，而是**卡片化太重、任务属性同时暴露过多、Task Detail 太像设置表单、Plan 在约 960px 窗口下时间线掉到首屏以下，并且日期区域出现横向滚动条**。这些正是这一轮应该处理的内容。
 
-[当前 CI 的 6 张 UI 基线截图](sandbox:/mnt/data/EyeProtect-UI-snapshots.zip)
+当时的 6 张 CI 截图只作为阶段性分析证据，已随过时交接 ZIP 一并清理；当前截图由 Windows CI artifact 和本地 `artifacts/` 目录生成。
 
 ---
 
@@ -144,7 +146,7 @@ Task Row 则使用“按 View 展示属性”的办法：Today 主要显示时�
 
 最终 Gate 我会定得比较硬：
 
-**页面级横向滚动必须为 0，只有 Project Board 自己允许横滚；Plan 日期条不能再出现可见 scrollbar；960px 下 Planner 首屏应该同时看到待安排区和时间线；SideSheet 不能裁切控件；hover 隐藏的操作必须能通过 keyboard focus 显示；Light/Dark 的 primary/secondary 文本继续满足 contrast contract；forced-colors 和 reduced-motion 继续通过；所有现有 410 个测试必须零回归。**
+**页面级横向滚动必须为 0，只有 Project Board 自己允许横滚；Plan 日期条不能出现可见 scrollbar；960px 下 Planner 首屏应该同时看到待安排区和时间线；SideSheet 不能裁切控件；hover 隐藏的操作必须能通过 keyboard focus 显示；Light/Dark 的 primary/secondary 文本继续满足 contrast contract；forced-colors 和 reduced-motion 继续通过；全部自动测试必须零回归。**
 
 完成这一轮后，我预期 EyeProtect 的变化不会是“突然变得花哨”，而是更接近成熟生产力软件：**背景更中性、绿色更稀缺、容器更少、任务更像任务而不是卡片、详情更像属性面板而不是设置页、Planner 在正常桌面尺寸下真正有专业时间规划工具的空间结构。** 更重要的是，我们是在保留当前已经稳定下来的任务领域模型和 runtime hardening 的前提下完成这些变化，后续即使再继续做搜索、过滤、更多 Project View，也不需要重新推倒这一层。
 
