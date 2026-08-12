@@ -185,7 +185,7 @@ await waitForValue('#workbench', `(() => {
 })()`, Boolean);
 await waitForValue('#workbench', `[...document.querySelectorAll('.task-row')].some((entry) => entry.textContent?.includes('Smoke Journey Task'))`, Boolean);
 
-await evaluate(projectTarget, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('计划')))?.click()`);
+await evaluate(projectTarget, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('日程')))?.click()`);
 await waitForValue('#workbench', `Boolean(document.querySelector('.plan-page'))`, Boolean);
 const scheduledJourney = (await waitForValue('#workbench', `(() => {
   const card = [...document.querySelectorAll('.plan-task-card')].find((entry) => entry.textContent?.includes('Smoke Journey Task'));

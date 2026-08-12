@@ -174,6 +174,7 @@ function TaskRow({
         className="task-priority-dot"
         data-priority={task.priority}
         state={cyclePriority.state}
+        successFeedback="none"
         errorReason={cyclePriority.error?.message}
         title={`优先级：${PRIORITY_LABELS[task.priority]}（点击切换）`}
         aria-label={`优先级：${PRIORITY_LABELS[task.priority]}`}
@@ -188,6 +189,7 @@ function TaskRow({
         type="button"
         className="task-checkbox"
         state={toggleStatus.state}
+        successFeedback="none"
         errorReason={toggleStatus.error?.message}
         title={task.status === 'done' ? '标记为未完成' : '标记为完成'}
         aria-label={task.status === 'done' ? '标记为未完成' : '标记为完成'}

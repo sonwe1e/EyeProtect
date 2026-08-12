@@ -46,19 +46,23 @@ function BoardCard({ task, active, onOpen }: { task: Task; active: boolean; onOp
 }
 
 /** Column header: rename on double-click, reorder with arrows, delete guarded. */
-function SectionHeader({ section, count, canMoveLeft, canMoveRight, onMove, onRenamed, onDeleted }: {
+function SectionHeader({ section, count, canMoveLeft, canMoveRight, moveLeftBeforeId, moveRightBeforeId, onRenamed, onDeleted }: {
   section: ProjectSection;
   count: number;
   canMoveLeft: boolean;
   canMoveRight: boolean;
-  onMove: (direction: -1 | 1) => void;
+  moveLeftBeforeId: string | null;
+  moveRightBeforeId: string | null;
   onRenamed: () => void;
   onDeleted: () => void;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(section.name);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const cancelRenameRef = useRef(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const rename = useCommand((name: string) => commands.sections.rename(section.id, name));
+  const move = useCommand((beforeSectionId: string | null) => commands.sections.move(section.id, beforeSectionId));
   const remove = useCommand(() => commands.sections.remove(section.id));
 
   useEffect(() => {
@@ -66,11 +70,31 @@ function SectionHeader({ section, count, canMoveLeft, canMoveRight, onMove, onRe
   }, [editing, section.name]);
 
   const commitRename = (): void => {
-    const name = draft.trim();
-    setEditing(false);
-    if (name && name !== section.name) {
-      void rename.run(name).then((result) => { if (result.ok) onRenamed(); });
+    if (cancelRenameRef.current) {
+      cancelRenameRef.current = false;
+      return;
     }
+    if (rename.isPending) return;
+    const name = draft.trim();
+    if (!name) {
+      setValidationError('分组名称不能为空');
+      return;
+    }
+    if (name === section.name) {
+      setEditing(false);
+      return;
+    }
+    void rename.run(name).then((result) => {
+      if (result.ok) {
+        setValidationError(null);
+        setEditing(false);
+        onRenamed();
+      }
+    });
+  };
+
+  const commitMove = (beforeSectionId: string | null): void => {
+    void move.run(beforeSectionId).then((result) => { if (result.ok) onRenamed(); });
   };
 
   return (
@@ -80,27 +104,31 @@ function SectionHeader({ section, count, canMoveLeft, canMoveRight, onMove, onRe
           className="project-section-rename"
           autoFocus
           value={draft}
+          disabled={rename.isPending}
+          aria-invalid={rename.error || validationError ? true : undefined}
           onClick={(event) => event.stopPropagation()}
-          onChange={(event) => setDraft(event.currentTarget.value)}
+          onChange={(event) => { setDraft(event.currentTarget.value); setValidationError(null); rename.reset(); }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') commitRename();
-            if (event.key === 'Escape') setEditing(false);
+            if (event.key === 'Escape') { cancelRenameRef.current = true; setValidationError(null); rename.reset(); setEditing(false); }
           }}
           onBlur={commitRename}
         />
       ) : (
         <h2>
-          <button type="button" className="project-section-name" title={`${section.name}（点击重命名）`} onClick={() => setEditing(true)}>
+          <button type="button" className="project-section-name" title={`${section.name}（点击重命名）`} onClick={() => { cancelRenameRef.current = false; setEditing(true); }}>
             {section.name}
           </button>
         </h2>
       )}
       <span className="project-section-tools">
         <span className="project-section-count">{count}</span>
-        <button type="button" aria-label={`「${section.name}」左移`} disabled={!canMoveLeft} onClick={() => onMove(-1)}><ChevronLeft size={13} /></button>
-        <button type="button" aria-label={`「${section.name}」右移`} disabled={!canMoveRight} onClick={() => onMove(1)}><ChevronRight size={13} /></button>
+        <button type="button" aria-label={`「${section.name}」左移`} disabled={!canMoveLeft || move.isPending} onClick={() => commitMove(moveLeftBeforeId)}><ChevronLeft size={13} /></button>
+        <button type="button" aria-label={`「${section.name}」右移`} disabled={!canMoveRight || move.isPending} onClick={() => commitMove(moveRightBeforeId)}><ChevronRight size={13} /></button>
         <button type="button" aria-label={`删除分组「${section.name}」`} onClick={() => setConfirmOpen(true)}><Trash2 size={13} /></button>
       </span>
+      {editing && (validationError || rename.error) ? <small className="project-section-error" role="alert">{validationError ?? rename.error?.message}</small> : null}
+      {move.error ? <small className="project-section-error" role="alert">{move.error.message}</small> : null}
       <Dialog
         open={confirmOpen}
         title={`删除分组「${section.name}」`}
@@ -187,16 +215,6 @@ export function ProjectWorkspace({
     refresh();
   };
 
-  const moveSectionBy = (index: number, direction: -1 | 1): void => {
-    const section = sections[index];
-    if (!section) return;
-    const beforeSectionId = direction < 0
-      ? sections[index - 1]?.id ?? null
-      : sections[index + 2]?.id ?? null;
-    void commands.sections.move(section.id, beforeSectionId)
-      .then((result) => { if (result.ok) refresh(); });
-  };
-
   return (
     <div className={`workspace-page project-page ${styles.root}`}>
       <header className="project-page-header">
@@ -256,7 +274,7 @@ export function ProjectWorkspace({
       </header>
       {updateProject.error ? <p className="project-page-error" role="alert">{updateProject.error.message}</p> : null}
       <div className="project-progress-summary"><StatusChip tone="brand">{openTasks.length} 进行中 · {done.length} 已完成</StatusChip></div>
-      <TaskComposer projects={projects} defaultProjectId={project.id} />
+      <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'project', projectId: project.id }} />
 
       <div className="project-section-bar">
         {sectionCreatorOpen ? (
@@ -352,7 +370,8 @@ export function ProjectWorkspace({
                     count={group.tasks.length}
                     canMoveLeft={sectionIndex > 0}
                     canMoveRight={sectionIndex < sections.length - 1}
-                    onMove={(direction) => moveSectionBy(sectionIndex, direction)}
+                    moveLeftBeforeId={sections[sectionIndex - 1]?.id ?? null}
+                    moveRightBeforeId={sections[sectionIndex + 2]?.id ?? null}
                     onRenamed={refresh}
                     onDeleted={refresh}
                   />

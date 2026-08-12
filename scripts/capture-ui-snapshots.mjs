@@ -358,8 +358,11 @@ await evaluate(pet, `(async () => {
   if (focusTask) {
     const start = new Date();
     start.setHours(10, 0, 0, 0);
-    const timeBlock = await window.eyeProtect.createTimeBlock({ taskId: focusTask.id, startAt: start.getTime(), endAt: start.getTime() + 60 * 60_000, source: 'planner' });
-    await window.eyeProtect.startFocus(focusTask.id, timeBlock.id);
+    await window.eyeProtect.createTimeBlock({ taskId: focusTask.id, startAt: start.getTime(), endAt: start.getTime() + 60 * 60_000, source: 'planner' });
+    const microTask = tasks.find((task) => task.title === '核对深色主题');
+    if (microTask) await window.eyeProtect.createTimeBlock({ taskId: microTask.id, startAt: start.getTime() - 60 * 60_000, endAt: start.getTime() - 45 * 60_000, source: 'planner' });
+    if (recordTask) await window.eyeProtect.createTimeBlock({ taskId: recordTask.id, startAt: start.getTime() - 45 * 60_000, endAt: start.getTime() - 15 * 60_000, source: 'planner' });
+    await window.eyeProtect.setActiveTask(focusTask.id);
   }
   await window.eyeProtect.saveSettings({ theme: 'light' });
   await window.eyeProtect.openWorkbench('today');
@@ -382,6 +385,25 @@ await auditComputedTheme(workbench, 'dark', [
   ['toolbar action', '.toolbar-rhythm .command-button']
 ]);
 await capture(workbench, 'today-dark.png');
+
+await evaluate(workbench, `(() => {
+  const input = document.querySelector('[data-quick-add="true"]');
+  const form = input?.closest('form');
+  if (!(input instanceof HTMLInputElement) || !(form instanceof HTMLFormElement)) return false;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, 'SNAPSHOT_TODAY_QUICK_ADD');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  setTimeout(() => form.requestSubmit(), 0);
+  return true;
+})()`);
+await waitFor(workbench, `(async () => {
+  const task = (await window.eyeProtect.getTasks()).find((entry) => entry.title === 'SNAPSHOT_TODAY_QUICK_ADD');
+  if (!task) return false;
+  const localDate = new Date().toLocaleDateString('en-CA');
+  return (await window.eyeProtect.getDailyPlans(localDate)).some((plan) => plan.taskId === task.id)
+    && [...document.querySelectorAll('.task-row')].some((row) => row.textContent?.includes('SNAPSHOT_TODAY_QUICK_ADD'));
+})()`);
+await capture(workbench, 'today-quick-add-dark.png');
 
 await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', code: 'KeyK', modifiers: 2 });
 await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'k', code: 'KeyK', modifiers: 2 });
@@ -406,8 +428,8 @@ await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', 
 await waitFor(workbench, `!document.querySelector('.ui-side-sheet')`);
 
 for (const [label, file, ready] of [
-  ['计划', 'plan-dark.png', `.plan-page`],
-  ['专注', 'focus-dark.png', `.focus-surface`],
+  ['日程', 'plan-short-blocks-dark.png', `.plan-page`],
+  ['专注', 'focus-pre-session-dark.png', `.focus-surface`],
   ['项目', 'projects-dark.png', `.projects-overview`]
 ]) {
   await evaluate(workbench, `(() => {
@@ -421,7 +443,8 @@ for (const [label, file, ready] of [
   })()`);
   await capture(workbench, file);
   if (label === '专注') {
-    // PR6: an active task without a live session offers "开始专注"; starting
+    // An active task without a live session stays in the normal shell and
+    // offers "开始专注". Only the resulting live session becomes immersive.
     // the session reveals the pause/complete pair and the four time layers.
     await evaluate(workbench, `(() => {
       const start = [...document.querySelectorAll('.focus-actions button')].find((entry) => entry.textContent?.includes('开始专注'));
@@ -429,6 +452,8 @@ for (const [label, file, ready] of [
       return Boolean(start);
     })()`);
     await waitFor(workbench, `[...document.querySelectorAll('.focus-actions button')].some((entry) => entry.textContent?.includes('暂停专注'))`);
+    await waitFor(workbench, `document.querySelector('.workbench-v2')?.classList.contains('is-focus-mode') && Boolean(document.querySelector('.focus-back'))`);
+    await capture(workbench, 'focus-session-dark.png');
     const focusActions = await evaluate(workbench, `([...document.querySelectorAll('.focus-actions button')].map((button) => ({ disabled: button.disabled, opacity: getComputedStyle(button).opacity })))`);
     if (focusActions.length !== 2 || focusActions.some((button) => button.disabled || Number(button.opacity) < 1)) {
       throw new Error(`Focus actions are unexpectedly unavailable: ${JSON.stringify(focusActions)}`);
@@ -438,12 +463,19 @@ for (const [label, file, ready] of [
       ['focus primary action', '.focus-actions button:last-child']
     ]);
   }
-  if (label === '计划' || label === '专注') {
+  if (label === '日程' || label === '专注') {
     await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light' })`);
     await waitFor(workbench, `document.documentElement.dataset.theme === 'light'`);
-    await capture(workbench, label === '计划' ? 'plan-light.png' : 'focus-light.png');
+    await capture(workbench, label === '日程' ? 'plan-light.png' : 'focus-light.png');
     await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
     await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
+  }
+  if (label === '专注') {
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await waitFor(workbench, `Boolean(document.querySelector('.today-page')) && !document.querySelector('.workbench-v2')?.classList.contains('is-focus-mode')`);
+    const sessionSurvivedBack = await evaluate(workbench, `(async () => Boolean((await window.eyeProtect.getFocusStatus()).session))()`);
+    if (!sessionSurvivedBack) throw new Error('Esc returned to the Workbench but incorrectly ended the FocusSession');
   }
 }
 
@@ -531,7 +563,7 @@ for (const [width, height] of [[944, 561], [960, 600]]) {
     await waitFor(workbench, `document.documentElement.dataset.density === 'comfortable'`);
   }
 
-  await selectNavigation(workbench, '计划', '.plan-page');
+  await selectNavigation(workbench, '日程', '.plan-page');
   const planMetrics = await collectLayoutMetrics(workbench);
   assertPageLayout(`Plan ${width}x${height}`, planMetrics);
   const title = planMetrics.planTitle;
@@ -603,7 +635,7 @@ for (const [width, height, file] of [
 // common desktop widths where most users will live.
 for (const [width, height] of [[1280, 720], [1440, 900]]) {
   await setViewport(workbench, width, height, hostScale);
-  await selectNavigation(workbench, '计划', '.plan-page');
+  await selectNavigation(workbench, '日程', '.plan-page');
   const planMetrics = await collectLayoutMetrics(workbench);
   assertPageLayout(`Plan ${width}x${height}`, planMetrics);
   acceptanceMetrics.push({ surface: 'plan', width, height, ...planMetrics });

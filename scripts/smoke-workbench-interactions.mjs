@@ -146,7 +146,7 @@ if (mode === 'exercise') {
   const workbench = await waitForTarget('#workbench');
   await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
   await waitFor(workbench, `Boolean(document.querySelector('.workbench-v2'))`);
-  await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('计划')))?.click()`);
+  await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('日程')))?.click()`);
   await waitFor(workbench, `Boolean(document.querySelector('.plan-layout'))`);
 
   const planDrag = await evaluate(workbench, `(() => {
@@ -223,7 +223,7 @@ if (mode === 'exercise') {
   await evaluate(pet, `window.eyeProtect.openWorkbench('plan')`);
   const workbench = await waitForTarget('#workbench');
   await waitFor(workbench, `Boolean(document.querySelector('.workbench-v2'))`);
-  await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('计划')))?.click()`);
+  await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('日程')))?.click()`);
   await waitFor(workbench, `Boolean(document.querySelector('.plan-layout'))`);
   const persisted = await evaluate(workbench, `(async () => {
     const tasks = await window.eyeProtect.getTasks();

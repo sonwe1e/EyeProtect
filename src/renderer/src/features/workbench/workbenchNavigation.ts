@@ -29,6 +29,7 @@ export type WorkbenchSectionTier = 'primary' | 'utility';
 export interface WorkbenchSectionMeta {
   id: WorkbenchSectionId;
   label: string;
+  description: string;
   iconKey: string;
   tier: WorkbenchSectionTier;
 }
@@ -37,15 +38,15 @@ export interface WorkbenchSectionMeta {
 // structure, not wording. iconKey is resolved to a Lucide component in
 // WorkbenchSidebar.tsx.
 export const WORKBENCH_SECTIONS: Record<WorkbenchSectionId, WorkbenchSectionMeta> = {
-  today: { id: 'today', label: '今天', iconKey: 'sun', tier: 'primary' },
-  inbox: { id: 'inbox', label: '收件箱', iconKey: 'inbox', tier: 'primary' },
-  plan: { id: 'plan', label: '计划', iconKey: 'calendarDays', tier: 'primary' },
-  focus: { id: 'focus', label: '专注', iconKey: 'target', tier: 'primary' },
-  projects: { id: 'projects', label: '项目', iconKey: 'folderKanban', tier: 'primary' },
-  review: { id: 'review', label: '今日复盘', iconKey: 'calendarDays', tier: 'utility' },
-  reminders: { id: 'reminders', label: '独立提醒', iconKey: 'bell', tier: 'utility' },
-  collection: { id: 'collection', label: '公仔收藏', iconKey: 'gift', tier: 'utility' },
-  settings: { id: 'settings', label: '设置', iconKey: 'settings', tier: 'utility' }
+  today: { id: 'today', label: '今天', description: '今天承诺要做的事', iconKey: 'sun', tier: 'primary' },
+  inbox: { id: 'inbox', label: '收件箱', description: '尚未归入项目的任务', iconKey: 'inbox', tier: 'primary' },
+  plan: { id: 'plan', label: '日程', description: '把任务安排到具体时间段', iconKey: 'calendarDays', tier: 'primary' },
+  focus: { id: 'focus', label: '专注', description: '只处理当前这一件事', iconKey: 'target', tier: 'primary' },
+  projects: { id: 'projects', label: '项目', description: '按长期目标和阶段组织任务', iconKey: 'folderKanban', tier: 'primary' },
+  review: { id: 'review', label: '今日复盘', description: '回顾今天的计划与实际投入', iconKey: 'calendarDays', tier: 'utility' },
+  reminders: { id: 'reminders', label: '独立提醒', description: '管理不依赖任务的提醒', iconKey: 'bell', tier: 'utility' },
+  collection: { id: 'collection', label: '公仔收藏', description: '查看已经收集的桌面伙伴', iconKey: 'gift', tier: 'utility' },
+  settings: { id: 'settings', label: '设置', description: '调整应用、提醒与工作节奏', iconKey: 'settings', tier: 'utility' }
 } as const;
 
 export const PRIMARY_SECTION_ORDER: WorkbenchSectionId[] = PRIMARY_WORKBENCH_SECTIONS.slice();

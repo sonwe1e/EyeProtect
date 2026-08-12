@@ -94,8 +94,10 @@
 .workbench-v2 .project-list-items { display: flex; max-height: min(28vh, 240px); flex-direction: column; gap: 2px; margin: 0; padding: 2px 0; overflow-y: auto; list-style: none; }
 .workbench-v2 .project-empty { padding: 8px 10px; color: var(--fg-tertiary); }
 .workbench-v2 .project-rename-input { width: 100%; min-width: 0; height: 32px; padding: 0 8px; color: var(--fg-primary); background: var(--surface); border: 1px solid var(--brand); border-radius: var(--radius-small); }
+.workbench-v2 .project-rename-error { position: absolute; z-index: 2; top: calc(100% - 2px); left: 26px; max-width: 180px; padding: 4px 7px; color: var(--danger); font-size: 10.5px; background: var(--surface); border: 1px solid var(--danger); border-radius: 5px; }
 
 .workbench-v2 .project-item {
+  position: relative;
   display: flex;
   align-items: center;
   min-height: var(--hit-target-min);
@@ -376,7 +378,20 @@
 .workbench-v2.is-focus-mode .workspace-toolbar { display: none; }
 .workbench-v2.is-focus-mode .app-workspace { grid-template-rows: 1fr; }
 
-.projects-overview > p { max-width: 520px; color: var(--fg-secondary); line-height: 1.7; }
+.page-description { max-width: 560px; margin: 4px 0 0; color: var(--fg-secondary); font-size: 12.5px; font-weight: 400; line-height: 1.5; }
+.project-overview-list { display: grid; max-width: 760px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.project-overview-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; padding: 16px; color: var(--fg-primary); text-align: left; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); }
+.project-overview-card:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.project-overview-card > span { display: grid; min-width: 0; gap: 3px; }
+.project-overview-card > span strong,
+.project-overview-card > span small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-overview-card > span small { color: var(--fg-secondary); font-size: 12px; font-weight: 400; }
+.project-overview-card > em { grid-column: 1 / -1; color: var(--fg-secondary); font-size: 11.5px; font-style: normal; }
+.project-overview-card > i { grid-column: 1 / -1; height: 4px; background: var(--surface-active); border-radius: 4px; overflow: hidden; }
+.project-overview-card > i > span { display: block; height: 100%; background: var(--brand); border-radius: inherit; }
+.project-overview-empty { max-width: 620px; padding: 18px; color: var(--fg-secondary); line-height: 1.65; background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-large); }
+.project-overview-empty p { margin: 0; }
+.project-overview-empty p + p { margin-top: 8px; }
 
 .workbench-v2 .workbench-embedded-page { min-height: 100%; color: var(--fg-primary); background: var(--bg-app); }
 
@@ -467,7 +482,6 @@
 .workbench-v2 .planning-finish { display: flex; gap: 10px; }
 
 /* Plan 2.0 (TimeBlock planner, USERPLAN 1.2 PR4) */
-.workbench-v2 .plan-day-switch .plan-strip-today { margin-left: 3px; color: var(--brand); font-size: 10px; }
 .workbench-v2 .plan-group-label { margin: 12px 0 6px; color: var(--fg-tertiary); font-size: 11px; font-weight: 650; letter-spacing: 0.04em; }
 .workbench-v2 .plan-rank-badge {
   display: inline-grid;
@@ -497,6 +511,7 @@
   border-radius: 8px;
 }
 .workbench-v2 .project-section-header { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.workbench-v2 .project-section-error { flex-basis: 100%; order: 2; color: var(--danger); font-size: 10.5px; }
 .workbench-v2 .project-section-header h2 { margin: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-v2 .project-section-name { max-width: 100%; padding: 0; color: inherit; font: inherit; text-align: left; background: transparent; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-v2 .project-section-tools { display: inline-flex; gap: 2px; align-items: center; margin-left: auto; }

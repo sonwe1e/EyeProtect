@@ -1,9 +1,9 @@
-import { CheckCircle2, Coffee, Eye, Pause, Play, Target } from 'lucide-react';
-import type { Task, TaskStatus } from '../../../../shared/types';
+import { ArrowLeft, CheckCircle2, Coffee, Eye, Pause, Play, Target } from 'lucide-react';
+import type { FocusStatus, Task, TaskStatus } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
 import { useCommand } from '../../hooks/useCommand';
-import { useFocusStatus } from '../../hooks/useFocusStatus';
 import { commands } from '../../lib/commands';
+import { completeTaskThenFocus } from './focusCompletion';
 import styles from './FocusSurface.module.css';
 
 const formatMinutes = (value: number): string => `${Math.max(0, Math.floor(value / 60_000))}m`;
@@ -21,6 +21,7 @@ function FocusSubtask({ task }: { task: Task }): JSX.Element {
     <CommandButton
       variant="ghost"
       state={toggle.state}
+      successFeedback="none"
       errorReason={toggle.error?.message}
       className={task.status === 'done' ? 'is-done' : ''}
       onClick={() => void toggle.run(task.status === 'done' ? 'open' : 'done')}
@@ -31,21 +32,35 @@ function FocusSubtask({ task }: { task: Task }): JSX.Element {
   );
 }
 
-export function FocusSurface({ activeTask, candidates, tasks, liveSegmentMs, eyeRemaining, onOpen }: {
+function FocusCandidate({ task }: { task: Task }): JSX.Element {
+  const start = useCommand(() => commands.focus.start(task.id));
+  return (
+    <CommandButton className="focus-candidate" state={start.state} errorReason={start.error?.message} onClick={() => void start.run()}>
+      <Play size={16} /><span>{task.title}</span>
+    </CommandButton>
+  );
+}
+
+export function FocusSurface({ activeTask, candidates, tasks, focus, immersive, liveSegmentMs, eyeRemaining, onOpen, onBack }: {
   activeTask: Task | null;
   candidates: Task[];
   tasks: Task[];
+  focus: FocusStatus;
+  immersive: boolean;
   /** Work tracker's un-checkpointed live segment — keeps the timer second-smooth. */
   liveSegmentMs: number;
   eyeRemaining: number;
   onOpen: (id: string) => void;
+  onBack: () => void;
 }): JSX.Element {
-  const focus = useFocusStatus();
   const start = useCommand((taskId: string) => commands.focus.start(taskId));
   const pause = useCommand(() => commands.focus.pause());
   const resume = useCommand(() => commands.focus.resume());
-  const complete = useCommand(() => commands.focus.complete());
-  const finishTask = useCommand((id: string) => commands.tasks.setStatus(id, 'done'));
+  const finish = useCommand((id: string) => completeTaskThenFocus(
+    id,
+    (taskId) => commands.tasks.setStatus(taskId, 'done'),
+    () => commands.focus.complete()
+  ));
 
   const session = focus.session;
 
@@ -56,19 +71,16 @@ export function FocusSurface({ activeTask, candidates, tasks, liveSegmentMs, eye
         <h2>选择一件事，安静地开始</h2>
         <p>专注时会收起导航噪音，同时保留下一次护眼休息提示。</p>
         <div className="focus-candidates">
-          {candidates.slice(0, 5).map((task) => (
-            <CommandButton key={task.id} className="focus-candidate" state={start.state} errorReason={start.error?.message} onClick={() => void start.run(task.id)}>
-              <Play size={16} /><span>{task.title}</span>
-            </CommandButton>
-          ))}
+          {candidates.slice(0, 5).map((task) => <FocusCandidate key={task.id} task={task} />)}
         </div>
+        {candidates.length === 0 ? <p className="focus-no-candidates">今天还没有承诺任务。先在“今天”添加或规划一件事。</p> : null}
       </section>
     );
   }
 
   const subtasks = tasks.filter((task) => task.parentId === activeTask.id && task.status !== 'archived');
   const startError = start.error?.message ?? pause.error?.message ?? resume.error?.message
-    ?? complete.error?.message ?? finishTask.error?.message;
+    ?? finish.error?.message;
 
   // Active task without a live session (e.g. set from elsewhere): offer to
   // start the logical session that tracks 本次/今日/累计 time.
@@ -93,6 +105,7 @@ export function FocusSurface({ activeTask, candidates, tasks, liveSegmentMs, eye
   const todayMs = focus.todayTaskMs + (session.onBreak ? 0 : liveSegmentMs);
   return (
     <section className={`${styles.root} focus-surface`}>
+      {immersive ? <button type="button" className="focus-back" onClick={onBack}><ArrowLeft size={15} />返回工作台 <kbd>Esc</kbd></button> : null}
       <span className="focus-eyebrow">{session.onBreak ? '健康休息中' : activeTask.projectId ? '当前项目任务' : '当前任务'}</span>
       <button type="button" className="focus-title" onClick={() => onOpen(activeTask.id)}>{activeTask.title}</button>
       <strong className="focus-timer">{formatClock(sessionMs)}</strong>
@@ -123,11 +136,9 @@ export function FocusSurface({ activeTask, candidates, tasks, liveSegmentMs, eye
         )}
         <CommandButton
           variant="primary"
-          state={complete.state}
-          errorReason={complete.error?.message}
-          onClick={() => {
-            void finishTask.run(activeTask.id).then(() => void complete.run());
-          }}
+          state={finish.state}
+          errorReason={finish.error?.message}
+          onClick={() => void finish.run(activeTask.id)}
         ><CheckCircle2 size={16} />完成任务</CommandButton>
       </div>
       <span className="focus-footer">EyeProtect · 安静工作中</span>

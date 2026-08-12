@@ -72,3 +72,15 @@ test('a Daily Plan commitment appears even without legacy plannedAt or dueAt', (
   );
   assert.deepEqual(result.flexible.map((entry) => entry.id), ['daily-plan-only']);
 });
+
+test('Today sections are mutually exclusive when a ranked task also has a TimeBlock', () => {
+  const rankedAndScheduled = task('ranked-and-scheduled');
+  const result = deriveTodaySections(
+    [rankedAndScheduled],
+    [plan('ranked-and-scheduled', 1)],
+    new Set(['ranked-and-scheduled'])
+  );
+  assert.deepEqual(result.todaysThree.map((entry) => entry.id), ['ranked-and-scheduled']);
+  assert.deepEqual(result.scheduled, []);
+  assert.deepEqual(result.flexible, []);
+});

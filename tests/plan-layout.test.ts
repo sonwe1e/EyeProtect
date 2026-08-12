@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task, TimeBlock } from '../src/shared/types';
-import { assignIntervalLanes, buildBlockLayout, buildTimelineLayout } from '../src/renderer/src/features/tasks/planLayout';
+import { assignIntervalLanes, buildBlockLayout, buildTimelineLayout, shiftPlanSelection, timelineBlockDensity } from '../src/renderer/src/features/tasks/planLayout';
 
 const day = new Date('2026-08-10T00:00:00').getTime();
 const task = (id: string, minutes: number, duration: number): Task => ({
@@ -93,4 +93,20 @@ test('block layout keeps three-way overlaps in three lanes', () => {
   ]);
   assert.equal(lanes.size, 3);
   assert.equal(layout.get('x')?.count, 3);
+});
+
+test('block density preserves the geometry of 15, 30 and longer blocks', () => {
+  assert.equal(timelineBlockDensity(15), 'micro');
+  assert.equal(timelineBlockDensity(30), 'compact');
+  assert.equal(timelineBlockDensity(45), 'full');
+  assert.equal(timelineBlockDensity(60), 'full');
+});
+
+test('week navigation keeps the selected date at the same relative position', () => {
+  const anchor = new Date('2026-08-12T00:00:00').getTime();
+  const selected = new Date('2026-08-14T00:00:00').getTime();
+  const shifted = shiftPlanSelection(anchor, selected, 7);
+  assert.equal(new Date(shifted.stripAnchor).getDate(), 19);
+  assert.equal(new Date(shifted.selectedDay).getDate(), 21);
+  assert.equal(shifted.selectedDay - shifted.stripAnchor, selected - anchor);
 });

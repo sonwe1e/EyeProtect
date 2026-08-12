@@ -1,154 +1,680 @@
-> 状态：UI-H1 已于提交 `f7bb98c` 实现。本文件保留为实施背景和决策记录，不再表示待执行的“下一步”。当前配色与验收规范见 `docs/color-system.md`，实际实现以代码和自动门禁为准。
-
 ## 核心结论
 
-UI-H1 的实施边界是不引入 MUI、Ant Design、Tailwind/Shadcn 等新 UI 体系，并保持现有任务领域模型、Command Layer、SideSheet、Plan、Project List/Board 不动，集中重构 CSS 所有权、视觉层级、信息密度和真实 UI 验收链路。
+这一轮我建议**暂时冻结你现在满意的配色，不再做大范围视觉改造，正式进入一次“产品完成度 / Completion Pass”**。重点不是继续增加功能，而是把已经存在的任务管理流程做到“可理解、可逆、无意外、无小毛刺”。
 
-参考方向以 **Linear 为主，Notion 为辅，Asana 只借项目视图组织方式**。Linear 的关键并不是某个颜色，而是“列表/看板共享同一数据、每个 View 决定显示哪些属性、详情按需展开”；Notion 同样允许不同视图独立控制属性可见性；Asana 强项则是同一项目在 List / Board / Timeline 等视图间切换。EyeProtect 现在其实已经具备这些结构，因此应该**借设计原则，不重新造产品架构**。([Linear][1])
+你这次提到的 1–4 我检查后，几乎每一项都能在代码里找到明确根因；继续向外扩查后，又发现了几处同等级问题。尤其值得优先修的是：**Today 快速添加后任务可能消失、Plan 的 TimeBlock 只能进去不能直观出来、15 分钟块几何尺寸本身就有问题、同一任务实际上无法按产品宣称拆成多个块、Today/Focus 使用了两套“今天任务”定义、Focus 的壳层与真实 FocusSession 没完全对齐。**
 
-我检查了 `codex/eyeprotect-runtime-hardening` 当前代码和最新 Windows CI。现在的 Workbench 已经有 Sidebar、Toolbar、Today、Plan、Project List/Board、Task SideSheet、Command Palette，方向没有问题。 真正需要优先解决的是两个基础问题：
+配色这一轮建议**锁住**。你已经觉得舒服，说明大的视觉方向已经成立；除非某个 hover/disabled/error 状态存在可读性问题，否则不要再动主题色，避免“修完成度时顺手重新设计”。
 
-**第一，CSS 曾有两个权威来源。** 基线中的 `main.tsx` 同时加载旧的 `styles.css` 和新的 `primitives.css/workbench.css`；旧 `styles.css` 仍含工作台选择器和硬编码颜色。当前实现已将 `styles.css` 限定为桌宠/提醒 surface，并用自动测试阻止 Workbench 选择器和 raw color 回流。
-
-**第二，旧 UI 自动验收不稳定。** 基线提交 `0a4d768…` 的 packaged smoke 会修改并复用 fixture，重试时可能找不到待拖动任务，并导致 DPI/scale matrix 被跳过。当前实现已将交互 smoke 与截图分离、每轮重置 fixture，并在 CI 中连续运行确定性截图；本段保留用于解释这项工程决策。
-
-我还下载并检查了最新 CI 实际产出的 6 张 Workbench 截图。当前画面最明显的问题不是“丑”，而是**卡片化太重、任务属性同时暴露过多、Task Detail 太像设置表单、Plan 在约 960px 窗口下时间线掉到首屏以下，并且日期区域出现横向滚动条**。这些正是这一轮应该处理的内容。
-
-当时的 6 张 CI 截图只作为阶段性分析证据，已随过时交接 ZIP 一并清理；当前截图由 Windows CI artifact 和本地 `artifacts/` 目录生成。
+另外我检查的 GitHub 远端分支目前 HEAD 仍是 `0a4d768…`。 如果你满意的最新配色还有本地未 push 的修改，那么下面方案应以你的本地颜色为准，**不要用远端旧 token 覆盖它。**
 
 ---
 
-## 这一轮界面最终应该变成什么
+# 第一批：先修你已经遇到的操作问题
 
-整体目标不是“做成另一个 Linear”，而是形成 **Linear 的克制信息密度 + Notion 的内容优先 + EyeProtect 自己的低压力健康节奏**。
+这些我建议作为 **P0/P1，一轮全部解决**。
 
-色彩不需要推翻当前绿色品牌。现在的 `#2e6f61` 本身没有明显问题，问题在于绿色同时出现在选中背景、边框、按钮、分段控件、表单聚焦等过多区域。 新版本应该让 **90% 的界面是中性石墨灰，绿色只表示“当前、执行、成功、健康状态”**。
+| 优先级    | 问题                   | 已确认根因                                                                                                                | 应该怎么改                                                                                               |                                                        |
+| ------ | -------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **P0** | 优先级切换会冒出“勾”          | `task-priority-dot` 使用 `CommandButton`，而所有 Command 成功后 `CommandButton` 默认渲染一个 `Check`，它完全不知道这是“状态切换”而不是“提交成功”        | 给 `CommandButton` 增加 `successFeedback="none"                                                        | "check"`。优先级、checkbox、Focus 子任务等“状态本身已经变化”的控件使用 `none` |
+| **P0** | TimeBlock 拖进时间线后拖不出来 | `BlockView` 只支持时间线内部 `pointermove` 和 `resize`，删除只有键盘 `Delete/Backspace`，鼠标没有逆向路径                                     | 支持把 block 拖回左侧“待安排”区；drop 到左栏即删除**这个 TimeBlock**，不是删除任务；同时保留一个 hover 菜单里的“移出时间线”作为 fallback         |                                                        |
+| **P0** | 一个任务不能真正拆成多个时间块      | 领域模型允许一 Task → N TimeBlocks，但左栏代码只要发现该任务当天已经有 block，就把它从 `committed/backlog` 过滤掉                                     | 任务有 block 后**仍保留在左栏**，显示“已排 1 块 · 45m”；继续拖可创建第二块、第三块                                                |                                                        |
+| **P0** | 15/30 分钟任务文字遮挡       | 15 分钟在 `PIXELS_PER_MINUTE=1` 下只有 15px，但 CSS 强制 `min-height:30px`，视觉几何已经与真实时间不一致；同时仍强塞标题、时间、drag handle、resize handle | 删除假 `min-height`；按 duration 使用 `micro / compact / full` 三种布局。15m 只显示单行标题；30m 显示标题+极简时间；≥45m 才显示完整两行 |                                                        |
+| **P1** | “12 今”里的“今”过小        | `.plan-strip-today` 目前明确是 `font-size:10px`                                                                           | 不再显示 `12 今`。日期格改成两层：`今天 / 12`；其他日期为 `周二 / 11`、`周三 / 12`                                             |                                                        |
+| **P1** | 左右翻周后当前选中日期可能消失      | 左右按钮只改 `stripAnchor`，不改 `day`；因此当前 `day` 可以落在新的 7 日窗口之外                                                              | `shiftWeek(±7)` 同时移动 `stripAnchor` 和 `day`，保持用户选择在相同相对位置                                            |                                                        |
+| **P1** | Plan 拖动中途被系统取消可能残留状态 | Pointer 流程只监听 `pointermove/pointerup`，没有 `pointercancel/lostpointercapture`                                          | 统一 cleanup handler，任何结束路径都 `setPreview(null)` 并移除 listener                                          |                                                        |
 
-可以直接以这组候选色作为第一轮：
-
-```css
-/* Light */
---bg-app:       #F7F7F5;
---bg-sidebar:   #F2F3F1;
---surface:      #FFFFFF;
---fg-primary:   #1D211F;
---fg-secondary: #5F6864;
---brand:        #2D6E5D;
-
-/* Dark */
---bg-app:       #111412;
---bg-sidebar:   #0F1210;
---surface:      #171A18;
---fg-primary:   #F1F3F2;
---fg-secondary: #A8B0AC;
---brand:        #79B89E;
-```
-
-其中正文与次级文字的候选对比度已经足够，最后仍由现有 `verify-ui-contract.mjs` 根据真实 token 再做机器验证；这个脚本现在已经能够检查 light/dark contrast、raw color、hit target、forced-colors 和 reduced-motion，因此应该扩展它，而不是绕过它。
-
-具体视觉上，我希望一轮结束以后出现以下变化：
-
-| 区域          | 当前主要问题                                         | 这一轮目标                                          |
-| ----------- | ---------------------------------------------- | ---------------------------------------------- |
-| Sidebar     | 选中项绿色面积偏大；品牌区和导航都比较“组件化”                       | 208px 左右的安静侧栏；中性选中底色，只让 icon/小标识使用品牌色          |
-| Toolbar     | 58px 偏高，搜索、连续活跃、暂停按钮争抢注意力                      | 约 52px；搜索为主，健康状态降为二级信息                         |
-| Today       | Header + 三个状态按钮 + NOW 卡 + Composer 占掉大量首屏      | Header 压缩；NOW 变成扁平状态条；列表更快进入首屏                 |
-| Task Row    | 优先级、checkbox、时间、context、project、tags、排序、删除同时出现 | 一行只保留 2–3 个与当前 View 真正相关的信息，操作 hover/focus 才出现 |
-| Task Detail | 当前几乎是连续的绿色边框表单                                 | “标题/备注 → 核心属性 → 时间 → 重复/高级”的属性面板               |
-| Plan        | 960px 下左右布局塌成上下布局，时间线首屏不可见；日期条有滚动条             | 960px 仍尽量保留 `待安排 + 时间线` 双栏，日期固定网格，无可见横滚        |
-| Project     | Board column + card + control 多层容器             | List 内容优先；Board 只保留 Card，自身 Column 尽量透明、扁平     |
-
-这里尤其不要把 Task Detail 换成 Modal。Linear 本身就大量使用无需离开列表即可预览详情的 Peek 思路，所以 EyeProtect 已经采用的 SideSheet 是正确方向；需要改的是**里面的信息结构，而不是详情交互模型**。([Linear][2])
-
----
-
-## 文件级实施方案
-
-这一轮建议控制在下面五组改动。**除 CI/测试工具外，不碰 `src/main`、`src/preload`、SQLite schema、TaskService、FocusSession、TimeBlock 数据模型。**
-
-| 阶段                    | 文件                                                                                                                                                                         | 具体改动                                                                                                                         | 解决的问题 / 预期结果                                              |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **P0 验收基线**           | `scripts/capture-ui-snapshots.mjs`；新增 `scripts/smoke-plan-interactions.mjs`；`package.json`；`.github/workflows/windows.yml`                                                 | 将“截图”和“会修改数据库的 Plan drag/resize”拆开；每次运行重置测试 fixture；capture 可以重复运行；Plan pointer/keyboard interaction 单独验收                    | 解决当前 CI 重试后任务消失的问题。目标是连续运行 3 次得到相同结果，CI 可以继续执行 DPI matrix |
-| **P1 CSS 所有权**        | `styles.css`；`styles/tokens.css`；`styles/theme.css`；`styles/primitives.css`；`styles/workbench.css`；`tests/design-system-contract.test.ts`；`scripts/verify-ui-contract.mjs` | 从旧 `styles.css` 移走 `.task-row/.project-item/.detail-*` 等 Workbench 规则；加入 deny-list 防止以后重新写回；统一颜色、radius、spacing、layout token | 消除双重 CSS authority。任何 Workbench 样式以后都能找到唯一文件              |
-| **P2 Shell + Today**  | `WorkbenchSidebar.tsx`；`WorkbenchToolbar.tsx`；`WorkbenchView.tsx`；`TaskList.tsx`                                                                                           | Sidebar 208px；Toolbar 52px；Header 收紧；NOW 扁平化；任务按 View 决定 metadata；排序/删除 hover/focus 才展示                                      | 首屏信息密度明显提升，同时不减少 44px 可点击目标                               |
-| **P3 Task Detail**    | `TaskDetail.tsx`；**新增** `TaskDetail.module.css`；`primitives.css`                                                                                                           | 不改 revision/autosave 逻辑，只重新组织 JSX；标题/备注最突出，properties 改属性行；时间一组；重复与高级属性折叠；SideSheet 可扩至约 520px                               | 从“设置表单”变成真正的任务详情。当前 autosave/revision 防冲突逻辑保留不动           |
-| **P4 Plan + Project** | `PlanWorkspace.tsx/.module.css`；`ProjectWorkspace.tsx/.module.css`                                                                                                         | Plan backlog 从卡片改紧凑 rows；日期使用 7 格网格；排期统计移出日期条；双栏最小宽度重新计算；Project Goal 变成 header secondary text；Board column 降低容器感            | 960px 首屏同时看见待安排和时间线；Project 不再“卡片套卡片”                     |
-
-几个尺寸我建议直接先固定，而不是边写边猜：
+### Plan 的最终交互应该是这样的
 
 ```text
-sidebar              224 → 208 px
-toolbar               58 → 52 px
-page top              42 → 30~32 px
-section gap           28 → 22~24 px
-radius medium         10 → 8 px
-radius large          14 → 12 px
+待安排                              今天时间线
 
-comfortable task row  保持 52 px
-compact task row      保持 44 px
+完成论文修订  已排 2块 · 90m    ┌ 09:00 ───────────┐
+↕ 仍然可以再次拖进去             │ 完成论文修订       │
+                                └─────────────────┘
+
+                                ┌ 14:00 ───────────┐
+                                │ 完成论文修订       │
+                                └─────────────────┘
+
+把任意一个块拖回左边
+              ↓
+只删除那一个 TimeBlock
+任务本身仍然存在
 ```
 
-这里我**不建议为了像 Linear 把 task row 压到 36px**。EyeProtect 已经明确建立了 44px hit-target contract，而且舒适/紧凑密度模式也已经存在。 对 Windows 桌面应用来说，保留这个可点击性约束，比盲目追求极致密度更可靠。
-
-Plan 是这轮最需要单独处理的页面。现在 CSS 的两栏最低需求接近 `250 + 440 + 20 = 710px`，再扣除页面 inset 后，960px 整窗很容易触发 stack。 我建议改成类似：
-
-```css
-grid-template-columns:
-  minmax(210px, 0.65fr)
-  minmax(430px, 1.35fr);
-
-gap: 14px;
-```
-
-并把真正 stack 的 container breakpoint 下移到大约 `680–700px` workspace。这样 960px 总窗口、约 208px Sidebar 后，Planner 仍有机会双栏显示。**这会比单纯重新配色更显著地提升“专业任务管理软件”的感觉。**
-
-Task Row 则使用“按 View 展示属性”的办法：Today 主要显示时间/项目；Project 页面不再重复 Project 名；Away 页面不再重复“外出”；普通 context 默认隐藏；tags 最多保留一个，其余进入详情。Linear 与 Notion 都允许按照当前视图控制属性显示，而不是让每一行永久背负所有属性，这一点非常值得直接借。([Linear][1])
+这才符合用户自然形成的“放进去 / 拿出来”的物理直觉。
 
 ---
 
-## 怎么执行，以及什么条件才算完成
+# 第二批：把“今天 / 收件箱 / 日程 / 项目”真正讲清楚
 
-实施时不要一次把十几个文件全改完再看效果。按下面顺序做，每一阶段都留下可运行状态：
+你现在不理解这几个页面的区别，我认为**不是用户的问题，而是目前 UI 没把领域模型表达出来**。
 
-1. **先修 P0 验收脚本。** 当前 `capture:ui` 必须变成可重复运行；Planner drag/resize 单独进入 `smoke:plan-interactions`。只有这个阶段通过以后，才开始视觉修改。
+EyeProtect 实际上不是四个互斥文件夹，而是几个不同维度：
 
-2. **建立 before baseline。** 当前项目已经提供 `typecheck/test/build/capture` 等脚本。 Windows 上建议直接复用 CI 的 packaged 流程：
+```text
+任务是什么？
+        │
+        ├── 属于哪个长期目标？ ─────→ 项目
+        │
+        ├── 今天承诺做吗？ ─────────→ 今天
+        │
+        ├── 几点到几点做？ ─────────→ 日程 / TimeBlock
+        │
+        └── 此刻正在做吗？ ─────────→ 专注
+```
 
-   ```powershell
-   npm ci
-   npm run typecheck
-   npm test
-   npm run verify:ui-contract
-   npm run package
+**收件箱**则很特殊：
 
-   $env:EYEPROTECT_DATA_DIR="$pwd\.tmp\ui-h1-baseline"
-   $env:EYEPROTECT_SMOKE="1"
+> 收件箱 = 还没有归入任何项目的未完成任务。
 
-   $p = Start-Process `
-     -FilePath ".\release\win-unpacked\EyeProtect.exe" `
-     -ArgumentList "--remote-debugging-port=9333" `
-     -PassThru
+代码确实就是 `status === open && projectId === null`。
 
-   npm run smoke:running -- 9333
-   npm run smoke:experience -- 9333
-   npm run capture:ui -- 9333 artifacts/ui-h1-before
+所以完全可能有一件任务同时是：
 
-   Stop-Process -Id $p.Id -Force
-   ```
+```text
+收件箱
++
+今天
++
+14:00–15:00 的日程
+```
 
-3. **只做 P1，清理 CSS authority。** 暂时不要改 React 结构。改完以后再次跑 `typecheck → test → verify:ui-contract → build`，同时确认当前截图**视觉上基本不变**。如果清理 legacy CSS 就导致界面明显变化，说明我们找到了过去隐藏的 cascade dependency，要先明确迁移哪条规则，而不是继续往上覆盖。
+因为它今天要做、已经排了时间，但仍然没有属于任何 Project。
 
-4. **做 P2 + P3。** 先把 Sidebar/Toolbar/Today/Task Row 做成最终密度，再改 Task Detail。TaskDetail 这一轮只允许改 JSX 组织和 CSS，不重构保存队列、revision guard、command 调用。这样可以把 UI 风险和数据一致性风险完全隔开。
+同样也完全可以：
 
-5. **最后做 Plan + Project。** Planner 每一次 CSS 改动后都运行真实 packaged interaction smoke，因为它有 drag、resize、container query，最容易出现“截图正常但交互坐标错了”的情况。Project 则同时验 List、Board、横向 Board scroll 和 section drag。
+```text
+Research 项目
++
+今天
++
+没有 TimeBlock
+```
 
-6. **最终验收不要只看一张 1440px 截图。** `capture-ui-snapshots.mjs` 应扩成至少覆盖：960×600、1280×720、1440×900；Light/Dark；Comfortable/Compact；Today、Task Detail、Command Palette、Plan、Project List、Project Board。Windows scale-factor 的 100%/125%/150% 也必须重新进入 CI，而不能再因为前序 snapshot failure 被跳过。现有截图脚本已经具备 viewport、layout overflow、theme contrast、focus 和真实 CDP screenshot 基础，可以直接扩展。
+意思是：
 
-最终 Gate 我会定得比较硬：
+> 今天承诺完成，但什么时候做保持灵活。
 
-**页面级横向滚动必须为 0，只有 Project Board 自己允许横滚；Plan 日期条不能出现可见 scrollbar；960px 下 Planner 首屏应该同时看到待安排区和时间线；SideSheet 不能裁切控件；hover 隐藏的操作必须能通过 keyboard focus 显示；Light/Dark 的 primary/secondary 文本继续满足 contrast contract；forced-colors 和 reduced-motion 继续通过；全部自动测试必须零回归。**
+### 我强烈建议把“计划”改名为“日程”
 
-完成这一轮后，我预期 EyeProtect 的变化不会是“突然变得花哨”，而是更接近成熟生产力软件：**背景更中性、绿色更稀缺、容器更少、任务更像任务而不是卡片、详情更像属性面板而不是设置页、Planner 在正常桌面尺寸下真正有专业时间规划工具的空间结构。** 更重要的是，我们是在保留当前已经稳定下来的任务领域模型和 runtime hardening 的前提下完成这些变化，后续即使再继续做搜索、过滤、更多 Project View，也不需要重新推倒这一层。
+内部 ID 继续保持：
 
-[1]: https://linear.app/docs/display-options "https://linear.app/docs/display-options"
-[2]: https://linear.app/docs/peek "https://linear.app/docs/peek"
+```text
+plan
+```
+
+不用改数据库、shortcut 或 domain。
+
+但用户看到的导航改为：
+
+```text
+今天
+收件箱
+日程
+专注
+项目
+```
+
+因为现在：
+
+```text
+今天 → 有“规划今天”
+计划 → 又叫“计划”
+```
+
+这两个名字天然互相打架。
+
+改成：
+
+**今天**
+今天真正承诺完成的工作。
+
+**收件箱**
+尚未归入项目的任务。
+
+**日程**
+把任务安排到具体时间段；这是可选步骤。
+
+**专注**
+此刻真正执行的一件任务。
+
+**项目**
+由多个任务组成、通常持续多天的长期目标。
+
+这个认知成本会下降非常明显。
+
+`workbenchNavigation.ts` 应直接增加：
+
+```ts
+description
+```
+
+例如：
+
+```ts
+today:
+  今天承诺要做的事
+
+inbox:
+  尚未归入项目的任务
+
+plan:
+  把任务安排到具体时间段
+
+focus:
+  只处理当前这一件事
+
+projects:
+  按长期目标和阶段组织任务
+```
+
+然后 `NavItem` 可以把 description 作为 tooltip；页面 Header 下也显示一句极轻的 secondary copy。当前导航元数据只有 `label/icon/tier`，正适合在这里建立唯一文案来源。
+
+### 项目页尤其需要重新设计 Overview
+
+现在进入“项目”但不选择具体项目时，只显示：
+
+> 从左侧选择一个项目，查看任务进度和下一步。
+
+这几乎没有帮助用户理解“为什么需要项目”。
+
+我建议改成：
+
+```text
+项目
+
+把需要多步推进、持续数天或更久的目标放进项目。
+一次性的小任务不需要创建项目。
+
+Research
+完成 UI 2.0
+12 个未完成 · 6 个已完成
+──────────── 43%
+
+论文
+完成论文投稿
+8 个未完成 · 21 个已完成
+──────────── 72%
+```
+
+如果没有任何 Project，则明确告诉用户：
+
+```text
+项目适合：
+完成论文
+上线一个产品
+准备一次旅行
+进行长期学习计划
+
+“买牛奶”这样的单次任务不需要项目。
+```
+
+这样用户不需要读教程就能理解它。
+
+---
+
+# 第三批：我额外查出的完成度问题
+
+这里有几个我建议你不要跳过，因为它们正属于你说的“决定用户喜不喜欢软件的小 bug”。
+
+### 1. 在“今天”直接添加任务，任务可能立刻消失
+
+这是目前我认为最需要修的一个。
+
+Today 页面直接渲染：
+
+```tsx
+<TaskComposer projects={projects} />
+```
+
+但 `TaskComposer` 创建成功后只创建 `Task`，没有创建当天 `DailyTaskPlan`。
+
+而 Today 主体已经主要依赖：
+
+```text
+DailyTaskPlan
+TimeBlock
+```
+
+决定显示内容。
+
+所以用户在：
+
+> 今天 → 添加任务 → 回车
+
+之后，这个任务可能立刻不在“今天”。
+
+这个体验会让人怀疑软件是不是吞任务了。
+
+建议把 `TaskComposer` 改为拥有明确 destination：
+
+```ts
+placement:
+  | { type: 'inbox' }
+  | { type: 'today'; localDate: string }
+  | { type: 'project'; projectId: string }
+```
+
+Today 创建：
+
+```text
+create Task
++
+upsert DailyTaskPlan(today)
+```
+
+Project 创建：
+
+```text
+create Task(projectId)
+```
+
+Inbox：
+
+```text
+create Task(projectId=null)
+```
+
+**“在哪里创建”必须决定创建后的初始语义。**
+
+---
+
+### 2. Today 页面现在存在两套“今天任务”的定义
+
+正文已经使用：
+
+```text
+todaySections
+→ DailyTaskPlan
+→ TimeBlock
+```
+
+但：
+
+```text
+左侧 Today 数量
+Focus candidates
+```
+
+依然主要使用旧的：
+
+```text
+matchesTaskView(today)
+→ plannedAt
+→ dueAt
+→ TimeBlock
+```
+
+因此一件纯粹通过“每日规划 → 加入今天”的 Flexible Task：
+
+```text
+Today 正文：有
+
+导航数量：可能没算
+Focus 候选：可能没有
+```
+
+这应该抽出一个真正唯一的：
+
+```ts
+deriveTodayExecutionModel(...)
+```
+
+然后：
+
+```text
+Today sections
+Today nav count
+Focus candidate
+Today empty state
+```
+
+全部消费这个模型。
+
+---
+
+### 3. “今日目标”和“已安排”会重复同一任务
+
+`deriveTodaySections()`：
+
+```ts
+todaysThree
+= dailyRank != null
+
+scheduled
+= 所有有 TimeBlock 的 active task
+```
+
+但是 `scheduled` 没有排除 `todaysThree`。
+
+所以：
+
+```text
+任务 A
+= 今日目标 #1
+= 14:00–15:00 有 TimeBlock
+```
+
+可能显示成：
+
+```text
+今日目标
+A
+
+已安排
+A
+```
+
+如果它们都是完整 Task Row，就会像重复数据。
+
+建议 Today 区域互斥：
+
+```text
+今日重点
+已安排，但不是今日重点
+灵活执行
+```
+
+而“今日重点 A 已经安排到 14:00”直接在 A 的 metadata 里显示时间即可。
+
+---
+
+### 4. Focus 的进入条件不正确
+
+现在 Workbench 是否进入无 Sidebar/Toolbar 的 Focus shell，是：
+
+```ts
+section === 'focus' && activeTask
+```
+
+但 FocusSurface 自己明确承认：
+
+> activeTask 可以存在，但 FocusSession 还没有开始。
+
+此时页面显示：
+
+> 开始专注
+
+所以会出现：
+
+```text
+还没开始 FocusSession
+↓
+Sidebar 已消失
+↓
+页面却让我“开始专注”
+```
+
+建议：
+
+```text
+有 activeTask，但没有 session
+→ 正常 Workbench shell
+
+FocusSession 真正 live
+→ 才进入沉浸式 Focus shell
+```
+
+而且沉浸模式里必须有非常轻的：
+
+```text
+← 返回工作台
+```
+
+Esc 同样有效，并且**返回工作台不应该自动结束专注计时**。
+
+---
+
+### 5. “完成任务”存在跨命令一致性风险
+
+当前：
+
+```ts
+finishTask.run(activeTask.id)
+  .then(() => complete.run())
+```
+
+也就是不管第一步是否成功，都执行 `completeFocus()`。
+
+可能发生：
+
+```text
+任务写入失败
+↓
+任务还是 open
+
+但是
+↓
+FocusSession 已结束
+```
+
+最低限度必须：
+
+```ts
+const taskResult = await finishTask.run(...)
+if (!taskResult.ok) return
+
+const focusResult = await complete.run()
+```
+
+更理想的是主进程提供一个**原子 compound command**：
+
+```text
+complete task + complete focus session
+```
+
+一起成功或一起失败。
+
+---
+
+### 6. Focus 候选按钮共享同一个 command state
+
+目前：
+
+```ts
+const start = useCommand(...)
+
+candidates.map(task =>
+  <CommandButton state={start.state}>
+)
+```
+
+点击候选 A 后，所有候选按钮都收到：
+
+```text
+pending
+```
+
+理论上会一起表现成正在执行。
+
+应该把候选抽成：
+
+```tsx
+<FocusCandidate />
+```
+
+让每行拥有自己的 command state，或者至少记录：
+
+```ts
+pendingTaskId
+```
+
+只让被点击的那个反馈。
+
+---
+
+### 7. Project / Section 的失败反馈还不够可靠
+
+Project rename 当前是：
+
+```text
+开始 rename
+↓
+提交
+↓
+立即退出 editing
+↓
+异步 run()
+```
+
+所以失败时用户已经失去输入态。
+
+Project Section rename 同样先：
+
+```ts
+setEditing(false)
+```
+
+然后才发 command。
+
+甚至 section 左右移动直接调用：
+
+```ts
+commands.sections.move(...)
+```
+
+没有经过这一组件自己的 `useCommand` 状态，因此 pending/error 都没有良好的局部反馈。
+
+统一原则应该是：
+
+```text
+用户提交
+↓
+保持编辑状态 / 显示 pending
+↓
+成功
+→ 退出编辑
+
+失败
+→ 保留输入内容
+→ 输入框下直接显示原因
+```
+
+绝对不要失败以后让用户重新输入一遍。
+
+---
+
+### 8. Task Detail 的 Project / Section 有短暂状态不一致
+
+Task Detail 已经做了不少不错的结构改善，但目前：
+
+```ts
+projectId
+```
+
+使用本地 draft，
+
+而：
+
+```ts
+useProjectSections(task.projectId)
+value={task.sectionId}
+```
+
+仍读 persisted `task`。
+
+因此用户刚把：
+
+```text
+Project A
+→ Project B
+```
+
+时，Project Section 下拉框短时间还可能展示 A 的 sections。
+
+建议 draft 中同时管理：
+
+```text
+projectId
+sectionId
+```
+
+当 Project 改变：
+
+```text
+sectionId = null
+fetch Project B sections
+```
+
+持久化时保证组合一致。
+
+---
+
+# 下一步具体文件
+
+我建议你这一轮按下面范围执行，不再碰 theme 主色：
+
+| 文件                                          | 修改内容                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `components/CommandButton.tsx`              | 增加 stateful-control 的 success feedback policy，消灭不该出现的 ✓                  |
+| `features/tasks/TaskList.tsx`               | priority / completion checkbox 使用无 success-check 模式                      |
+| `features/tasks/PlanWorkspace.tsx`          | TimeBlock 逆向拖出、多 block、日期 week shift、pointer cancel、duration density     |
+| `features/tasks/PlanWorkspace.module.css`   | micro/compact/full 时间块；删除 30px 假高度；重做日期格                                 |
+| `features/tasks/TaskComposer.tsx`           | 增加 creation placement；补 segmented `aria-pressed`                         |
+| `features/tasks/todaySections.ts`           | Today sections 改互斥                                                       |
+| **新增** `features/tasks/todayViewModel.ts`   | 唯一生成 Today count / Today task union / Focus candidates                   |
+| `views/WorkbenchView.tsx`                   | 使用统一 Today 模型；Today quick-add placement；Focus shell 条件；Projects Overview |
+| `features/workbench/workbenchNavigation.ts` | 增加 description；建议显示名 `计划 → 日程`                                           |
+| `components/primitives/NavItem.tsx`         | description tooltip / accessible description                             |
+| `features/tasks/FocusSurface.tsx`           | 正确进入/退出 Focus；per-row pending；完成流程正确性                                    |
+| `features/tasks/ProjectList.tsx`            | rename 失败保留编辑态                                                           |
+| `features/tasks/ProjectWorkspace.tsx`       | section rename/move 错误状态；Project Overview 配合                             |
+| `features/tasks/TaskDetail.tsx`             | Project/Section draft 一致性                                                |
+| `scripts/capture-ui-snapshots.mjs`          | 增加 15m/30m block、日期条、Today quick-add、Focus pre-session 截图                |
+| `scripts/smoke-plan-interactions.mjs`       | 单独真实测试 block in/out、多 block、resize、restart persistence                   |
+| `tests/today-sections.test.ts`              | Today section 互斥                                                         |
+| **新增** `tests/today-view-model.test.ts`     | Today 所有消费者使用同一语义                                                        |
+| `tests/workbench-navigation.test.ts`        | 新导航 copy/description contract                                            |
+
+## 验收标准
+
+这一次不要用“功能基本能用”作为完成标准。我建议最终必须达到：
+
+```text
+优先级切换
+→ 没有多余 ✓
+→ normal / important / urgent 循环正确
+→ 重启后仍正确
+
+Today 添加任务
+→ 创建后仍在 Today
+→ 如果没有 Project，也允许同时存在 Inbox
+→ UI 明确解释为什么
+
+Plan
+→ Task → TimeBlock
+→ TimeBlock → 待安排
+→ 同一 Task 创建 2、3 个 Block
+→ 只移除其中一个 Block
+→ 重启后一致
+
+15 / 30 / 45 / 60 分钟
+→ 全部不遮文字
+→ 连续短块不视觉重叠
+
+日期
+→ “今天”清晰
+→ 7 天全部可读
+→ 跨月可理解
+→ 上/下周后选中日期不会消失
+
+Today
+→ 同一 Task 不出现两次
+→ 导航数量 = Today 真实模型
+→ Focus candidates = Today 真实模型
+
+Focus
+→ 只有真实 Session 才进入沉浸态
+→ 有清楚返回路径
+→ 完成失败不能偷偷结束 Session
+
+错误路径
+→ rename / drag / move / save 失败都有可见反馈
+→ 用户输入不能因为失败而消失
+```
+
+这轮完成后，我反而建议**不要马上加新功能**，而是再做一轮专门的“鼠标乱点、连续拖拽、极短文本/极长文本、窗口缩放、125%/150% DPI、快速开关 SideSheet、操作失败、重启恢复”的破坏性体验测试。
+
+你第 6 点提得很关键：创新决定一个应用有没有理由被尝试，**完成度决定用户会不会开始信任它、习惯它，最后愿不愿意长期留下来**。EyeProtect 现在最值得投入的已经不是再增加一个页面，而是把这些几十毫秒、十几个像素、一次错误状态、一个无法撤回的拖拽都处理到“不需要用户思考”。这会比再堆一批功能带来更大的产品质感提升。

@@ -37,9 +37,19 @@ test('every primary and utility section has complete metadata', () => {
     assert.ok(meta, `missing metadata for ${id}`);
     assert.equal(meta.id, id);
     assert.ok(meta.label.length > 0, `${id} must have a label`);
+    assert.ok(meta.description.length > 0, `${id} must have a description`);
     assert.ok(meta.iconKey.length > 0, `${id} must have an iconKey`);
     assert.ok(['primary', 'utility'].includes(meta.tier), `${id} must have a valid tier`);
   }
+});
+
+test('primary navigation copy explains each distinct task dimension', () => {
+  assert.equal(WORKBENCH_SECTIONS.plan.label, '日程');
+  assert.match(WORKBENCH_SECTIONS.today.description, /今天/);
+  assert.match(WORKBENCH_SECTIONS.inbox.description, /项目/);
+  assert.match(WORKBENCH_SECTIONS.plan.description, /时间段/);
+  assert.match(WORKBENCH_SECTIONS.focus.description, /当前|这一件/);
+  assert.match(WORKBENCH_SECTIONS.projects.description, /长期目标/);
 });
 
 test('utility order matches the canonical utility array exactly', () => {

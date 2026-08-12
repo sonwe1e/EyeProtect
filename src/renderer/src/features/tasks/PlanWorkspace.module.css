@@ -18,7 +18,9 @@
   white-space: nowrap;
 }
 
-.root :global(.plan-day-switch .ui-button) { min-width: 0; min-height: 36px; padding: 0 5px; color: var(--fg-secondary); }
+.root :global(.plan-day-switch .ui-button) { display: grid; min-width: 0; min-height: 48px; padding: 4px 3px; place-content: center; gap: 1px; color: var(--fg-secondary); line-height: 1.15; }
+.root :global(.plan-day-switch .ui-button > span) { font-size: 10px; font-weight: 550; }
+.root :global(.plan-day-switch .ui-button > strong) { color: inherit; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .root :global(.plan-day-switch .ui-button.is-active) { color: var(--brand); background: var(--surface-active); }
 
 /* Double-column layout only when the workspace channel is wide enough to
@@ -33,6 +35,9 @@
 .root :global(.plan-column h2) { margin: 0; font-size: 15px; }
 .root :global(.plan-column header span) { color: var(--fg-secondary); font-size: 12px; }
 .root :global(.plan-column-hint) { margin: -4px 0 14px; color: var(--fg-secondary); font-size: 12px; line-height: 1.5; }
+.root :global(.plan-backlog) { transition: border-color 120ms ease, background 120ms ease; }
+.root :global(.plan-backlog:has(.plan-task-card:hover)) { border-color: var(--border-strong); }
+.root :global(.plan-backlog.is-drop-pending) { border-color: var(--brand); background: var(--brand-subtle); }
 .root :global(.plan-task-list) { display: grid; gap: 3px; }
 .root :global(.plan-task-card) { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 44px; gap: 2px 10px; padding: 7px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-medium); cursor: grab; }
 .root :global(.plan-task-card:hover),
@@ -48,17 +53,27 @@
 .root :global(.timeline-hour) { position: absolute; right: 0; left: 0; height: 1px; background: var(--border-subtle); pointer-events: none; }
 .root :global(.timeline-hour > span) { position: absolute; top: 6px; left: 10px; color: var(--fg-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .root :global(.timeline-blocks) { position: absolute; inset: 0; pointer-events: none; }
-.root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 26px minmax(0, 1fr); grid-template-rows: auto auto 6px; min-height: 30px; padding: 7px 10px 0 4px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: 8px; box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); pointer-events: auto; overflow: hidden; }
+.root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: minmax(0, auto) minmax(0, auto) 5px; padding: 5px 26px 0 3px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: 7px; box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); pointer-events: auto; overflow: hidden; }
 .root :global(.timeline-block.is-error) { border-color: var(--danger); }
 /* Unestimated task: dashed border signals the block height is a visual
    minimum, not a planned-duration fact (USERPLAN 1.2 PR0). */
 .root :global(.timeline-block.is-unestimated) { border-style: dashed; background: color-mix(in srgb, var(--brand-subtle) 55%, var(--bg-app)); }
-.root :global(.timeline-block-drag) { display: grid; grid-row: 1 / 3; width: 26px; min-height: 28px; place-items: center; color: var(--brand); background: transparent; cursor: grab; touch-action: none; }
+.root :global(.timeline-block-drag) { display: grid; grid-row: 1 / 3; width: 22px; min-height: 0; place-items: center; color: var(--brand); background: transparent; cursor: grab; touch-action: none; }
 .root :global(.timeline-block-drag:active) { cursor: grabbing; }
 .root :global(.timeline-block-title) { min-width: 0; color: var(--fg-primary); font-weight: 650; text-align: left; background: transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root :global(.timeline-block > span) { color: var(--fg-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .root :global(.timeline-block > small) { grid-column: 2; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.root :global(.timeline-block-resize) { position: absolute; right: 7px; bottom: 2px; left: 30px; height: 8px; padding: 0; background: transparent; cursor: ns-resize; touch-action: none; }
+.root :global(.timeline-block.is-micro) { display: block; padding: 0 23px 0 14px; line-height: 13px; }
+.root :global(.timeline-block.is-micro .timeline-block-title) { display: block; width: 100%; height: 13px; font-size: 10px; line-height: 13px; }
+.root :global(.timeline-block.is-micro .timeline-block-drag) { position: absolute; inset: 0 auto 0 0; width: 12px; opacity: 0; }
+.root :global(.timeline-block.is-compact) { grid-template-rows: 16px 12px 2px; padding-top: 1px; }
+.root :global(.timeline-block.is-compact .timeline-block-title) { font-size: 11px; line-height: 15px; }
+.root :global(.timeline-block.is-compact > span) { line-height: 11px; }
+.root :global(.timeline-block-remove) { position: absolute; top: 1px; right: 2px; display: grid; width: 24px; height: 24px; padding: 0; place-items: center; color: var(--fg-secondary); background: color-mix(in srgb, var(--surface) 82%, transparent); border-radius: 5px; opacity: 0; pointer-events: none; }
+.root :global(.timeline-block:hover .timeline-block-remove),
+.root :global(.timeline-block:focus-within .timeline-block-remove) { opacity: 1; pointer-events: auto; }
+.root :global(.timeline-block.is-micro .timeline-block-remove) { top: -5px; transform: scale(.72); transform-origin: right center; }
+.root :global(.timeline-block-resize) { position: absolute; right: 7px; bottom: 0; left: 24px; height: 6px; padding: 0; background: transparent; cursor: ns-resize; touch-action: none; }
 .root :global(.timeline-block-resize::after) { display: block; width: 32px; height: 2px; margin: 2px auto; content: ''; background: var(--brand); border-radius: 2px; opacity: 0.55; }
 
 /* Health marker: the marker element spans the full timeline width (left:0;

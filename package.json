@@ -17,6 +17,7 @@
     "smoke:emergency": "node scripts/smoke-emergency-reminder.mjs",
     "smoke:pet-failure": "node scripts/smoke-pet-failure.mjs",
     "smoke:workbench-interactions": "node scripts/smoke-workbench-interactions.mjs",
+    "smoke:plan-interactions": "node scripts/smoke-plan-interactions.mjs",
     "capture:ui": "node scripts/capture-ui-snapshots.mjs",
     "build:icon": "electron scripts/build-app-icon.mjs",
     "typecheck": "tsc --noEmit",

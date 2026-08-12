@@ -79,6 +79,7 @@ const draftEqualsTask = (draft: TaskUpdateInput, source: Task): boolean =>
   draft.context === source.context &&
   draft.remindOnBreak === source.remindOnBreak &&
   draft.projectId === source.projectId &&
+  draft.sectionId === source.sectionId &&
   draft.parentId === source.parentId &&
   draft.plannedAt === source.plannedAt &&
   draft.dueAt === source.dueAt &&
@@ -121,6 +122,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const [context, setContext] = useState<TaskContext>(task.context);
   const [remindOnBreak, setRemindOnBreak] = useState(task.remindOnBreak);
   const [projectId, setProjectId] = useState<string | null>(task.projectId);
+  const [sectionId, setSectionId] = useState<string | null>(task.sectionId);
   const [plannedAt, setPlannedAt] = useState(toLocalInputValue(task.plannedAt ?? Date.now()));
   const [dueAt, setDueAt] = useState(toLocalInputValue(task.dueAt ?? Date.now()));
   const [reminderAt, setReminderAt] = useState(toLocalInputValue(task.reminderAt ?? Date.now()));
@@ -155,6 +157,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     context,
     remindOnBreak: context !== 'desk' && remindOnBreak,
     projectId,
+    sectionId,
     parentId,
     plannedAt: hasPlanned ? new Date(plannedAt).getTime() : null,
     dueAt: hasDue ? new Date(dueAt).getTime() : null,
@@ -175,8 +178,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const statusCommand = useCommand((next: TaskStatus) => commands.tasks.setStatus(task.id, next));
   const activeCommand = useCommand((id: string | null) => commands.tasks.setActive(id));
   const deleteCommand = useCommand(() => commands.tasks.delete(task.id));
-  const sectionCommand = useCommand((sectionId: string | null) => commands.tasks.setSection(task.id, sectionId));
-  const { sections: taskSections } = useProjectSections(task.projectId ?? '');
+  const { sections: taskSections } = useProjectSections(projectId ?? '');
   const recurrenceCommand = useCommand(
     (rule: RecurrenceRule | null) => commands.tasks.update(task.id, { recurrence: rule })
   );
@@ -197,6 +199,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     setContext(source.context);
     setRemindOnBreak(source.remindOnBreak);
     setProjectId(source.projectId);
+    setSectionId(source.sectionId);
     setPlannedAt(toLocalInputValue(source.plannedAt ?? Date.now()));
     setDueAt(toLocalInputValue(source.dueAt ?? Date.now()));
     setReminderAt(toLocalInputValue(source.reminderAt ?? Date.now()));
@@ -256,7 +259,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
       persist(input);
     }, 0);
     return () => clearTimeout(timer);
-  }, [title, priority, context, remindOnBreak, projectId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, task.title, persist]);
+  }, [title, priority, context, remindOnBreak, projectId, sectionId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, task.title, persist]);
 
   useEffect(() => {
     if (initialSyncRef.current) return;
@@ -392,7 +395,10 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
 
         <label className="detail-field">
           <span>项目</span>
-        <select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
+        <select value={projectId ?? ''} onChange={(event) => {
+          setProjectId(event.currentTarget.value || null);
+          setSectionId(null);
+        }}>
           <option value="">无</option>
           {projects.map((project) => (
             <option key={project.id} value={project.id}>
@@ -405,18 +411,15 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
         <label className="detail-field">
           <span>项目分组</span>
         <select
-          value={task.sectionId ?? ''}
-          disabled={!task.projectId || taskSections.length === 0 || sectionCommand.isPending}
-          onChange={(event) => void sectionCommand.run(event.currentTarget.value || null).then((result) => {
-            if (!result.ok) setSaveError(result.message);
-          })}
+          value={sectionId ?? ''}
+          disabled={!projectId || taskSections.length === 0 || update.isPending}
+          onChange={(event) => setSectionId(event.currentTarget.value || null)}
         >
           <option value="">未分组</option>
           {taskSections.map((section) => (
             <option key={section.id} value={section.id}>{section.name}</option>
           ))}
         </select>
-        {sectionCommand.error ? <small className="detail-field-error">{sectionCommand.error.message}</small> : null}
         </label>
 
         <fieldset className="detail-field detail-field-wide">

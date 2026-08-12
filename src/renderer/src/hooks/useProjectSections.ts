@@ -23,6 +23,9 @@ export const useProjectSections = (projectId: string): {
   }, [projectId]);
 
   useEffect(() => {
+    // Do not briefly show the previous project's sections while the new list
+    // is in flight; a project/section draft must always describe one project.
+    setSections([]);
     const cancel = refresh();
     const offChanged = window.eyeProtect.onProjectSectionsChanged((payload) => {
       if (!payload.projectId || payload.projectId === projectId) refresh();

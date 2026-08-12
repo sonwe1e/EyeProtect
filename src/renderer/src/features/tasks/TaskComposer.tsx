@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
   type Project,
+  type Task,
   type TaskContext,
   type TaskInput,
   type TodoPriority
@@ -24,13 +25,19 @@ const CONTEXT_LABELS: Record<TaskContext, string> = {
   any: '任意'
 };
 
+export type TaskCreationPlacement =
+  | { type: 'inbox' }
+  | { type: 'today'; localDate: string }
+  | { type: 'project'; projectId: string };
+
 /** Quick-add form: title + submit always visible; extra fields in an expandable
  *  area so the common path (type + Enter) stays fast. Creating a task goes
  *  through the command layer so a failure (e.g. read-only database) surfaces on
  *  the button instead of being silently swallowed. */
-export function TaskComposer({ projects, defaultProjectId, onCreated }: {
+export function TaskComposer({ projects, tasks, placement, onCreated }: {
   projects: Project[];
-  defaultProjectId?: string | null;
+  tasks: Task[];
+  placement: TaskCreationPlacement;
   onCreated?: () => void;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
@@ -38,22 +45,43 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
   const [priority, setPriority] = useState<TodoPriority>('normal');
   const [context, setContext] = useState<TaskContext>('desk');
   const [remindOnBreak, setRemindOnBreak] = useState(false);
-  const [projectId, setProjectId] = useState<string | null>(defaultProjectId ?? null);
+  const initialProjectId = placement.type === 'project' ? placement.projectId : null;
+  const [projectId, setProjectId] = useState<string | null>(initialProjectId);
   const [dueAt, setDueAt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const create = useCommand((input: TaskInput) => commands.tasks.create(input));
+  const create = useCommand(async ({ input, existingIds }: { input: TaskInput; existingIds: string[] }) => {
+    const result = await commands.tasks.create(input);
+    if (!result.ok || placement.type !== 'today') return result;
+    const before = new Set(existingIds);
+    const created = result.data.find((task) => !before.has(task.id));
+    if (!created) {
+      return {
+        ok: false as const,
+        code: 'unknown' as const,
+        message: '任务已创建，但无法将它加入今天。请在收件箱中确认任务后重试。',
+        recoverable: true
+      };
+    }
+    const planResult = await commands.planning.upsert({
+      taskId: created.id,
+      localDate: placement.localDate,
+      plannedMinutes: created.estimateMinutes,
+      dailyRank: null
+    });
+    return planResult.ok ? result : planResult;
+  });
 
   const reset = useCallback(() => {
     setDraft('');
     setPriority('normal');
     setContext('desk');
     setRemindOnBreak(false);
-    setProjectId(defaultProjectId ?? null);
+    setProjectId(initialProjectId);
     setDueAt('');
     setExpanded(false);
     inputRef.current?.focus();
-  }, [defaultProjectId]);
+  }, [initialProjectId]);
 
   const submit = useCallback(
     (event: FormEvent) => {
@@ -67,19 +95,23 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
         priority,
         context,
         remindOnBreak: context !== 'desk' && remindOnBreak,
-        projectId
+        projectId: placement.type === 'inbox'
+          ? null
+          : placement.type === 'project'
+            ? placement.projectId
+            : projectId
       };
       if (dueAt) {
         input.dueAt = new Date(dueAt).getTime();
       }
-      void create.run(input).then((result) => {
+      void create.run({ input, existingIds: tasks.map((task) => task.id) }).then((result) => {
         if (result.ok) {
           reset();
           onCreated?.();
         }
       });
     },
-    [draft, priority, context, remindOnBreak, projectId, dueAt, reset, onCreated, create]
+    [draft, priority, context, remindOnBreak, projectId, dueAt, reset, onCreated, create, placement, tasks]
   );
 
   return (
@@ -123,6 +155,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
                   key={key}
                   type="button"
                   className={priority === key ? 'is-active' : ''}
+                  aria-pressed={priority === key}
                   onClick={() => setPriority(key)}
                 >
                   {PRIORITY_LABELS[key]}
@@ -138,6 +171,7 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
                   key={key}
                   type="button"
                   className={context === key ? 'is-active' : ''}
+                  aria-pressed={context === key}
                   onClick={() => {
                     setContext(key);
                     if (key === 'desk') setRemindOnBreak(false);
@@ -157,16 +191,18 @@ export function TaskComposer({ projects, defaultProjectId, onCreated }: {
             />
             <span>休息时提醒</span>
           </label>
-          <Field className="task-compose-field" label="项目">
-            <Select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
-              <option value="">无</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {placement.type === 'today' ? (
+            <Field className="task-compose-field" label="项目">
+              <Select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
+                <option value="">无（同时保留在收件箱）</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field className="task-compose-field" label="截止日期">
             <DateTimeField value={dueAt} onChange={(event) => setDueAt(event.currentTarget.value)} />
           </Field>

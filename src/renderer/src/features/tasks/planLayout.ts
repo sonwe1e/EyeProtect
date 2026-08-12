@@ -1,6 +1,21 @@
 import type { Task, TimeBlock } from '../../../../shared/types';
+import { addLocalDays } from '../../../../shared/calendar';
 
 export type TimelinePosition = { lane: number; count: number };
+export type TimelineBlockDensity = 'micro' | 'compact' | 'full';
+
+/** Content density follows the real block duration; CSS must never fake time with min-height. */
+export const timelineBlockDensity = (durationMinutes: number): TimelineBlockDensity =>
+  durationMinutes <= 15 ? 'micro' : durationMinutes <= 30 ? 'compact' : 'full';
+
+export const shiftPlanSelection = (
+  stripAnchor: number,
+  selectedDay: number,
+  offsetDays: number
+): { stripAnchor: number; selectedDay: number } => ({
+  stripAnchor: addLocalDays(stripAnchor, offsetDays),
+  selectedDay: addLocalDays(selectedDay, offsetDays)
+});
 
 /**
  * Visual footprint (minutes) used when a task has no estimate. This is a

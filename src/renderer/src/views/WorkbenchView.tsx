@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import {
   matchesTaskView,
-  sortTasksForView,
   type FailedDeliveryNotice,
   type Task
 } from '../../../shared/types';
@@ -24,7 +23,7 @@ import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
 import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
 import { CommandButton } from '../components/CommandButton';
-import { Button, SideSheet, StatusChip, Toast } from '../components/primitives';
+import { Button, ProjectDot, SideSheet, StatusChip, Toast } from '../components/primitives';
 import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
 import { DailyReview } from '../features/review/DailyReview';
 import { StandaloneReminderSection } from '../features/reminders/StandaloneReminderSection';
@@ -35,7 +34,7 @@ import { FocusSurface } from '../features/tasks/FocusSurface';
 import { TaskComposer } from '../features/tasks/TaskComposer';
 import { TaskDetail } from '../features/tasks/TaskDetail';
 import { TaskList } from '../features/tasks/TaskList';
-import { deriveTodaySections } from '../features/tasks/todaySections';
+import { deriveTodayExecutionModel } from '../features/tasks/todayViewModel';
 import { useActiveTaskId } from '../hooks/useActiveTask';
 import { useAppHealth } from '../hooks/useAppHealth';
 import { useClock } from '../hooks/useClock';
@@ -46,6 +45,7 @@ import { useSettings } from '../hooks/useSettings';
 import { useTasks } from '../hooks/useTasks';
 import { useDailyPlans } from '../hooks/useDailyPlans';
 import { useDailyReview } from '../hooks/useDailyReview';
+import { useFocusStatus } from '../hooks/useFocusStatus';
 import { useTimeBlocks } from '../hooks/useTimeBlocks';
 import { useTaskWork } from '../hooks/useTaskWork';
 import { useUndo } from '../hooks/useUndo';
@@ -82,6 +82,7 @@ export default function WorkbenchView(): JSX.Element {
   const activeTaskId = useActiveTaskId();
   const reminderStatus = useReminderStatus();
   const work = useTaskWork();
+  const focusStatus = useFocusStatus();
   const undo = useUndo();
   const health = useAppHealth();
   const { settings } = useSettings();
@@ -125,7 +126,6 @@ export default function WorkbenchView(): JSX.Element {
     return window.eyeProtect.onFailedDeliveriesChanged(setFailedDeliveries);
   }, []);
 
-  const openTasks = useMemo(() => tasks.filter((task) => task.status === 'open'), [tasks]);
   const inboxTasks = useMemo(
     () => tasks.filter((task) => matchesTaskView(task, 'inbox', now, activeTaskId)),
     [tasks, now, activeTaskId]
@@ -145,27 +145,26 @@ export default function WorkbenchView(): JSX.Element {
     }
     return ids;
   }, [allBlocks, now]);
-  const todayTasks = useMemo(() => {
-    const overdue = new Set(overdueTasks.map((task) => task.id));
-    return sortTasksForView(
-      tasks.filter((task) => matchesTaskView(task, 'today', now, activeTaskId, scheduledTodayIds) && !overdue.has(task.id)),
-      now
-    );
-  }, [tasks, overdueTasks, now, activeTaskId, scheduledTodayIds]);
   // ── Today 2.1 (USERPLAN 1.2 §十一): commitments come from DailyTaskPlan,
   // not from global priority. NOW / TODAY'S 3 / SCHEDULED / FLEXIBLE.
   const todayKey = localDateKey(now);
   const { plans: todayPlans } = useDailyPlans(todayKey);
   const planByTask = useMemo(() => new Map(todayPlans.map((plan) => [plan.taskId, plan])), [todayPlans]);
-  const todaySections = useMemo(
-    () => deriveTodaySections(tasks, todayPlans, scheduledTodayIds),
+  const todayModel = useMemo(
+    () => deriveTodayExecutionModel(tasks, todayPlans, scheduledTodayIds),
     [tasks, todayPlans, scheduledTodayIds]
   );
-  const todaysThree = todaySections.todaysThree;
-  const scheduledToday = todaySections.scheduled;
-  const flexibleToday = todaySections.flexible;
+  const todaysThree = todayModel.todaysThree;
+  const scheduledToday = todayModel.scheduled;
+  const flexibleToday = todayModel.flexible;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
+  const focusTask = focusStatus.session
+    ? tasks.find((task) => task.id === focusStatus.session?.taskId) ?? activeTask
+    : activeTask;
+  const isFocusMode = section === 'focus'
+    && focusStatus.session !== null
+    && focusStatus.session.taskId === focusTask?.id;
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const query = search.trim().toLocaleLowerCase();
   const searchResults = query
@@ -196,7 +195,10 @@ export default function WorkbenchView(): JSX.Element {
       const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]') ?? false;
       const key = event.key.toLocaleLowerCase();
       const shortcuts = WORKBENCH_SHORTCUTS;
-      if ((event.ctrlKey || event.metaKey) && key === shortcuts.command) {
+      if (event.key === 'Escape' && isFocusMode) {
+        event.preventDefault();
+        selectSection('today');
+      } else if ((event.ctrlKey || event.metaKey) && key === shortcuts.command) {
         event.preventDefault();
         setPaletteOpen(true);
       } else if (!isEditing && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -215,7 +217,7 @@ export default function WorkbenchView(): JSX.Element {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectSection]);
+  }, [isFocusMode, selectSection]);
 
   // Primary navigation is derived from the single-source-of-truth config
   // (features/workbench/workbenchNavigation.ts). Review intentionally moved to
@@ -225,17 +227,17 @@ export default function WorkbenchView(): JSX.Element {
       PRIMARY_SECTION_ORDER.map((id) => {
         const meta = WORKBENCH_SECTIONS[id];
         const icon = SECTION_ICON[meta.iconKey] ?? Sun;
-        if (id === 'today') return { id, label: meta.label, icon, count: todayTasks.length + overdueTasks.length };
-        if (id === 'inbox') return { id, label: meta.label, icon, count: inboxTasks.length };
-        return { id, label: meta.label, icon };
+        if (id === 'today') return { id, label: meta.label, description: meta.description, icon, count: todayModel.count };
+        if (id === 'inbox') return { id, label: meta.label, description: meta.description, icon, count: inboxTasks.length };
+        return { id, label: meta.label, description: meta.description, icon };
       }),
-    [todayTasks.length, inboxTasks.length]
+    [todayModel.count, inboxTasks.length]
   );
   const utilityNavItems: WorkbenchNavItem[] = useMemo(
     () =>
       UTILITY_SECTION_ORDER.map((id) => {
         const meta = WORKBENCH_SECTIONS[id];
-        return { id, label: meta.label, icon: SECTION_ICON[meta.iconKey] ?? Bell };
+        return { id, label: meta.label, description: meta.description, icon: SECTION_ICON[meta.iconKey] ?? Bell };
       }),
     []
   );
@@ -243,7 +245,7 @@ export default function WorkbenchView(): JSX.Element {
     { id: 'today', label: '前往：今天', keywords: 'today', run: () => selectSection('today') },
     { id: 'plan-today', label: '每日规划：规划今天', keywords: 'daily planning', run: () => { selectSection('today'); setPlanningOpen(true); } },
     { id: 'inbox', label: '前往：收件箱', keywords: 'inbox', run: () => selectSection('inbox') },
-    { id: 'plan', label: '前往：计划', hint: 'P', keywords: 'plan', run: () => selectSection('plan') },
+    { id: 'plan', label: '前往：日程', hint: 'P', keywords: 'plan schedule', run: () => selectSection('plan') },
     { id: 'focus', label: '前往：专注', hint: 'F', keywords: 'focus', run: () => selectSection('focus') },
     { id: 'projects', label: '前往：项目', keywords: 'projects', run: () => selectSection('projects') },
     { id: 'review', label: '前往：今日复盘', keywords: 'review', run: () => selectSection('review') },
@@ -307,12 +309,15 @@ export default function WorkbenchView(): JSX.Element {
     if (section === 'focus') {
       return (
         <FocusSurface
-          activeTask={activeTask}
-          candidates={todayTasks.length ? todayTasks : openTasks}
+          activeTask={focusTask}
+          candidates={todayModel.tasks}
           tasks={tasks}
+          focus={focusStatus}
+          immersive={isFocusMode}
           liveSegmentMs={work.currentSessionMs}
           eyeRemaining={eyeRemaining}
           onOpen={setSelectedTaskId}
+          onBack={() => selectSection('today')}
         />
       );
     }
@@ -323,8 +328,30 @@ export default function WorkbenchView(): JSX.Element {
       if (!selectedProject) {
         return (
           <div className="workspace-page projects-overview">
-          <header className="page-header"><div><span className="page-eyebrow">组织工作</span><h1>项目</h1></div><StatusChip>{projects.length} 个项目</StatusChip></header>
-            <p>从左侧选择一个项目，查看任务进度和下一步。</p>
+          <header className="page-header"><div><span className="page-eyebrow">组织工作</span><h1>项目</h1><p className="page-description">把需要多步推进、持续数天或更久的目标放进项目。</p></div><StatusChip>{projects.length} 个项目</StatusChip></header>
+            {projects.length ? (
+              <div className="project-overview-list">
+                {projects.map((project) => {
+                  const projectTasks = tasks.filter((task) => task.projectId === project.id && task.status !== 'archived');
+                  const completed = projectTasks.filter((task) => task.status === 'done').length;
+                  const open = projectTasks.length - completed;
+                  const progress = projectTasks.length ? Math.round(completed / projectTasks.length * 100) : 0;
+                  return (
+                    <button key={project.id} type="button" className="project-overview-card" onClick={() => selectProject(project.id)}>
+                      <ProjectDot color={project.color} />
+                      <span><strong>{project.name}</strong><small>{project.goal || '还没有项目目标'}</small></span>
+                      <em>{open} 个未完成 · {completed} 个已完成</em>
+                      <i aria-label={`完成 ${progress}%`}><span style={{ width: `${progress}%` }} /></i>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="project-overview-empty">
+                <p>项目适合：完成论文、上线一个产品、准备一次旅行，或进行长期学习计划。</p>
+                <p>“买牛奶”这样的单次任务不需要项目，直接放在收件箱即可。</p>
+              </div>
+            )}
           </div>
         );
       }
@@ -333,8 +360,8 @@ export default function WorkbenchView(): JSX.Element {
     if (section === 'inbox') {
       return (
         <div className="workspace-page">
-          <header className="page-header"><div><span className="page-eyebrow">快速收集</span><h1>收件箱</h1></div><span>{inboxTasks.length} 项任务</span></header>
-          <TaskComposer projects={projects} />
+          <header className="page-header"><div><span className="page-eyebrow">快速收集</span><h1>收件箱</h1><p className="page-description">尚未归入项目的任务；它仍然可以同时属于今天或日程。</p></div><span>{inboxTasks.length} 项任务</span></header>
+          <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'inbox' }} />
           <section className="task-section">{taskList(inboxTasks, 'inbox')}</section>
         </div>
       );
@@ -357,7 +384,7 @@ export default function WorkbenchView(): JSX.Element {
     return (
       <div className="workspace-page today-page">
         <header className="page-header">
-          <div><span className="page-eyebrow">{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now))}</span><h1>今天</h1></div>
+          <div><span className="page-eyebrow">{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now))}</span><h1>今天</h1><p className="page-description">今天真正承诺完成的工作；安排具体时间是可选的。</p></div>
           <div className="today-header-actions">
             <Button onClick={() => setPlanningOpen(true)}><CalendarDays size={15} />规划今天</Button>
             <div className="rhythm-summary"><span><Eye size={16} />{formatMinutes(eyeRemaining)}</span><span><Footprints size={16} />{formatMinutes(walkRemaining)}</span></div>
@@ -376,7 +403,7 @@ export default function WorkbenchView(): JSX.Element {
             <Button variant="primary" onClick={() => selectSection('focus')}><Play size={16} />继续专注</Button>
           </section>
         ) : null}
-        <TaskComposer projects={projects} />
+        <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'today', localDate: todayKey }} />
         {todaysThree.length ? (
           <section className="task-section"><h2>今日目标（Today&apos;s {todaysThree.length}）</h2>{taskList(todaysThree, 'today')}</section>
         ) : (
@@ -393,7 +420,7 @@ export default function WorkbenchView(): JSX.Element {
 
   const failedDelivery = failedDeliveries[0] ?? null;
   return (
-    <main className={`workbench-v2 ${section === 'focus' && activeTask ? 'is-focus-mode' : ''}`}>
+    <main className={`workbench-v2 ${isFocusMode ? 'is-focus-mode' : ''}`}>
       <AppHealthBanner health={health} />
       <WorkbenchSidebar
         primaryItems={primaryNavItems}

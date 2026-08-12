@@ -257,7 +257,7 @@ export function DailyPlanningFlow({ tasks, now, settings, onOpen, onClose, onGoT
       <section className="planning-step">
         <h2><Check size={16} />4 · 排序还是时间线</h2>
         <p className="planning-hint">
-          只保留顺序（灵活执行），或稍后在「计划」页把任务拖进时间线做 Timebox。两种方式都合理，不必强制排时间。
+          只保留顺序（灵活执行），或稍后在「日程」页把任务拖进时间线做 Timebox。两种方式都合理，不必强制排时间。
         </p>
         <div className="planning-finish">
           <Button variant="primary" onClick={onClose}>完成规划</Button>

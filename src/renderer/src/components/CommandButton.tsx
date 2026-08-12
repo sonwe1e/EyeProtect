@@ -24,6 +24,8 @@ export interface CommandButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
   errorReason?: string;
   /** Content shown transiently on success (defaults to a checkmark). */
   successContent?: ReactNode;
+  /** Stateful controls already expose their result and should not flash a submit-style checkmark. */
+  successFeedback?: 'check' | 'none';
   /** How long (ms) to hold the success state before reverting to idle. */
   successHoldMs?: number;
   variant?: ButtonVariant;
@@ -34,6 +36,7 @@ export function CommandButton({
   state = 'idle',
   errorReason,
   successContent,
+  successFeedback = 'check',
   successHoldMs = 1200,
   variant = 'secondary',
   disabled,
@@ -45,7 +48,7 @@ export function CommandButton({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (state === 'success') {
+    if (state === 'success' && successFeedback === 'check') {
       setShowSuccess(true);
       if (timer.current) {
         clearTimeout(timer.current);
@@ -59,11 +62,11 @@ export function CommandButton({
         clearTimeout(timer.current);
       }
     };
-  }, [state, successHoldMs]);
+  }, [state, successFeedback, successHoldMs]);
 
   const isPending = state === 'pending';
   const isDisabled = disabled || isPending;
-  const visualState = state === 'success' && !showSuccess ? 'idle' : state;
+  const visualState = state === 'success' && (!showSuccess || successFeedback === 'none') ? 'idle' : state;
   const classNames = buttonClassNames(variant, [
     'command-button',
     `is-${visualState}`,

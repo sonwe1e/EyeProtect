@@ -7,6 +7,7 @@ import type { WorkbenchSectionId } from './workbenchNavigation';
 export interface WorkbenchNavItem {
   id: WorkbenchSectionId;
   label: string;
+  description: string;
   icon: LucideIcon;
   count?: number;
 }
@@ -43,11 +44,12 @@ export function WorkbenchSidebar({
         <div><strong>EyeProtect</strong><span>Quiet Focus</span></div>
       </div>
       <nav className="primary-nav" aria-label="主要导航">
-        {primaryItems.map(({ id, label, icon, count }) => (
+        {primaryItems.map(({ id, label, description, icon, count }) => (
           <NavItem
             key={id}
             icon={icon}
             label={label}
+            description={description}
             count={count}
             selected={section === id}
             onClick={() => onSelect(id)}
@@ -61,11 +63,12 @@ export function WorkbenchSidebar({
         onSelect={onSelectProject}
       />
       <nav className="utility-nav" aria-label="辅助导航">
-        {utilityItems.map(({ id, label, icon }) => (
+        {utilityItems.map(({ id, label, description, icon }) => (
           <NavItem
             key={id}
             icon={icon}
             label={label}
+            description={description}
             selected={section === id}
             onClick={() => onSelect(id)}
           />

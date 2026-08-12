@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Plus, Trash2 } from 'lucide-react';
 import { PROJECT_NAME_MAX, type Project, type ProjectInput, type Task } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
@@ -16,6 +16,8 @@ function ProjectItem({ project, count, isActive, onSelect }: {
 }): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameText, setRenameText] = useState(project.name);
+  const [renameValidation, setRenameValidation] = useState<string | null>(null);
+  const cancelRenameRef = useRef(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const rename = useCommand((name: string) => commands.projects.update(project.id, { name }));
   const remove = useCommand(() => commands.projects.remove(project.id));
@@ -25,9 +27,26 @@ function ProjectItem({ project, count, isActive, onSelect }: {
   }, [isRenaming, project.name]);
 
   const commitRename = (): void => {
+    if (cancelRenameRef.current) {
+      cancelRenameRef.current = false;
+      return;
+    }
+    if (rename.isPending) return;
     const name = renameText.trim();
-    if (name && name !== project.name) void rename.run(name);
-    setIsRenaming(false);
+    if (!name) {
+      setRenameValidation('项目名称不能为空');
+      return;
+    }
+    if (name === project.name) {
+      setIsRenaming(false);
+      return;
+    }
+    void rename.run(name).then((result) => {
+      if (result.ok) {
+        setRenameValidation(null);
+        setIsRenaming(false);
+      }
+    });
   };
 
   const closeConfirm = useCallback(() => {
@@ -45,12 +64,13 @@ function ProjectItem({ project, count, isActive, onSelect }: {
           autoFocus
           value={renameText}
           maxLength={PROJECT_NAME_MAX}
-          aria-invalid={rename.error ? true : undefined}
+          aria-invalid={rename.error || renameValidation ? true : undefined}
           onClick={(event) => event.stopPropagation()}
-          onChange={(event) => setRenameText(event.currentTarget.value)}
+          disabled={rename.isPending}
+          onChange={(event) => { setRenameText(event.currentTarget.value); setRenameValidation(null); rename.reset(); }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') commitRename();
-            if (event.key === 'Escape') setIsRenaming(false);
+            if (event.key === 'Escape') { cancelRenameRef.current = true; setRenameValidation(null); rename.reset(); setIsRenaming(false); }
           }}
           onBlur={commitRename}
         />
@@ -61,9 +81,10 @@ function ProjectItem({ project, count, isActive, onSelect }: {
           title={`${project.name}（双击重命名）`}
           aria-current={isActive ? 'page' : undefined}
           onClick={(event) => { event.stopPropagation(); onSelect(project.id); }}
-          onDoubleClick={(event) => { event.stopPropagation(); setIsRenaming(true); }}
+          onDoubleClick={(event) => { event.stopPropagation(); cancelRenameRef.current = false; setIsRenaming(true); }}
         >{project.name}</button>
       )}
+      {isRenaming && (renameValidation || rename.error) ? <small className="project-rename-error" role="alert">{renameValidation ?? rename.error?.message}</small> : null}
       <span className="project-item-count">{count}</span>
       <CommandButton className="project-item-remove" state={remove.state} errorReason={remove.error?.message} aria-label={`删除项目「${project.name}」`} onClick={(event) => { event.stopPropagation(); setConfirmDeleteOpen(true); }}><Trash2 size={14} /></CommandButton>
       <Dialog

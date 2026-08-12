@@ -24,8 +24,10 @@ export function deriveTodaySections(
     .sort((left, right) => (left.dailyRank ?? 0) - (right.dailyRank ?? 0))
     .map((plan) => taskById.get(plan.taskId))
     .filter((task): task is Task => Boolean(task));
-  const scheduled = activeTasks.filter((task) => scheduledTaskIds.has(task.id));
   const ranked = new Set(todaysThree.map((task) => task.id));
+  // Sections are deliberately mutually exclusive. A ranked task with a block
+  // stays in Today's focus list and exposes its time through row metadata.
+  const scheduled = activeTasks.filter((task) => scheduledTaskIds.has(task.id) && !ranked.has(task.id));
   const seen = new Set<string>();
   const flexible = todayPlans
     .map((plan) => taskById.get(plan.taskId))
