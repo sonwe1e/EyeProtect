@@ -231,16 +231,22 @@ function TaskRow({
             onBlur={commitEdit}
           />
         ) : (
-          <span
+          <button
+            type="button"
             className="task-title"
             title={`${task.title}（双击编辑）`}
+            aria-label={`打开任务「${task.title}」`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect(task.id);
+            }}
             onDoubleClick={(event) => {
               event.stopPropagation();
               startEdit(task.title);
             }}
           >
             {task.title}
-          </span>
+          </button>
         )}
         <div className="task-meta">
           {task.plannedAt !== null ? (

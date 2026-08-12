@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Dialog, TextField } from './primitives';
 
@@ -21,6 +21,7 @@ export function CommandPalette({
 }): JSX.Element | null {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const listboxId = useId();
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return commands;
@@ -50,6 +51,11 @@ export function CommandPalette({
           value={query}
           placeholder="输入命令…"
           aria-label="搜索命令"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-activedescendant={filtered[activeIndex] ? `${listboxId}-${filtered[activeIndex].id}` : undefined}
           onChange={(event) => {
             setQuery(event.currentTarget.value);
             setActiveIndex(0);
@@ -68,10 +74,11 @@ export function CommandPalette({
           }}
         />
       </div>
-      <div className="command-palette-list" role="listbox" aria-label="命令">
+      <div id={listboxId} className="command-palette-list" role="listbox" aria-label="命令">
         {filtered.map((command, index) => (
           <button
             key={command.id}
+            id={`${listboxId}-${command.id}`}
             type="button"
             role="option"
             aria-selected={index === activeIndex}

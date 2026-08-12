@@ -205,8 +205,85 @@ const dragPointer = async (target, from, to) => {
   await callSequence(target, steps);
 };
 
+const setViewport = async (target, width, height, deviceScaleFactor) => {
+  await call(target, 'Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor, mobile: false });
+  const metrics = await evaluate(target, `({ width: innerWidth, height: innerHeight, scale: devicePixelRatio })`);
+  if (metrics.width !== width || metrics.height !== height) {
+    throw new Error(`Viewport emulation failed: expected ${width}x${height}, got ${JSON.stringify(metrics)}`);
+  }
+};
+
+const selectNavigation = async (target, label, readySelector) => {
+  const selected = await evaluate(target, `(() => {
+    const item = [...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes(${JSON.stringify(label)}));
+    if (!(item instanceof HTMLButtonElement)) return false;
+    item.click();
+    return true;
+  })()`);
+  if (!selected) throw new Error(`Navigation item was not available: ${label}`);
+  await waitFor(target, `Boolean(document.querySelector(${JSON.stringify(readySelector)}))`);
+  await evaluate(target, `(async () => {
+    const workspace = document.querySelector('.workspace-scroll');
+    const sidebar = document.querySelector('.app-sidebar');
+    if (workspace instanceof HTMLElement) { workspace.scrollTop = 0; workspace.scrollLeft = 0; }
+    if (sidebar instanceof HTMLElement) sidebar.scrollTop = 0;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  })()`);
+};
+
+const collectLayoutMetrics = (target) => evaluate(target, `(() => {
+  const rect = (selector) => {
+    const element = document.querySelector(selector);
+    if (!(element instanceof HTMLElement)) return null;
+    const bounds = element.getBoundingClientRect();
+    return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
+  };
+  const workspace = document.querySelector('.workspace-scroll');
+  const page = document.querySelector('.workspace-page');
+  const board = document.querySelector('.project-board');
+  const row = document.querySelector('.task-row');
+  return {
+    viewportWidth: innerWidth,
+    viewportHeight: innerHeight,
+    documentClientWidth: document.documentElement.clientWidth,
+    documentScrollWidth: document.documentElement.scrollWidth,
+    workspaceClientWidth: workspace?.clientWidth ?? null,
+    workspaceScrollWidth: workspace?.scrollWidth ?? null,
+    pageClientWidth: page?.clientWidth ?? null,
+    pageScrollWidth: page?.scrollWidth ?? null,
+    pageHeader: rect('.page-header'),
+    planTitle: rect('.plan-page .page-header h1'),
+    planDateStrip: rect('.plan-day-switch'),
+    projectBoardClientWidth: board?.clientWidth ?? null,
+    projectBoardScrollWidth: board?.scrollWidth ?? null,
+    primaryNavCount: document.querySelectorAll('.primary-nav .app-nav-item').length,
+    activePrimaryNavCount: document.querySelectorAll('.primary-nav .app-nav-item.is-active').length,
+    taskRowHeight: row instanceof HTMLElement ? row.getBoundingClientRect().height : null
+  };
+})()`);
+
+const assertPageLayout = (label, metrics) => {
+  if (metrics.documentScrollWidth > metrics.documentClientWidth) {
+    throw new Error(`${label}: document has horizontal overflow: ${JSON.stringify(metrics)}`);
+  }
+  if (metrics.workspaceScrollWidth > metrics.workspaceClientWidth) {
+    throw new Error(`${label}: workspace has page-level horizontal overflow: ${JSON.stringify(metrics)}`);
+  }
+  if (metrics.pageScrollWidth > metrics.pageClientWidth) {
+    throw new Error(`${label}: page has horizontal overflow: ${JSON.stringify(metrics)}`);
+  }
+  if (metrics.primaryNavCount !== 5 || metrics.activePrimaryNavCount !== 1) {
+    throw new Error(`${label}: primary navigation contract failed: ${JSON.stringify(metrics)}`);
+  }
+};
+
 mkdirSync(outputDir, { recursive: true });
 const pet = await waitForTarget('#pet');
+await waitFor(pet, `(async () => {
+  const api = window.eyeProtect;
+  const methods = ['getTasks', 'createTask', 'getProjects', 'createProject', 'updateProject', 'updateTask', 'setActiveTask', 'upsertDailyPlan', 'saveSettings', 'openWorkbench', 'getCharacterCollection'];
+  return Boolean(api) && methods.every((name) => typeof api[name] === 'function');
+})()`);
 await evaluate(pet, `(async () => {
   let tasks = await window.eyeProtect.getTasks();
   if (!tasks.some((task) => task.title === '完成 UI 2.0 验收')) {
@@ -231,6 +308,10 @@ await evaluate(pet, `(async () => {
     }
   }
   const focusTask = tasks.find((task) => task.title === '完成 UI 2.0 验收');
+  const recordTask = tasks.find((task) => task.title === '整理今日工作记录');
+  const localDate = new Date().toLocaleDateString('en-CA');
+  if (focusTask) await window.eyeProtect.upsertDailyPlan({ taskId: focusTask.id, localDate, dailyRank: 1, plannedMinutes: 60 });
+  if (recordTask) await window.eyeProtect.upsertDailyPlan({ taskId: recordTask.id, localDate, plannedMinutes: 25 });
   if (focusTask) await window.eyeProtect.setActiveTask(focusTask.id);
   await window.eyeProtect.saveSettings({ theme: 'light' });
   await window.eyeProtect.openWorkbench('today');
@@ -463,6 +544,77 @@ await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape'
 await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
 await waitFor(workbench, `!document.querySelector('.ui-dialog')`);
 
+// Foundation acceptance matrix: exercise the two critical small Windows sizes
+// with machine-readable overflow, hierarchy and density assertions before
+// capturing the screenshots. Project Board is the sole horizontal-scroll
+// exception; the document/workspace/page must remain contained.
+const acceptanceScale = await evaluate(workbench, `devicePixelRatio`);
+const acceptanceMetrics = [];
+for (const [width, height] of [[944, 561], [960, 600]]) {
+  await setViewport(workbench, width, height, acceptanceScale);
+  await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark', density: 'comfortable' })`);
+  await selectNavigation(workbench, '今天', '.today-page');
+  const todayMetrics = await collectLayoutMetrics(workbench);
+  assertPageLayout(`Today ${width}x${height}`, todayMetrics);
+  if (todayMetrics.taskRowHeight !== null && Math.round(todayMetrics.taskRowHeight) !== 52) {
+    throw new Error(`Today ${width}x${height}: comfortable task row must be 52px: ${JSON.stringify(todayMetrics)}`);
+  }
+  acceptanceMetrics.push({ surface: 'today', width, height, ...todayMetrics });
+  await capture(workbench, `today-dark-${width}x${height}.png`);
+
+  if (width === 960) {
+    await evaluate(workbench, `window.eyeProtect.saveSettings({ density: 'compact' })`);
+    await waitFor(workbench, `document.documentElement.dataset.density === 'compact'`);
+    const compactMetrics = await collectLayoutMetrics(workbench);
+    if (compactMetrics.taskRowHeight !== null && Math.round(compactMetrics.taskRowHeight) !== 44) {
+      throw new Error(`Today 960x600: compact task row must be 44px: ${JSON.stringify(compactMetrics)}`);
+    }
+    acceptanceMetrics.push({ surface: 'today-compact', width, height, ...compactMetrics });
+    await capture(workbench, 'today-dark-960x600-compact.png');
+    await evaluate(workbench, `window.eyeProtect.saveSettings({ density: 'comfortable' })`);
+    await waitFor(workbench, `document.documentElement.dataset.density === 'comfortable'`);
+  }
+
+  await selectNavigation(workbench, '计划', '.plan-page');
+  const planMetrics = await collectLayoutMetrics(workbench);
+  assertPageLayout(`Plan ${width}x${height}`, planMetrics);
+  const title = planMetrics.planTitle;
+  const strip = planMetrics.planDateStrip;
+  const overlaps = title && strip && !(title.right <= strip.left || strip.right <= title.left || title.bottom <= strip.top || strip.bottom <= title.top);
+  if (!title || !strip || title.width < 40 || title.height > 60 || overlaps) {
+    throw new Error(`Plan ${width}x${height}: title/date strip layout failed: ${JSON.stringify(planMetrics)}`);
+  }
+  acceptanceMetrics.push({ surface: 'plan', width, height, ...planMetrics });
+  await capture(workbench, `plan-dark-${width}x${height}.png`);
+
+  await evaluate(workbench, `([...document.querySelectorAll('.project-item')].find((entry) => entry.textContent?.includes('Research')))?.click()`);
+  await waitFor(workbench, `Boolean(document.querySelector('.project-page'))`);
+  const boardButton = await evaluate(workbench, `(() => {
+    const button = [...document.querySelectorAll('.project-view-switch button')].find((entry) => entry.textContent?.includes('看板'));
+    if (!(button instanceof HTMLButtonElement)) return false;
+    if (!button.classList.contains('is-active')) button.click();
+    return true;
+  })()`);
+  if (!boardButton) throw new Error('Project board toggle was unavailable during small-window audit');
+  await waitFor(workbench, `Boolean(document.querySelector('.project-board'))`);
+  const projectMetrics = await collectLayoutMetrics(workbench);
+  assertPageLayout(`Project ${width}x${height}`, projectMetrics);
+  if ((projectMetrics.projectBoardScrollWidth ?? 0) <= (projectMetrics.projectBoardClientWidth ?? 0)) {
+    throw new Error(`Project ${width}x${height}: board must own its horizontal rail: ${JSON.stringify(projectMetrics)}`);
+  }
+  acceptanceMetrics.push({ surface: 'project-board', width, height, ...projectMetrics });
+  await capture(workbench, `project-board-dark-${width}x${height}.png`);
+
+  if (width === 960) {
+    await selectNavigation(workbench, '专注', '.focus-surface');
+    const focusMetrics = await collectLayoutMetrics(workbench);
+    assertPageLayout('Focus 960x600', focusMetrics);
+    acceptanceMetrics.push({ surface: 'focus', width, height, ...focusMetrics });
+    await capture(workbench, 'focus-dark-960x600.png');
+  }
+}
+await setViewport(workbench, 1600, 900, acceptanceScale);
+
 await evaluate(pet, `window.eyeProtect.openWorkbench('collection')`);
 await waitFor(workbench, `Boolean(document.querySelector('.collection-page .procedural-character svg'))`);
 await capture(workbench, 'collection-dark.png');
@@ -486,6 +638,41 @@ for (const [width, height, file] of [
   }
   await capture(workbench, file);
 }
+
+// Wider core-surface matrix: the narrow acceptance cases above prove the
+// containment thresholds; these captures guard hierarchy and density at the
+// common desktop widths where most users will live.
+for (const [width, height] of [[1280, 720], [1920, 1080]]) {
+  await setViewport(workbench, width, height, hostScale);
+  await selectNavigation(workbench, '计划', '.plan-page');
+  const planMetrics = await collectLayoutMetrics(workbench);
+  assertPageLayout(`Plan ${width}x${height}`, planMetrics);
+  acceptanceMetrics.push({ surface: 'plan', width, height, ...planMetrics });
+  await capture(workbench, `plan-dark-${width}x${height}.png`);
+
+  await evaluate(workbench, `([...document.querySelectorAll('.project-item')].find((entry) => entry.textContent?.includes('Research')))?.click()`);
+  await waitFor(workbench, `Boolean(document.querySelector('.project-page'))`);
+  await evaluate(workbench, `(() => {
+    const button = [...document.querySelectorAll('.project-view-switch button')].find((entry) => entry.textContent?.includes('看板'));
+    if (button instanceof HTMLButtonElement && !button.classList.contains('is-active')) button.click();
+  })()`);
+  await waitFor(workbench, `Boolean(document.querySelector('.project-board'))`);
+  const projectMetrics = await collectLayoutMetrics(workbench);
+  assertPageLayout(`Project ${width}x${height}`, projectMetrics);
+  acceptanceMetrics.push({ surface: 'project-board', width, height, ...projectMetrics });
+  await capture(workbench, `project-board-dark-${width}x${height}.png`);
+}
+
+await setViewport(workbench, 960, 600, hostScale);
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light' })`);
+await waitFor(workbench, `document.documentElement.dataset.theme === 'light'`);
+await selectNavigation(workbench, '今天', '.today-page');
+await capture(workbench, 'today-light-960x600.png');
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
+await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
+
+console.log(`Workbench layout metrics:\n${JSON.stringify(acceptanceMetrics, null, 2)}`);
+writeFileSync(resolve(outputDir, 'layout-metrics.json'), `${JSON.stringify(acceptanceMetrics, null, 2)}\n`, 'utf8');
 
 await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: hostScale, mobile: false });
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'system' })`);
@@ -536,12 +723,20 @@ await waitForTargetGone('#alert');
 await evaluate(pet, `(async () => {
   const projects = await window.eyeProtect.createProject({ name: '这是一个用于验证超长中文项目名称不会挤压导航和任务内容区域的研究计划', color: '#4e6f91' });
   const project = projects.find((entry) => entry.name.startsWith('这是一个用于验证超长中文项目'));
-  await window.eyeProtect.createTask({
+  const tasks = await window.eyeProtect.createTask({
     title: '超长中文任务标题需要稳定截断并保持操作按钮可见'.repeat(8),
     projectId: project?.id ?? null,
     plannedAt: Date.now(),
     estimateMinutes: 30
   });
+  const task = tasks.find((entry) => entry.title.startsWith('超长中文任务标题需要稳定截断'));
+  if (task) {
+    await window.eyeProtect.upsertDailyPlan({
+      taskId: task.id,
+      localDate: new Date().toLocaleDateString('en-CA'),
+      plannedMinutes: 30
+    });
+  }
   await window.eyeProtect.openWorkbench('today');
 })()`);
 await waitFor(workbench, `[...document.querySelectorAll('.task-row')].some((entry) => entry.textContent?.includes('超长中文任务标题需要稳定截断'))`);

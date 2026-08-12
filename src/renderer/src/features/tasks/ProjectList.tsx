@@ -55,7 +55,14 @@ function ProjectItem({ project, count, isActive, onSelect }: {
           onBlur={commitRename}
         />
       ) : (
-        <span className="project-item-name" title={`${project.name}（双击重命名）`} onDoubleClick={(event) => { event.stopPropagation(); setIsRenaming(true); }}>{project.name}</span>
+        <button
+          type="button"
+          className="project-item-name"
+          title={`${project.name}（双击重命名）`}
+          aria-current={isActive ? 'page' : undefined}
+          onClick={(event) => { event.stopPropagation(); onSelect(project.id); }}
+          onDoubleClick={(event) => { event.stopPropagation(); setIsRenaming(true); }}
+        >{project.name}</button>
       )}
       <span className="project-item-count">{count}</span>
       <CommandButton className="project-item-remove" state={remove.state} errorReason={remove.error?.message} aria-label={`删除项目「${project.name}」`} onClick={(event) => { event.stopPropagation(); setConfirmDeleteOpen(true); }}><Trash2 size={14} /></CommandButton>

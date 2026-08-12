@@ -88,7 +88,11 @@ function SectionHeader({ section, count, canMoveLeft, canMoveRight, onMove, onRe
           onBlur={commitRename}
         />
       ) : (
-        <h2 title={`${section.name}（双击重命名）`} onDoubleClick={() => setEditing(true)}>{section.name}</h2>
+        <h2>
+          <button type="button" className="project-section-name" title={`${section.name}（点击重命名）`} onClick={() => setEditing(true)}>
+            {section.name}
+          </button>
+        </h2>
       )}
       <span className="project-section-tools">
         <span className="project-section-count">{count}</span>
@@ -128,6 +132,7 @@ export function ProjectWorkspace({
 }): JSX.Element {
   const [goalDraft, setGoalDraft] = useState(project.goal ?? '');
   const [newSectionName, setNewSectionName] = useState('');
+  const [sectionCreatorOpen, setSectionCreatorOpen] = useState(false);
   const { sections, refresh } = useProjectSections(project.id);
   const updateProject = useCommand((input: Parameters<typeof commands.projects.update>[1]) => commands.projects.update(project.id, input));
   const moveTask = useCommand((input: Parameters<typeof commands.tasks.move>[0]) => commands.tasks.move(input));
@@ -135,6 +140,10 @@ export function ProjectWorkspace({
   const createSection = useCommand((name: string) => commands.sections.create({ projectId: project.id, name }));
 
   useEffect(() => setGoalDraft(project.goal ?? ''), [project.id, project.goal]);
+  useEffect(() => {
+    setNewSectionName('');
+    setSectionCreatorOpen(false);
+  }, [project.id]);
 
   const projectTasks = useMemo(
     () => tasks.filter((task) => task.projectId === project.id && task.status !== 'archived'),
@@ -157,6 +166,7 @@ export function ProjectWorkspace({
     void createSection.run(trimmed).then((result) => {
       if (result.ok) {
         setNewSectionName('');
+        setSectionCreatorOpen(false);
         refresh();
       }
     });
@@ -167,6 +177,7 @@ export function ProjectWorkspace({
       const result = await createSection.run(name);
       if (!result.ok) return;
     }
+    setSectionCreatorOpen(false);
     refresh();
   };
 
@@ -226,24 +237,35 @@ export function ProjectWorkspace({
       <TaskComposer projects={projects} defaultProjectId={project.id} />
 
       <div className="project-section-bar">
-        <input
-          className="project-section-input"
-          value={newSectionName}
-          placeholder="新分组名称…"
-          onChange={(event) => setNewSectionName(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              addSection(newSectionName);
-            }
-          }}
-        />
-        <Button disabled={createSection.isPending || !newSectionName.trim()} onClick={() => addSection(newSectionName)}><Plus size={14} />添加分组</Button>
-        {sections.length === 0 ? (
-          <Button variant="ghost" disabled={createSection.isPending} onClick={() => void addTemplate()}>
-            使用模板（{SECTION_TEMPLATE.join(' / ')}）
-          </Button>
-        ) : null}
+        {sectionCreatorOpen ? (
+          <>
+            <input
+              className="project-section-input"
+              autoFocus
+              value={newSectionName}
+              placeholder="新分组名称…"
+              onChange={(event) => setNewSectionName(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addSection(newSectionName);
+                } else if (event.key === 'Escape') {
+                  setNewSectionName('');
+                  setSectionCreatorOpen(false);
+                }
+              }}
+            />
+            <Button disabled={createSection.isPending || !newSectionName.trim()} onClick={() => addSection(newSectionName)}><Plus size={14} />添加分组</Button>
+            <Button variant="ghost" disabled={createSection.isPending} onClick={() => { setNewSectionName(''); setSectionCreatorOpen(false); }}>取消</Button>
+            {sections.length === 0 ? (
+              <Button variant="ghost" disabled={createSection.isPending} onClick={() => void addTemplate()}>
+                使用模板（{SECTION_TEMPLATE.join(' / ')}）
+              </Button>
+            ) : null}
+          </>
+        ) : (
+          <Button variant="ghost" onClick={() => setSectionCreatorOpen(true)}><Plus size={14} />分组</Button>
+        )}
         {createSection.error ? <span className="project-page-error" role="alert">{createSection.error.message}</span> : null}
       </div>
 

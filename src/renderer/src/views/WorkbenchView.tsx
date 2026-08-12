@@ -8,11 +8,10 @@ import {
   Gift,
   Inbox,
   Play,
-  Search,
   Settings2,
   Sun,
   Target,
-  X
+  type LucideIcon
 } from 'lucide-react';
 import {
   matchesTaskView,
@@ -25,7 +24,7 @@ import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
 import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
 import { CommandButton } from '../components/CommandButton';
-import { Button, IconButton, NavItem, SideSheet, StatusChip, Toast } from '../components/primitives';
+import { Button, SideSheet, StatusChip, Toast } from '../components/primitives';
 import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
 import { DailyReview } from '../features/review/DailyReview';
 import { StandaloneReminderSection } from '../features/reminders/StandaloneReminderSection';
@@ -36,6 +35,7 @@ import { FocusSurface } from '../features/tasks/FocusSurface';
 import { TaskComposer } from '../features/tasks/TaskComposer';
 import { TaskDetail } from '../features/tasks/TaskDetail';
 import { TaskList } from '../features/tasks/TaskList';
+import { deriveTodaySections } from '../features/tasks/todaySections';
 import { useActiveTaskId } from '../hooks/useActiveTask';
 import { useAppHealth } from '../hooks/useAppHealth';
 import { useClock } from '../hooks/useClock';
@@ -50,18 +50,29 @@ import { useTimeBlocks } from '../hooks/useTimeBlocks';
 import { useTaskWork } from '../hooks/useTaskWork';
 import { useUndo } from '../hooks/useUndo';
 import { commands } from '../lib/commands';
+import {
+  PRIMARY_SECTION_ORDER,
+  UTILITY_SECTION_ORDER,
+  WORKBENCH_SECTIONS,
+  WORKBENCH_SHORTCUTS,
+  type WorkbenchSectionId
+} from '../features/workbench/workbenchNavigation';
+import { WorkbenchSidebar, type WorkbenchNavItem } from '../features/workbench/WorkbenchSidebar';
+import { WorkbenchToolbar } from '../features/workbench/WorkbenchToolbar';
 import SettingsView from './SettingsView';
 
-type WorkbenchSection =
-  | 'today'
-  | 'inbox'
-  | 'plan'
-  | 'focus'
-  | 'projects'
-  | 'reminders'
-  | 'collection'
-  | 'settings'
-  | 'review';
+const SECTION_ICON: Record<string, LucideIcon> = {
+  sun: Sun,
+  inbox: Inbox,
+  calendarDays: CalendarDays,
+  target: Target,
+  folderKanban: FolderKanban,
+  bell: Bell,
+  gift: Gift,
+  settings: Settings2
+};
+
+type WorkbenchSection = WorkbenchSectionId;
 
 const formatMinutes = (value: number): string => `${Math.max(0, Math.floor(value / 60_000))}m`;
 
@@ -146,36 +157,13 @@ export default function WorkbenchView(): JSX.Element {
   const todayKey = localDateKey(now);
   const { plans: todayPlans } = useDailyPlans(todayKey);
   const planByTask = useMemo(() => new Map(todayPlans.map((plan) => [plan.taskId, plan])), [todayPlans]);
-  const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-  const todaysThree = useMemo(
-    () =>
-      todayPlans
-        .filter((plan) => plan.dailyRank !== null)
-        .sort((left, right) => (left.dailyRank ?? 0) - (right.dailyRank ?? 0))
-        .map((plan) => taskById.get(plan.taskId))
-        .filter((task): task is Task => Boolean(task)),
-    [todayPlans, taskById]
+  const todaySections = useMemo(
+    () => deriveTodaySections(tasks, todayPlans, scheduledTodayIds),
+    [tasks, todayPlans, scheduledTodayIds]
   );
-  const scheduledToday = useMemo(
-    () =>
-      todayTasks
-        .filter((task) => task.plannedAt !== null || scheduledTodayIds.has(task.id))
-        .sort((left, right) => (left.plannedAt ?? Infinity) - (right.plannedAt ?? Infinity)),
-    [todayTasks, scheduledTodayIds]
-  );
-  const flexibleToday = useMemo(() => {
-    const ranked = new Set(todaysThree.map((task) => task.id));
-    const scheduled = new Set(scheduledToday.map((task) => task.id));
-    const plannedFlexible = todayPlans
-      .map((plan) => taskById.get(plan.taskId))
-      .filter((task): task is Task => Boolean(task && task.plannedAt === null && !scheduledTodayIds.has(task.id)));
-    const unscheduledDue = todayTasks.filter(
-      (task) => task.plannedAt === null && !planByTask.has(task.id)
-    );
-    return [...plannedFlexible, ...unscheduledDue].filter(
-      (task, index, list) => !ranked.has(task.id) && !scheduled.has(task.id) && list.indexOf(task) === index
-    );
-  }, [todayPlans, taskById, todaysThree, scheduledToday, scheduledTodayIds, todayTasks, planByTask]);
+  const todaysThree = todaySections.todaysThree;
+  const scheduledToday = todaySections.scheduled;
+  const flexibleToday = todaySections.flexible;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
@@ -190,30 +178,36 @@ export default function WorkbenchView(): JSX.Element {
     setSection(next);
     if (next !== 'projects') setSelectedProjectId(null);
     setSelectedTaskId(null);
+    setSearchOpen(false);
+    setSearch('');
   }, []);
 
   const selectProject = useCallback((id: string | null) => {
     setSection('projects');
     setSelectedProjectId(id);
     setSelectedTaskId(null);
+    setSearchOpen(false);
+    setSearch('');
   }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null;
       const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]') ?? false;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k') {
+      const key = event.key.toLocaleLowerCase();
+      const shortcuts = WORKBENCH_SHORTCUTS;
+      if ((event.ctrlKey || event.metaKey) && key === shortcuts.command) {
         event.preventDefault();
         setPaletteOpen(true);
       } else if (!isEditing && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        if (event.key.toLocaleLowerCase() === 'n') {
+        if (key === shortcuts.newTask) {
           event.preventDefault();
           selectSection('inbox');
           requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-quick-add="true"]')?.focus());
-        } else if (event.key.toLocaleLowerCase() === 'p') {
+        } else if (key === shortcuts.plan) {
           event.preventDefault();
           selectSection('plan');
-        } else if (event.key.toLocaleLowerCase() === 'f') {
+        } else if (key === shortcuts.focus) {
           event.preventDefault();
           selectSection('focus');
         }
@@ -223,14 +217,28 @@ export default function WorkbenchView(): JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [selectSection]);
 
-  const navItems: Array<{ id: WorkbenchSection; label: string; icon: typeof Sun; count?: number }> = [
-    { id: 'today', label: '今天', icon: Sun, count: todayTasks.length + overdueTasks.length },
-    { id: 'inbox', label: '收件箱', icon: Inbox, count: inboxTasks.length },
-    { id: 'plan', label: '计划', icon: CalendarDays },
-    { id: 'focus', label: '专注', icon: Target },
-    { id: 'projects', label: '项目', icon: FolderKanban },
-    { id: 'review', label: '今日复盘', icon: CalendarDays }
-  ];
+  // Primary navigation is derived from the single-source-of-truth config
+  // (features/workbench/workbenchNavigation.ts). Review intentionally moved to
+  // the utility tier — it is a summary action, not a daily work surface.
+  const primaryNavItems: WorkbenchNavItem[] = useMemo(
+    () =>
+      PRIMARY_SECTION_ORDER.map((id) => {
+        const meta = WORKBENCH_SECTIONS[id];
+        const icon = SECTION_ICON[meta.iconKey] ?? Sun;
+        if (id === 'today') return { id, label: meta.label, icon, count: todayTasks.length + overdueTasks.length };
+        if (id === 'inbox') return { id, label: meta.label, icon, count: inboxTasks.length };
+        return { id, label: meta.label, icon };
+      }),
+    [todayTasks.length, inboxTasks.length]
+  );
+  const utilityNavItems: WorkbenchNavItem[] = useMemo(
+    () =>
+      UTILITY_SECTION_ORDER.map((id) => {
+        const meta = WORKBENCH_SECTIONS[id];
+        return { id, label: meta.label, icon: SECTION_ICON[meta.iconKey] ?? Bell };
+      }),
+    []
+  );
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     { id: 'today', label: '前往：今天', keywords: 'today', run: () => selectSection('today') },
     { id: 'plan-today', label: '每日规划：规划今天', keywords: 'daily planning', run: () => { selectSection('today'); setPlanningOpen(true); } },
@@ -386,27 +394,33 @@ export default function WorkbenchView(): JSX.Element {
   return (
     <main className={`workbench-v2 ${section === 'focus' && activeTask ? 'is-focus-mode' : ''}`}>
       <AppHealthBanner health={health} />
-      <aside className="app-sidebar">
-        <div className="app-brand"><span className="app-brand-mark"><Eye size={19} /></span><div><strong>EyeProtect</strong><span>Quiet Focus</span></div></div>
-        <nav className="primary-nav" aria-label="主要导航">
-          {navItems.map(({ id, label, icon, count }) => <NavItem key={id} icon={icon} label={label} count={count} selected={section === id} onClick={() => selectSection(id)} />)}
-        </nav>
-        <ProjectList projects={projects} tasks={tasks} selectedProjectId={selectedProjectId} onSelect={selectProject} />
-        <nav className="utility-nav" aria-label="辅助导航">
-          <NavItem icon={Bell} label="独立提醒" selected={section === 'reminders'} onClick={() => selectSection('reminders')} />
-          <NavItem icon={Gift} label="公仔收藏" selected={section === 'collection'} onClick={() => selectSection('collection')} />
-          <NavItem icon={Settings2} label="设置" selected={section === 'settings'} onClick={() => selectSection('settings')} />
-        </nav>
-      </aside>
+      <WorkbenchSidebar
+        primaryItems={primaryNavItems}
+        utilityItems={utilityNavItems}
+        section={section}
+        onSelect={selectSection}
+        projects={projects}
+        tasks={tasks}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={selectProject}
+      />
       <section className="app-workspace">
-        <header className="workspace-toolbar">
-          {searchOpen ? (
-            <label className="workspace-search"><Search size={17} /><input autoFocus value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="搜索标题、备注或标签" /><IconButton aria-label="关闭搜索" onClick={() => { setSearchOpen(false); setSearch(''); }}><X size={17} /></IconButton></label>
-          ) : <button type="button" className="command-palette-trigger" onClick={() => setPaletteOpen(true)}><Search size={18} /><span>搜索或运行命令</span><kbd>Ctrl K</kbd></button>}
-          <div className="toolbar-rhythm"><span>连续活跃 {formatMinutes(work.continuousActiveMs)}</span>
-            {reminderStatus.pausedUntil ? <CommandButton state={resume.state} errorReason={resume.error?.message} onClick={() => void resume.run()}>恢复提醒</CommandButton> : <CommandButton state={pause.state} errorReason={pause.error?.message} onClick={() => void pause.run(30)}>暂停 30 分钟</CommandButton>}
-          </div>
-        </header>
+        <WorkbenchToolbar
+          searchOpen={searchOpen}
+          search={search}
+          onSearchChange={setSearch}
+          onCloseSearch={() => { setSearchOpen(false); setSearch(''); }}
+          onOpenPalette={() => setPaletteOpen(true)}
+          continuousActiveMs={work.continuousActiveMs}
+          formatMinutes={formatMinutes}
+          pausedUntil={reminderStatus.pausedUntil}
+          resumeState={resume.state}
+          resumeError={resume.error?.message}
+          onResume={() => void resume.run()}
+          pauseState={pause.state}
+          pauseError={pause.error?.message}
+          onPause={(minutes) => void pause.run(minutes)}
+        />
         <div className="workspace-scroll">{renderWorkspace()}</div>
       </section>
       <SideSheet open={selectedTask !== null} title="任务详情" onClose={() => setSelectedTaskId(null)}>

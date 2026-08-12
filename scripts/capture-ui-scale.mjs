@@ -49,12 +49,23 @@ const evaluate = async (target, expression) => {
   if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
   return response.result?.value;
 };
+const waitFor = async (target, expression) => {
+  const deadline = Date.now() + 12_000;
+  while (Date.now() < deadline) {
+    if (await evaluate(target, expression)) return;
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for UI state: ${expression}`);
+};
 
 mkdirSync(outputDir, { recursive: true });
 const pet = await waitForTarget('#pet');
+await waitFor(pet, `Boolean(window.eyeProtect) && ['saveSettings', 'createTask', 'upsertDailyPlan', 'openWorkbench'].every((name) => typeof window.eyeProtect[name] === 'function')`);
 await evaluate(pet, `(async () => {
   await window.eyeProtect.saveSettings({ theme: 'dark' });
-  await window.eyeProtect.createTask({ title: 'DPI ${label} 验收任务', plannedAt: Date.now(), estimateMinutes: 30 });
+  const tasks = await window.eyeProtect.createTask({ title: 'DPI ${label} 验收任务', plannedAt: Date.now(), estimateMinutes: 30 });
+  const task = tasks.find((entry) => entry.title === 'DPI ${label} 验收任务');
+  if (task) await window.eyeProtect.upsertDailyPlan({ taskId: task.id, localDate: new Date().toLocaleDateString('en-CA'), plannedMinutes: 30 });
   await window.eyeProtect.openWorkbench('today');
 })()`);
 const workbench = await waitForTarget('#workbench');

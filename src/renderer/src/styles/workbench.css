@@ -1,7 +1,7 @@
 .workbench-v2 {
   position: relative;
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: var(--workbench-sidebar-width) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
@@ -17,7 +17,8 @@
   padding: 18px 12px 12px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-subtle);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .app-brand {
@@ -86,7 +87,7 @@
 .workbench-v2 .project-empty { padding: 8px 10px; color: var(--fg-tertiary); }
 
 .workbench-v2 .project-item {
-  min-height: 40px;
+  min-height: var(--hit-target-min);
   padding: 0 4px 0 11px;
   color: var(--fg-secondary);
   background: transparent;
@@ -96,13 +97,13 @@
 .workbench-v2 .project-item:hover { color: var(--fg-primary); background: var(--surface-hover); }
 .workbench-v2 .project-item.is-active { color: var(--brand); background: var(--brand-subtle); }
 .workbench-v2 .project-item-dot { width: 8px; height: 8px; background: var(--chip-color); }
-.workbench-v2 .project-item-name { color: currentColor; }
+.workbench-v2 .project-item-name { min-width: 0; padding: 0; color: currentColor; text-align: left; background: transparent; border: 0; }
 .workbench-v2 .project-item-count { color: currentColor; }
 .workbench-v2 .project-item-remove { width: 36px; height: 36px; color: var(--fg-tertiary); }
 
 .app-workspace {
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: var(--workbench-toolbar-height) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   background: var(--bg-app);
@@ -152,9 +153,33 @@
 .toolbar-rhythm { display: flex; align-items: center; gap: 12px; margin-left: auto; color: var(--fg-secondary); font-size: 12px; }
 .toolbar-rhythm .command-button { min-height: 36px; padding: 0 12px; color: var(--fg-primary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; }
 
-.workspace-scroll { min-width: 0; min-height: 0; overflow: auto; }
-.workspace-page { width: min(900px, calc(100% - 64px)); margin: 0 auto; padding: 42px 0 72px; }
-.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+.workspace-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  /* Named container: feature layouts (Plan, Project) respond to the real
+     workspace inline-size, not the full BrowserWindow width (USERPLAN 1.2). */
+  container-name: workspace;
+  container-type: inline-size;
+}
+
+.workspace-page {
+  width: min(var(--workbench-content-max), calc(100% - 64px));
+  margin: 0 auto;
+  padding: var(--workbench-page-top) 0 72px;
+}
+
+/* When the workspace itself is too narrow for the centered channel, bleed to
+     the edges with a fixed inset instead of forcing a page-level horizontal
+     overflow. Threshold calibrated against real workspace metrics (see B6/B7). */
+@container workspace (max-width: 760px) {
+  .workspace-page {
+    width: auto;
+    margin: 0;
+    padding-inline: 20px;
+  }
+}
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: var(--workbench-section-gap); }
 .page-header h1 { margin: 4px 0 0; font-size: clamp(26px, 3vw, 34px); font-weight: 680; letter-spacing: -0.025em; }
 .page-header > span { padding-bottom: 5px; color: var(--fg-secondary); font-size: 13px; }
 .page-eyebrow { color: var(--fg-secondary); font-size: 13px; }
@@ -162,32 +187,35 @@
 .rhythm-summary span { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 12px; color: var(--fg-secondary); background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 10px; }
 .rhythm-summary svg { color: var(--brand); }
 
+/* NOW focus strip (USERPLAN 1.2 B5): a compact 64-80px status row instead of a
+   hero card, so the task list keeps the primary visual weight. */
 .now-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 20px;
-  margin-bottom: 24px;
-  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
+  border-radius: var(--radius-medium);
 }
 
-.now-card > span { color: var(--brand); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; }
-.now-card h2 { grid-column: 1; margin: 8px 0 0; font-size: 20px; }
-.now-card p { grid-column: 1; margin: 2px 0 0; color: var(--fg-secondary); }
-.now-card .ui-button { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+.now-card > span { color: var(--brand); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; white-space: nowrap; }
+.now-card h2 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now-card p { flex: none; margin: 0; color: var(--fg-secondary); font-size: 11px; white-space: nowrap; }
+.now-card .ui-button { flex: none; }
 
 .workbench-v2 .task-composer {
-  margin: 0 0 28px;
+  margin: 0 0 var(--workbench-section-gap);
   padding: 0;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   box-shadow: none;
 }
 
-.workbench-v2 .task-compose-row { min-height: 50px; padding: 5px; }
+.workbench-v2 .task-compose-row { min-height: var(--control-height-md); padding: 4px; }
 .workbench-v2 .task-compose-row > input { color: var(--fg-primary); background: transparent; border: 0; }
 .workbench-v2 .task-compose-row > .command-button { min-height: 40px; color: var(--brand-contrast); background: var(--brand); border-radius: 8px; }
 .workbench-v2 .task-compose-row > button[type='submit'] {
@@ -203,14 +231,16 @@
 .workbench-v2 .task-compose-extra input,
 .workbench-v2 .task-compose-extra select { color: var(--fg-primary); background: var(--surface); border-color: var(--border-strong); }
 
-.task-section { width: 100%; min-width: 0; margin-top: 28px; }
+.task-section { width: 100%; min-width: 0; margin-top: var(--workbench-section-gap); }
 .task-section > h2 { margin: 0 0 10px; color: var(--fg-secondary); font-size: 13px; font-weight: 650; }
 .workbench-v2 .task-list { display: grid; width: 100%; min-width: 0; gap: 2px; margin: 0; padding: 0; }
 .workbench-v2 .task-row {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  min-height: 52px;
-  padding: 5px 8px 5px calc(8px + var(--task-depth, 0) * 20px);
+  height: var(--task-row-height);
+  min-height: var(--task-row-height);
+  padding: 3px 8px 3px calc(8px + var(--task-depth, 0) * 20px);
   color: var(--fg-primary);
   background: transparent;
   border: 1px solid transparent;
@@ -227,6 +257,7 @@
   position: relative;
   width: 36px;
   height: 36px;
+  min-height: 36px;
   color: var(--brand-contrast);
   background: transparent;
   border: 0;
@@ -247,6 +278,7 @@
   position: relative;
   width: 36px;
   height: 36px;
+  min-height: 36px;
   background: transparent;
 }
 .workbench-v2 .task-priority-dot::after {
@@ -263,7 +295,7 @@
 .workbench-v2 .task-priority-dot:hover { transform: none; }
 .workbench-v2 .task-priority-dot:hover::after { transform: scale(1.25); }
 .workbench-v2 .task-main { width: 0; min-width: 0; flex: 1 1 0; overflow: hidden; }
-.workbench-v2 .task-title { display: block; width: 100%; max-width: 100%; color: var(--fg-primary); }
+.workbench-v2 .task-title { display: block; width: 100%; max-width: 100%; padding: 0; color: var(--fg-primary); text-align: left; background: transparent; border: 0; }
 .workbench-v2 .task-meta { color: var(--fg-secondary); }
 .workbench-v2 .task-meta > span { display: inline-flex; align-items: center; gap: 3px; }
 .workbench-v2 .task-status-label { display: none; }
@@ -411,7 +443,8 @@
 }
 .workbench-v2 .plan-card-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 11.5px; }
 .workbench-v2 .plan-timeline-hint { margin: 10px 0 0; color: var(--fg-tertiary); font-size: 11.5px; line-height: 1.5; }
-.workbench-v2 .timeline-health-marker--walk { color: var(--warning); background: var(--warning-subtle); }
+.workbench-v2 .timeline-health-marker--walk { color: var(--warning); }
+.workbench-v2 .timeline-health-marker--walk .timeline-health-marker__label { background: var(--warning-subtle); }
 .workbench-v2 .timeline-health-marker--walk::after { border-top-color: var(--warning); }
 
 /* ── Project sections (USERPLAN 1.2 PR5) ─────────────────────────────────── */
@@ -426,13 +459,14 @@
 }
 .workbench-v2 .project-section-header { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
 .workbench-v2 .project-section-header h2 { margin: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-v2 .project-section-name { max-width: 100%; padding: 0; color: inherit; font: inherit; text-align: left; background: transparent; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-v2 .project-section-tools { display: inline-flex; gap: 2px; align-items: center; margin-left: auto; }
 .workbench-v2 .project-section-count { color: var(--fg-tertiary); font-size: 11.5px; margin-right: 4px; font-variant-numeric: tabular-nums; }
 .workbench-v2 .project-section-tools button {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   color: var(--fg-tertiary);
   background: transparent;

@@ -80,10 +80,10 @@
   --color-text: var(--fg-primary);
   --color-text-muted: var(--fg-secondary);
   --color-accent: var(--brand);
+  --color-priority-normal: #8a9a8e;
+  --color-priority-important: #e67e22;
+  --color-priority-urgent: #c0392b;
   --surface-base: var(--bg-app);
   --surface-raised: var(--surface);
-  --radius-small: 6px;
-  --radius-medium: 10px;
-  --radius-large: 14px;
   --shadow-floating: var(--shadow-overlay);
 }

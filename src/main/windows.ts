@@ -322,15 +322,20 @@ export class AppWindows {
         this.workbenchWindow = null;
       }
     });
-    this.workbenchLoading = loadRenderer(window, 'workbench')
+    const loading = loadRenderer(window, 'workbench')
       .catch((error) => {
         console.error('[windows] workbench load rejected:', error);
         if (!window.isDestroyed()) window.destroy();
         if (this.workbenchWindow === window) this.workbenchWindow = null;
-      })
-      .finally(() => {
-        this.workbenchLoading = null;
       });
+    this.workbenchLoading = loading;
+    void loading.finally(() => {
+      // A failed/closed window can be replaced before this promise settles.
+      // Never let the stale load clear the replacement window's load guard.
+      if (this.workbenchLoading === loading) {
+        this.workbenchLoading = null;
+      }
+    });
   }
 
   closeWorkbenchWindow(): void {

@@ -98,6 +98,10 @@ const setup = await evaluate(pet, `(async () => {
   let tasks = await window.eyeProtect.createTask({ title: '修改论文', context: 'desk', plannedAt: Date.now() });
   const desk = tasks.find((task) => task.title === '修改论文');
   tasks = await window.eyeProtect.createTask({ title: '去打印室打印材料', context: 'away', remindOnBreak: true, priority: 'urgent', plannedAt: Date.now() });
+  const away = tasks.find((task) => task.title === '去打印室打印材料');
+  const localDate = new Date().toLocaleDateString('en-CA');
+  if (desk) await window.eyeProtect.upsertDailyPlan({ taskId: desk.id, localDate, dailyRank: 1, plannedMinutes: 60 });
+  if (away) await window.eyeProtect.upsertDailyPlan({ taskId: away.id, localDate, plannedMinutes: 20 });
   if (desk) await window.eyeProtect.setActiveTask(desk.id);
   await window.eyeProtect.saveSettings({ reminderMode: 'guided' });
   await window.eyeProtect.testReminder('combined');

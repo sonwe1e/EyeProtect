@@ -68,7 +68,7 @@ export function PetCharacter({
     <div
       className={`pet-character mood-${mood} ${isAnimating ? 'is-animating' : ''} ${reaction ? `is-reacting reaction-${reaction}` : ''}`.trim()}
       aria-label={character.name}
-      title={`单击互动，按住拖动，${doubleClickHint}`}
+      title={`单击互动，${doubleClickHint}`}
       onClick={react}
       onDoubleClick={onDoubleClick}
     >

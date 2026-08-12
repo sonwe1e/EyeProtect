@@ -15,12 +15,14 @@ export function SideSheet({
   children: ReactNode;
 }): JSX.Element | null {
   const panelRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const frame = requestAnimationFrame(() => focusFirst(panelRef.current));
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
       keepFocusInside(event, panelRef.current);
     };
     window.addEventListener('keydown', onKeyDown);
@@ -29,7 +31,7 @@ export function SideSheet({
       window.removeEventListener('keydown', onKeyDown);
       previouslyFocused?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

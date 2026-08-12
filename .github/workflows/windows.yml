@@ -123,6 +123,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Smoke test emergency reminder fallback
+        if: always()
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -140,6 +141,7 @@ jobs:
           }
 
       - name: Smoke test pet renderer startup isolation
+        if: always()
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'

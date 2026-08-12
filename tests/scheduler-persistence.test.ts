@@ -298,6 +298,36 @@ test('an active break session is serialized and recovered after a restart', () =
   });
 });
 
+test('a recovered session canonicalizes kinds from its reminder kind', () => {
+  const restore: ReminderSnapshot = {
+    nextEyeAt: T0 + 20 * MINUTE,
+    nextWalkAt: T0 + 60 * MINUTE,
+    pausedUntil: null,
+    snoozeCount: 0,
+    frozenEyeMs: null,
+    frozenWalkMs: null,
+    active: {
+      kind: 'eye',
+      kinds: ['walk'],
+      startedAt: T0,
+      scheduledAt: T0,
+      unlockAt: T0 + MINUTE,
+      snoozeAllowedAt: T0,
+      mode: 'focused',
+      snoozeCount: 0,
+      activityIds: [],
+      breakTask: null
+    }
+  };
+
+  const scheduler = new ReminderScheduler(baseSettings, {
+    now: () => T0,
+    restore
+  });
+  assert.equal(scheduler.getStatus().activeReminder?.kind, 'eye');
+  assert.deepEqual(scheduler.getStatus().activeReminder?.kinds, ['eye']);
+});
+
 test('a stale active session (past the grace window) is not recovered', () => {
   withTempDir((dir) => {
     let now = T0;

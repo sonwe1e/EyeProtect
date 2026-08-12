@@ -35,6 +35,30 @@ const waitForTarget = async (hash, timeoutMs = 10_000) => {
   throw new Error(`Timed out waiting for the ${hash} renderer`);
 };
 
+const call = async (target, method, params = {}) => {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const id = 1;
+      const timeout = setTimeout(() => reject(new Error(`${method} timed out`)), 10_000);
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(String(event.data));
+        if (message.id !== id) return;
+        clearTimeout(timeout);
+        if (message.error) reject(new Error(message.error.message));
+        else resolve(message.result);
+      });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+  } finally {
+    socket.close();
+  }
+};
+
 const evaluate = async (target, expression) => {
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
@@ -98,24 +122,42 @@ const waitForValue = async (target, expression, predicate, timeoutMs = 10_000) =
 };
 
 const petTarget = await waitForTarget('#pet');
+const petProbeStartedAt = Date.now();
 const pet = await waitForValue(
   petTarget,
-  `(async () => ({
-    bridge: typeof window.eyeProtect === 'object',
+  `(async () => {
+  const api = window.eyeProtect;
+  const methods = ['getCharacterCollection', 'getRuntimeInfo', 'getSettings'];
+  const ready = Boolean(api) && methods.every((name) => typeof api[name] === 'function');
+  if (!ready) {
+    return { bridge: false, href: location.href, readyState: document.readyState, methods: Object.fromEntries(methods.map((name) => [name, typeof api?.[name]])) };
+  }
+  const character = document.querySelector('.pet-character');
+  const dragHandle = document.querySelector('.pet-drag-handle');
+  return {
+    bridge: true,
+    href: location.href,
+    readyState: document.readyState,
     petShell: Boolean(document.querySelector('.pet-shell')),
-    character: Boolean(document.querySelector('.pet-character')),
+    character: Boolean(character),
+    characterRegion: character ? getComputedStyle(character).webkitAppRegion : null,
+    dragHandleRegion: dragHandle ? getComputedStyle(dragHandle).webkitAppRegion : null,
     proceduralSvg: Boolean(document.querySelector('.pet-character .procedural-character svg')),
-    collection: await window.eyeProtect.getCharacterCollection(),
-    runtime: await window.eyeProtect.getRuntimeInfo(),
-    settings: await window.eyeProtect.getSettings()
-  }))()`,
+    collection: await api.getCharacterCollection(),
+    runtime: await api.getRuntimeInfo(),
+    settings: await api.getSettings()
+  };
+})()`,
   (value) => Boolean(value?.bridge && value?.petShell && value?.character && value?.proceduralSvg && value?.collection?.candidate)
 );
+const bridgeReadyLatencyMs = Date.now() - petProbeStartedAt;
 
 if (
   !pet?.bridge ||
   !pet.petShell ||
   !pet.character ||
+  pet.characterRegion !== 'no-drag' ||
+  pet.dragHandleRegion !== 'drag' ||
   !pet.proceduralSvg ||
   !pet.collection?.candidate ||
   pet.runtime?.appVersion !== expectedVersion
@@ -123,8 +165,20 @@ if (
   throw new Error(`Pet renderer smoke check failed: ${JSON.stringify(pet)}`);
 }
 
-await evaluate(petTarget, "window.eyeProtect.openWorkbench('collection')");
+// A native drag region swallows DOM click events. Exercise a real CDP double
+// click on the character before using the bridge, proving the interactive
+// surface opens the Workbench while the separate drag handle remains native.
+const characterCenter = await evaluate(petTarget, `(() => {
+  const rect = document.querySelector('.pet-character')?.getBoundingClientRect();
+  return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.45 } : null;
+})()`);
+if (!characterCenter) throw new Error('Pet character click target was unavailable');
+for (const [type, clickCount] of [['mousePressed', 1], ['mouseReleased', 1], ['mousePressed', 2], ['mouseReleased', 2]]) {
+  await call(petTarget, 'Input.dispatchMouseEvent', { type, x: characterCenter.x, y: characterCenter.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount });
+}
 const workbenchTarget = await waitForTarget('#workbench');
+await waitForValue(workbenchTarget, `Boolean(document.querySelector('.today-page'))`, Boolean);
+await evaluate(petTarget, "window.eyeProtect.openWorkbench('collection')");
 const collection = await waitForValue(workbenchTarget, `(() => ({
   page: Boolean(document.querySelector('.collection-page')),
   candidate: Boolean(document.querySelector('.candidate-card .procedural-character svg'))
@@ -220,6 +274,7 @@ console.log(
   JSON.stringify(
     {
       pet,
+      bridgeReadyLatencyMs,
       collection,
       workbench,
       themeAudit

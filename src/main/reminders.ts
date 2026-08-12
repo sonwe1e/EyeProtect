@@ -579,7 +579,10 @@ export class ReminderScheduler extends EventEmitter {
    */
   activeSession(): PersistedBreakSession | null {
     const active = this.status.activeReminder;
-    if (!active) {
+    // Test reminders are deliberately ephemeral. Persisting one would make a
+    // restart recover it as a real break, which can write history and move the
+    // user's real reminder deadlines when acted on.
+    if (!active || this.activeIsTest) {
       return null;
     }
     return {
@@ -703,9 +706,13 @@ export class ReminderScheduler extends EventEmitter {
     ) {
       return null;
     }
-    const kinds = Array.isArray(value.kinds)
-      ? value.kinds.filter((k): k is SingleReminderKind => k === 'eye' || k === 'walk')
-      : [];
+    const kind: ReminderKind =
+      value.kind === 'walk' || value.kind === 'combined' ? value.kind : 'eye';
+    // `kind` is the canonical source of truth. Accepting an inconsistent
+    // persisted `kinds` array can make an eye reminder reschedule walking (or
+    // vice versa) after recovery.
+    const kinds: SingleReminderKind[] =
+      kind === 'combined' ? ['eye', 'walk'] : [kind];
     const activityIds = Array.isArray(value.activityIds)
       ? value.activityIds.filter((id): id is string => typeof id === 'string')
       : [];
@@ -714,8 +721,8 @@ export class ReminderScheduler extends EventEmitter {
         ? { id: value.breakTask.id, title: String(value.breakTask.title ?? '') }
         : null;
     return {
-      kind: value.kind === 'walk' || value.kind === 'combined' ? value.kind : 'eye',
-      kinds: kinds.length > 0 ? kinds : (value.kind === 'combined' ? ['eye', 'walk'] : [value.kind]),
+      kind,
+      kinds,
       startedAt: value.startedAt,
       scheduledAt: value.scheduledAt,
       unlockAt: value.unlockAt,

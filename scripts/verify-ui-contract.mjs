@@ -9,6 +9,7 @@ const requireMatch = (value, pattern, message) => {
 };
 
 const theme = read('src/renderer/src/styles/theme.css');
+const tokens = read('src/renderer/src/styles/tokens.css');
 const primitives = read('src/renderer/src/styles/primitives.css');
 const workbench = read('src/renderer/src/styles/workbench.css');
 const collection = read('src/renderer/src/styles/collection.css');
@@ -78,22 +79,58 @@ for (const [source, label] of [
 
 const workbenchSource = read('src/renderer/src/views/WorkbenchView.tsx');
 if (/workbench-shell/.test(workbenchSource)) failures.push('Workbench must not inherit the legacy shell stylesheet');
-const navBlock = workbenchSource.match(/const navItems:[\s\S]*?= \[([\s\S]*?)\n  \];/)?.[1] ?? '';
-const navIds = navBlock.match(/\{ id: '(today|inbox|plan|focus|projects)',/g) ?? [];
-if (navIds.length !== 5) failures.push(`Primary navigation must contain exactly 5 destinations; found ${navIds.length}`);
+// The navigation contract is asserted against the single source of truth in
+// workbench-navigation.ts (covered by tests/workbench-navigation.test.ts). The
+// renderer must consume that config rather than re-declaring a nav array.
+if (/\bnavItems\s*:\s*Array<\{[\s\S]*?id:\s*'(today|inbox|plan|focus|projects|review)'/.test(workbenchSource)) {
+  failures.push('WorkbenchView must not re-declare a nav array; consume workbenchNavigation.ts');
+}
 
 requireMatch(workbench, /\.app-nav-item\s*\{[^}]*min-height:\s*44px/s, 'Navigation rows must be at least 44px high');
 requireMatch(primitives, /\.ui-icon-button\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px/s, 'Icon buttons must have a 36px hitbox');
 requireMatch(primitives, /\.ui-button\s*\{[^}]*min-height:\s*40px/s, 'Buttons must be at least 40px high');
-requireMatch(workbench, /\.workbench-v2 \.task-row\s*\{[^}]*min-height:\s*52px/s, 'Task rows must exceed the 44px target');
+requireMatch(workbench, /\.workbench-v2 \.task-row\s*\{[^}]*min-height:\s*(52px|var\(--task-row-height\))/s, 'Task rows must exceed the 44px target');
 requireMatch(workbench, /@media \(forced-colors: active\)/, 'Workbench must provide a forced-colors treatment');
 requireMatch(plan, /touch-action:\s*none/, 'Plan drag handles must support direct pointer manipulation');
 requireMatch(primitives, /@media \(prefers-reduced-motion: reduce\)/, 'Motion primitives must honor reduced motion');
+
+// ── Design-system ownership (USERPLAN 1.2 B1/B8) ────────────────────────
+// theme.css owns semantic colors; tokens.css owns foundation. The same token
+// name must not appear in both. We compare the set of --custom-property names
+// each file declares at the top level (inside any selector block).
+const declared = (source) => {
+  const names = new Set();
+  const declaration = /(--[a-z0-9-]+)\s*:/g;
+  let m;
+  while ((m = declaration.exec(source)) !== null) names.add(m[1]);
+  return names;
+};
+const themeTokens = declared(theme);
+const foundationTokens = declared(tokens);
+const overlap = [...foundationTokens].filter((name) => themeTokens.has(name));
+if (overlap.length) {
+  failures.push(`Foundation tokens must not be redeclared in theme.css: ${overlap.join(', ')}`);
+}
+
+// Workbench must use a workspace container so feature layouts respond to the
+// real content area, not the full window (USERPLAN 1.2 B4).
+if (!/container-type:\s*inline-size/.test(workbench)) {
+  failures.push('Workbench must define a container-type: inline-size workspace');
+}
+if (!/container-name:\s*workspace/.test(workbench)) {
+  failures.push('Workbench must name its container "workspace"');
+}
+if (!/@container\s+workspace/.test(workbench)) {
+  failures.push('Workbench must use at least one @container workspace query');
+}
 
 const iconPath = resolve(root, 'public/assets/app-icon.ico');
 if (manifest.build?.win?.icon !== 'public/assets/app-icon.ico') failures.push('Windows packaging must use the branded app icon');
 if (!existsSync(iconPath) || statSync(iconPath).size < 1_000) failures.push('Windows app icon is missing or invalid');
 
+// ── Contrast is measured against the ACTUAL theme.css tokens (USERPLAN 1.2 B8).
+//    Values are read from the light/dark blocks and resolved through var()
+//    references, so a token change is caught here instead of in a hardcoded list.
 const hexToRgb = (hex) => {
   const value = Number.parseInt(hex.slice(1), 16);
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
@@ -107,15 +144,54 @@ const contrast = (foreground, background) => {
   return (values[0] + 0.05) / (values[1] + 0.05);
 };
 
-for (const [label, foreground, background, minimum] of [
-  ['light primary', '#1b211f', '#f7f8f6', 4.5],
-  ['light secondary', '#66706c', '#f7f8f6', 4.5],
-  ['light brand graphical', '#2e6f61', '#f7f8f6', 3],
-  ['dark primary', '#ecf1ee', '#111614', 4.5],
-  ['dark secondary', '#a7b2ac', '#111614', 4.5],
-  ['dark brand graphical', '#7fc1a6', '#111614', 3]
-]) {
-  const ratio = contrast(foreground, background);
+// Pull the declarations out of a `{ … }` block body.
+const declarationsIn = (block) => {
+  const map = new Map();
+  const declaration = /(--[a-z0-9-]+)\s*:\s*([^;]+);/g;
+  let match;
+  while ((match = declaration.exec(block)) !== null) map.set(match[1], match[2].trim());
+  return map;
+};
+
+// Resolve a token value to a concrete hex, following one level of var() indents.
+const resolveHex = (raw, tokens, seen) => {
+  const hex = raw.match(/^#([0-9a-f]{3,8})\b/i);
+  if (hex) return `#${hex[1]}`;
+  const ref = raw.match(/^var\((--[a-z0-9-]+)\)/);
+  if (ref && tokens.has(ref[1]) && !seen.has(ref[1])) {
+    seen.add(ref[1]);
+    return resolveHex(tokens.get(ref[1]), tokens, seen);
+  }
+  return null;
+};
+
+// Each theme block is the full `selector { … }` region for its theme.
+const lightBlock = theme.match(/:root,\s*:root\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+const darkBlock = theme.match(/:root\[data-theme='dark'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+const light = declarationsIn(lightBlock);
+const dark = declarationsIn(darkBlock);
+
+const lightBg = resolveHex(light.get('--bg-app'), light, new Set());
+const darkBg = resolveHex(dark.get('--bg-app'), dark, new Set());
+if (!lightBg) failures.push('theme.css light block must define --bg-app');
+if (!darkBg) failures.push('theme.css dark block must define --bg-app');
+
+const cases = [
+  ['light primary', light, '--fg-primary', lightBg, 4.5],
+  ['light secondary', light, '--fg-secondary', lightBg, 4.5],
+  ['light brand graphical', light, '--brand', lightBg, 3],
+  ['dark primary', dark, '--fg-primary', darkBg, 4.5],
+  ['dark secondary', dark, '--fg-secondary', darkBg, 4.5],
+  ['dark brand graphical', dark, '--brand', darkBg, 3]
+];
+for (const [label, tokens, fgToken, bg, minimum] of cases) {
+  const fg = resolveHex(tokens.get(fgToken), tokens, new Set());
+  if (!fg) {
+    failures.push(`${label} contrast: could not resolve ${fgToken} to a hex value`);
+    continue;
+  }
+  const ratio = contrast(fg, bg);
   if (ratio < minimum) failures.push(`${label} contrast ${ratio.toFixed(2)} is below ${minimum}:1`);
 }
 

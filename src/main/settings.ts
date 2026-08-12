@@ -77,11 +77,10 @@ export const resolveLaunchExecutable = ({
 };
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.min(max, Math.max(min, parsed));
+  return Math.min(max, Math.max(min, value));
 };
 
 const normalizePosition = (value: unknown): PetPosition | null => {

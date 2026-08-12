@@ -76,6 +76,29 @@ test('test reminders do not reset real schedules when completed', () => {
   assert.equal(after.nextWalkAt, before.nextWalkAt);
 });
 
+test('test reminders are not persisted or recovered as real reminders', () => {
+  const clock = makeClock();
+  const events: ReminderEvent[] = [];
+  const first = new ReminderScheduler(makeSettings(), { now: clock.now });
+  const before = first.getStatus();
+
+  assert.ok(first.triggerTest('eye').activeReminder, 'test reminder is active in memory');
+  const snapshot = first.serialize();
+  assert.equal(snapshot.active, null, 'test reminder is excluded from checkpoints');
+
+  clock.advance(5_000);
+  const restored = new ReminderScheduler(makeSettings(), {
+    now: clock.now,
+    restore: snapshot,
+    onEvent: (event) => events.push(event)
+  });
+  const after = restored.getStatus();
+  assert.equal(after.activeReminder, null);
+  assert.equal(after.nextEyeAt, before.nextEyeAt);
+  assert.equal(after.nextWalkAt, before.nextWalkAt);
+  assert.deepEqual(events, []);
+});
+
 test('pause freezes remaining time and resume continues from it', () => {
   const { clock, scheduler } = makeScheduler();
   scheduler.triggerTest('walk');

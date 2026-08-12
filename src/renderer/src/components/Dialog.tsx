@@ -19,6 +19,8 @@ export function Dialog({
   footer?: ReactNode;
 }): JSX.Element | null {
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const titleId = useId();
   const descriptionId = useId();
 
@@ -29,7 +31,7 @@ export function Dialog({
       focusFirst(panelRef.current);
     });
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
       keepFocusInside(event, panelRef.current);
     };
     window.addEventListener('keydown', onKeyDown);
@@ -38,7 +40,7 @@ export function Dialog({
       window.removeEventListener('keydown', onKeyDown);
       previouslyFocused?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

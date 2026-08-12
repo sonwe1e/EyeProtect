@@ -369,10 +369,14 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
               <div key={minutes} className="timeline-hour" style={{ top: (minutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><span>{clockLabel(minutes)}</span></div>
             ))}
             {eyeMinutes !== null ? (
-              <div className="timeline-health-marker" style={{ top: (eyeMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><Eye size={13} /><span>护眼</span></div>
+              <div className="timeline-health-marker" style={{ top: (eyeMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}>
+                <span className="timeline-health-marker__label"><Eye size={13} /><span>护眼</span></span>
+              </div>
             ) : null}
             {walkMinutes !== null ? (
-              <div className="timeline-health-marker timeline-health-marker--walk" style={{ top: (walkMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}><Footprints size={13} /><span>走动</span></div>
+              <div className="timeline-health-marker timeline-health-marker--walk" style={{ top: (walkMinutes - windowStartMinutes) * PIXELS_PER_MINUTE }}>
+                <span className="timeline-health-marker__label"><Footprints size={13} /><span>走动</span></span>
+              </div>
             ) : null}
             <div className="timeline-blocks">{blocksOfDay.map((block) => {
               const position = layout.get(block.id) ?? { lane: 0, count: 1 };

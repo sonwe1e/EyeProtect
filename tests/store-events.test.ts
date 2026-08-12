@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { sanitizeSettings, SettingsStore } from '../src/main/settings';
-import { ALARM_LABEL_MAX, TODO_TEXT_MAX, sanitizeAlarm, sanitizeTodo } from '../src/shared/types';
+import {
+  ALARM_LABEL_MAX,
+  TODO_TEXT_MAX,
+  sanitizeAlarm,
+  sanitizeTodo,
+  type Settings
+} from '../src/shared/types';
 
 const withTempStore = (fn: (store: SettingsStore, dir: string) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-e-'));
@@ -212,6 +218,32 @@ test('activity threshold, theme and density use bounded supported values', () =>
   assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).density, 'compact');
   assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).theme, 'system');
   assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).density, 'comfortable');
+});
+
+test('invalid numeric setting shapes fall back instead of coercing to zero', () => {
+  const defaults = sanitizeSettings({});
+  const invalidValues: unknown[] = [null, '', false, Number.NaN];
+  const numericKeys = [
+    'eyeIntervalMinutes',
+    'walkIntervalMinutes',
+    'snoozeMinutes',
+    'naturalBreakMinutes',
+    'dailyCapacityMinutes',
+    'workStartMinutes',
+    'workEndMinutes',
+    'preAlertSeconds',
+    'petScale',
+    'quietHoursStartMinutes',
+    'quietHoursEndMinutes'
+  ] as const satisfies ReadonlyArray<keyof Settings>;
+
+  for (const value of invalidValues) {
+    const input = Object.fromEntries(numericKeys.map((key) => [key, value]));
+    const sanitized = sanitizeSettings(input as Partial<Settings>);
+    for (const key of numericKeys) {
+      assert.equal(sanitized[key], defaults[key], `${key} should fall back for ${String(value)}`);
+    }
+  }
 });
 
 test('scene and adaptive preferences sanitize times and executable names without paths', () => {

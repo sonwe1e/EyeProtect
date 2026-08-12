@@ -84,6 +84,7 @@ export default function PetView(): JSX.Element {
               : '双击打开工作台'
           }
         />
+        <div className="pet-drag-handle" aria-hidden="true" title="按住拖动桌宠" />
       </div>
 
       {hasGift ? (
