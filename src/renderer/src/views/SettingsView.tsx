@@ -593,8 +593,8 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
 
       <section className="settings-section">
         <h2>桌宠</h2>
-        <label className="detail-field"><span>主题</span><select value={settings.theme} onChange={(event) => void update({ theme: event.currentTarget.value as typeof settings.theme })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-        <label className="detail-field"><span>信息密度</span><select value={settings.density} onChange={(event) => void update({ density: event.currentTarget.value as typeof settings.density })}><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
+        <label className="settings-inline-field"><span>主题</span><select value={settings.theme} onChange={(event) => void update({ theme: event.currentTarget.value as typeof settings.theme })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        <label className="settings-inline-field"><span>信息密度</span><select value={settings.density} onChange={(event) => void update({ density: event.currentTarget.value as typeof settings.density })}><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
         <NumberField
           label="桌宠缩放"
           value={Math.round(settings.petScale * 100)}

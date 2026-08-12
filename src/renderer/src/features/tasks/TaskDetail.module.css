@@ -1,0 +1,256 @@
+.root {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  padding: 22px 24px 20px;
+  color: var(--fg-primary);
+  background: var(--surface);
+}
+
+.root :global(.detail-header) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.root :global(.detail-title-input) {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  color: var(--fg-primary);
+  font-size: 21px;
+  font-weight: 680;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+}
+
+.root :global(.detail-title-input:hover) { border-bottom-color: var(--border-subtle); }
+.root :global(.detail-title-input:focus) { border-bottom-color: var(--brand); outline: 0; }
+.root :global(.detail-save-state) { flex: none; color: var(--fg-tertiary); font-size: 11px; }
+.root :global(.detail-save-state.is-error) { color: var(--danger); }
+
+.root :global(.detail-notes-field) {
+  display: grid;
+  gap: 6px;
+  padding: 0 0 18px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+
+.root :global(.detail-notes-field textarea) {
+  width: 100%;
+  min-height: 82px;
+  padding: 9px 10px;
+  color: var(--fg-primary);
+  line-height: 1.55;
+  resize: vertical;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-medium);
+}
+
+.root :global(.detail-notes-field textarea:hover) { background: var(--surface-hover); }
+.root :global(.detail-notes-field textarea:focus) {
+  background: var(--surface-raised);
+  border-color: var(--brand);
+  outline: 2px solid color-mix(in srgb, var(--focus-ring) 20%, transparent);
+}
+
+.root :global(.detail-section) {
+  display: grid;
+  gap: 0;
+  padding: 17px 0 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.root :global(.detail-section h2) {
+  margin: 0 0 8px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.root :global(.detail-property-grid) { display: grid; }
+.root :global(.detail-field-row) { display: contents; }
+
+.root :global(.detail-field) {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 5px 0;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.root :global(.detail-field > span:first-child),
+.root :global(.detail-field > label:first-child),
+.root :global(.detail-field > legend) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+
+.root :global(.detail-field > input:not([type='checkbox'])),
+.root :global(.detail-field > select),
+.root :global(.detail-field > .segmented),
+.root :global(.detail-field > .detail-empty-value) {
+  grid-column: 2;
+}
+
+.root :global(.detail-field input:not([type='checkbox'])),
+.root :global(.detail-field select) {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  color: var(--fg-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-medium);
+}
+
+.root :global(.detail-field input:not([type='checkbox']):hover),
+.root :global(.detail-field select:hover) { background: var(--surface-hover); }
+
+.root :global(.detail-field input:focus),
+.root :global(.detail-field select:focus) {
+  background: var(--surface-raised);
+  border-color: var(--brand);
+  outline: 2px solid color-mix(in srgb, var(--focus-ring) 20%, transparent);
+  outline-offset: 0;
+}
+
+.root :global(.detail-field select:disabled) { color: var(--fg-disabled); cursor: not-allowed; }
+.root :global(.detail-field-error) { grid-column: 2 / -1; color: var(--danger); font-size: 11.5px; }
+.root :global(input[type='checkbox']) { accent-color: var(--brand); }
+
+.root :global(.segmented) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.root :global(.segmented button) {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--fg-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+}
+
+.root :global(.segmented button:hover) { color: var(--fg-primary); background: var(--surface-hover); }
+.root :global(.segmented button.is-active) { color: var(--fg-primary); font-weight: 650; background: var(--surface-selected); }
+
+.root :global(.detail-priority-swatch) {
+  width: 7px;
+  height: 7px;
+  background: var(--color-priority-normal);
+  border-radius: 50%;
+}
+
+.root :global(.detail-priority-swatch[data-priority='important']) { background: var(--warning); }
+.root :global(.detail-priority-swatch[data-priority='urgent']) { background: var(--danger); }
+
+.root :global(.detail-break-option) {
+  grid-template-columns: 104px auto minmax(0, 1fr);
+  min-height: 44px;
+  padding: 5px 0;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.root :global(.detail-break-option .detail-row-label) { color: var(--fg-secondary); }
+
+.root :global(.detail-check) {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+}
+
+.root :global(.detail-empty-value) {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--fg-secondary);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-medium);
+}
+
+.root :global(.detail-empty-value:hover) { color: var(--fg-primary); background: var(--surface-hover); }
+
+.root :global(.detail-advanced) {
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.root :global(.detail-advanced summary) {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.root :global(.detail-advanced-body) { display: grid; padding-bottom: 8px; }
+.root :global(.detail-advanced-body .detail-field:last-child) { border-bottom: 0; }
+.root :global(.detail-advanced-body .weekday-picker) { margin: 8px 0 8px 112px; }
+.root :global(.weekday-picker) { display: flex; flex-wrap: wrap; gap: 6px; }
+.root :global(.weekday-picker button) { width: 36px; height: 36px; color: var(--fg-secondary); background: transparent; border: 1px solid var(--border-strong); border-radius: 50%; }
+.root :global(.weekday-picker button.is-active) { color: var(--brand-contrast); background: var(--brand); border-color: var(--brand); }
+.root :global(.detail-recurrence-apply) { grid-column: 2; min-height: 36px; color: var(--fg-primary); background: var(--surface-hover); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); }
+
+.root :global(.detail-footer) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.root :global(.detail-timestamps) { color: var(--fg-tertiary); font-size: 10.5px; }
+.root :global(.detail-active),
+.root :global(.detail-delete) { min-height: 40px; }
+.root :global(.detail-delete) { color: var(--danger); }
+
+@media (max-width: 520px) {
+  .root { padding-inline: 18px; }
+  .root :global(.detail-field) { grid-template-columns: 88px minmax(0, 1fr) auto; }
+  .root :global(.detail-break-option) { grid-template-columns: 88px auto minmax(0, 1fr); }
+  .root :global(.detail-advanced-body .weekday-picker) { margin-left: 96px; }
+  .root :global(.detail-footer) { grid-template-columns: 1fr 1fr; }
+  .root :global(.detail-timestamps) { grid-column: 1 / -1; }
+}
+
+@media (forced-colors: active) {
+  .root :global(.segmented button.is-active),
+  .root :global(.detail-empty-value:focus-visible) { outline: 2px solid Highlight; }
+}

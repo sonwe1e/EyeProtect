@@ -37,7 +37,7 @@ function ProjectItem({ project, count, isActive, onSelect }: {
   }, [remove.isPending, remove.reset]);
 
   return (
-    <li className={`project-item ${isActive ? 'is-active' : ''}`.trim()} style={{ ['--chip-color' as string]: project.color ?? '#718078' }} onClick={() => onSelect(project.id)}>
+    <li className={`project-item ${isActive ? 'is-active' : ''}`.trim()} onClick={() => onSelect(project.id)}>
       <ProjectDot color={project.color} className="project-item-dot" />
       {isRenaming ? (
         <input

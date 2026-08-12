@@ -1,8 +1,37 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const port = Number(process.argv[2] ?? 9333);
 const outputDir = resolve(process.argv[3] ?? 'artifacts/ui-snapshots');
+const repeatFlag = process.argv.indexOf('--repeat');
+const repeat = repeatFlag >= 0 ? Number(process.argv[repeatFlag + 1] ?? 1) : 1;
+
+if (!Number.isInteger(repeat) || repeat < 1 || repeat > 10) {
+  throw new Error('--repeat must be an integer between 1 and 10');
+}
+
+if (repeat > 1) {
+  const metricSnapshots = [];
+  const temporaryDirs = [];
+  for (let pass = 1; pass <= repeat; pass += 1) {
+    const passDir = pass === repeat ? outputDir : resolve(outputDir, `.repeat-${pass}`);
+    if (pass !== repeat) temporaryDirs.push(passDir);
+    const result = spawnSync(process.execPath, [process.argv[1], String(port), passDir], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: 'inherit'
+    });
+    if (result.status !== 0) process.exit(result.status ?? 1);
+    metricSnapshots.push(readFileSync(resolve(passDir, 'layout-metrics.json'), 'utf8'));
+  }
+  if (metricSnapshots.some((snapshot) => snapshot !== metricSnapshots[0])) {
+    throw new Error('capture:ui repeat produced different layout metrics after fixture reset');
+  }
+  for (const directory of temporaryDirs) rmSync(directory, { recursive: true, force: true });
+  console.log(`capture:ui completed ${repeat} identical fixture/layout passes`);
+  process.exit(0);
+}
 const endpoint = `http://127.0.0.1:${port}`;
 const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
@@ -241,6 +270,10 @@ const collectLayoutMetrics = (target) => evaluate(target, `(() => {
   const workspace = document.querySelector('.workspace-scroll');
   const page = document.querySelector('.workspace-page');
   const board = document.querySelector('.project-board');
+  const planLayout = document.querySelector('.plan-layout');
+  const planBacklog = document.querySelector('.plan-backlog');
+  const planTimeline = document.querySelector('.plan-timeline');
+  const dateStrip = document.querySelector('.plan-day-switch');
   const row = document.querySelector('.task-row');
   return {
     viewportWidth: innerWidth,
@@ -254,6 +287,14 @@ const collectLayoutMetrics = (target) => evaluate(target, `(() => {
     pageHeader: rect('.page-header'),
     planTitle: rect('.plan-page .page-header h1'),
     planDateStrip: rect('.plan-day-switch'),
+    planColumnCount: planLayout instanceof HTMLElement ? getComputedStyle(planLayout).gridTemplateColumns.split(/\s+/).filter(Boolean).length : null,
+    planColumnsShareRow: planBacklog instanceof HTMLElement && planTimeline instanceof HTMLElement
+      ? Math.abs(planBacklog.getBoundingClientRect().top - planTimeline.getBoundingClientRect().top) < 2
+      : null,
+    planColumnsSideBySide: planBacklog instanceof HTMLElement && planTimeline instanceof HTMLElement
+      ? planTimeline.getBoundingClientRect().left > planBacklog.getBoundingClientRect().right
+      : null,
+    planDateStripContained: dateStrip instanceof HTMLElement ? dateStrip.scrollWidth <= dateStrip.clientWidth : null,
     projectBoardClientWidth: board?.clientWidth ?? null,
     projectBoardScrollWidth: board?.scrollWidth ?? null,
     primaryNavCount: document.querySelectorAll('.primary-nav .app-nav-item').length,
@@ -281,38 +322,45 @@ mkdirSync(outputDir, { recursive: true });
 const pet = await waitForTarget('#pet');
 await waitFor(pet, `(async () => {
   const api = window.eyeProtect;
-  const methods = ['getTasks', 'createTask', 'getProjects', 'createProject', 'updateProject', 'updateTask', 'setActiveTask', 'upsertDailyPlan', 'saveSettings', 'openWorkbench', 'getCharacterCollection'];
+  const methods = ['getTasks', 'createTask', 'deleteTask', 'getProjects', 'createProject', 'deleteProject', 'updateProject', 'updateTask', 'setActiveTask', 'upsertDailyPlan', 'createTimeBlock', 'createProjectSection', 'startFocus', 'pauseFocus', 'saveSettings', 'openWorkbench', 'getCharacterCollection'];
   return Boolean(api) && methods.every((name) => typeof api[name] === 'function');
 })()`);
 await evaluate(pet, `(async () => {
-  let tasks = await window.eyeProtect.getTasks();
-  if (!tasks.some((task) => task.title === '完成 UI 2.0 验收')) {
-    tasks = await window.eyeProtect.createTask({ title: '完成 UI 2.0 验收', priority: 'urgent', plannedAt: Date.now(), estimateMinutes: 60 });
-    tasks = await window.eyeProtect.createTask({ title: '整理今日工作记录', plannedAt: Date.now(), estimateMinutes: 25 });
-    tasks = await window.eyeProtect.createTask({ title: '安排明天的研究计划', estimateMinutes: 45 });
-  }
+  const focusStatus = await window.eyeProtect.getFocusStatus();
+  if (focusStatus.session) await window.eyeProtect.pauseFocus();
+  await window.eyeProtect.setActiveTask(null);
+  for (const task of await window.eyeProtect.getTasks()) await window.eyeProtect.deleteTask(task.id);
+  for (const project of await window.eyeProtect.getProjects()) await window.eyeProtect.deleteProject(project.id);
+
+  let tasks = await window.eyeProtect.createTask({ title: '完成 UI 2.0 验收', priority: 'urgent', estimateMinutes: 60 });
+  tasks = await window.eyeProtect.createTask({ title: '整理今日工作记录', estimateMinutes: 25 });
+  tasks = await window.eyeProtect.createTask({ title: '安排明天的研究计划', estimateMinutes: 45 });
   const focusParent = tasks.find((task) => task.title === '完成 UI 2.0 验收');
-  if (focusParent && !tasks.some((task) => task.parentId === focusParent.id)) {
+  if (focusParent) {
     tasks = await window.eyeProtect.createTask({ title: '核对深色主题', parentId: focusParent.id, plannedAt: Date.now(), estimateMinutes: 15 });
     tasks = await window.eyeProtect.createTask({ title: '检查键盘焦点', parentId: focusParent.id, plannedAt: Date.now(), estimateMinutes: 15 });
   }
-  let projects = await window.eyeProtect.getProjects();
-  if (!projects.some((project) => project.name === 'Research')) {
-    projects = await window.eyeProtect.createProject({ name: 'Research', color: '#2e6f61' });
-  }
+  const projects = await window.eyeProtect.createProject({ name: 'Research', color: '#2e6f61' });
   const research = projects.find((project) => project.name === 'Research');
   if (research) {
     await window.eyeProtect.updateProject(research.id, { goal: '完成 UI 2.0 并通过真实 Windows 验收', viewMode: 'list' });
     for (const task of tasks.filter((entry) => entry.title === '完成 UI 2.0 验收' || entry.title === '整理今日工作记录')) {
       await window.eyeProtect.updateTask(task.id, { projectId: research.id });
     }
+    await window.eyeProtect.createProjectSection({ projectId: research.id, name: 'Doing' });
+    await window.eyeProtect.createProjectSection({ projectId: research.id, name: 'Waiting' });
   }
   const focusTask = tasks.find((task) => task.title === '完成 UI 2.0 验收');
   const recordTask = tasks.find((task) => task.title === '整理今日工作记录');
   const localDate = new Date().toLocaleDateString('en-CA');
   if (focusTask) await window.eyeProtect.upsertDailyPlan({ taskId: focusTask.id, localDate, dailyRank: 1, plannedMinutes: 60 });
   if (recordTask) await window.eyeProtect.upsertDailyPlan({ taskId: recordTask.id, localDate, plannedMinutes: 25 });
-  if (focusTask) await window.eyeProtect.setActiveTask(focusTask.id);
+  if (focusTask) {
+    const start = new Date();
+    start.setHours(10, 0, 0, 0);
+    const timeBlock = await window.eyeProtect.createTimeBlock({ taskId: focusTask.id, startAt: start.getTime(), endAt: start.getTime() + 60 * 60_000, source: 'planner' });
+    await window.eyeProtect.startFocus(focusTask.id, timeBlock.id);
+  }
   await window.eyeProtect.saveSettings({ theme: 'light' });
   await window.eyeProtect.openWorkbench('today');
 })()`);
@@ -326,7 +374,7 @@ await auditComputedTheme(workbench, 'light', [
 ]);
 await capture(workbench, 'today-light.png');
 
-await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark', reminderMode: 'guided' })`);
 await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
 await auditComputedTheme(workbench, 'dark', [
   ['app shell', '.workbench-v2'],
@@ -397,53 +445,6 @@ for (const [label, file, ready] of [
     await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
     await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
   }
-  if (label === '计划') {
-    const dragPoints = await evaluate(workbench, `(() => {
-      const source = [...document.querySelectorAll('.plan-task-card')].find((entry) => entry.textContent?.includes('安排明天的研究计划'))?.getBoundingClientRect();
-      const target = document.querySelector('.timeline-grid')?.getBoundingClientRect();
-      return source && target ? {
-        from: { x: source.left + source.width / 2, y: source.top + source.height / 2 },
-        to: { x: target.left + Math.min(180, target.width / 2), y: target.top + 125 }
-      } : null;
-    })()`);
-    if (!dragPoints) throw new Error('Plan drag-and-drop targets were not available');
-    await dragPointer(workbench, dragPoints.from, dragPoints.to);
-    await delay(700);
-    const movedByPointer = await evaluate(workbench, `[...document.querySelectorAll('.timeline-block-title')].some((entry) => entry.textContent?.includes('安排明天的研究计划'))`);
-    if (!movedByPointer) {
-      // The preceding packaged journey reuses the same BrowserWindow and can
-      // leave Chromium's HTML5 drag session stale. The pointer path has still
-      // been exercised; use the visible keyboard/pointer alternative so the
-      // rest of this screenshot suite remains independent and repeatable.
-      console.warn('Plan pointer drag was not committed; using the visible 09:00 alternative');
-      const scheduledByButton = await evaluate(workbench, `(() => {
-        const card = [...document.querySelectorAll('.plan-task-card')].find((entry) => entry.textContent?.includes('安排明天的研究计划'));
-        const button = card ? [...card.querySelectorAll('button')].find((entry) => entry.textContent?.includes('放到 09:00')) : null;
-        if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
-        button.click();
-        return true;
-      })()`);
-      if (!scheduledByButton) throw new Error('Plan drag and its visible scheduling alternative both failed');
-    }
-    await waitFor(workbench, `[...document.querySelectorAll('.timeline-block-title')].some((entry) => entry.textContent?.includes('安排明天的研究计划'))`);
-    const resizePoints = await evaluate(workbench, `(() => {
-      const block = [...document.querySelectorAll('.timeline-block')].find((entry) => entry.textContent?.includes('安排明天的研究计划'));
-      const handle = block?.querySelector('.timeline-block-resize')?.getBoundingClientRect();
-      return handle ? { from: { x: handle.left + handle.width / 2, y: handle.top + handle.height / 2 }, to: { x: handle.left + handle.width / 2, y: handle.top + handle.height / 2 + 30 } } : null;
-    })()`);
-    if (!resizePoints) throw new Error('Plan resize handle was not available');
-    await dragPointer(workbench, resizePoints.from, resizePoints.to);
-    // PR4 semantics: resizing changes the TimeBlock interval, never the task's
-    // estimate. The 45-minute dropped block grows by one 30px (30m) step.
-    await waitFor(workbench, `(async () => {
-      const tasks = await window.eyeProtect.getTasks();
-      const target = tasks.find((task) => task.title === '安排明天的研究计划');
-      if (!target) return false;
-      const blocks = await window.eyeProtect.getTimeBlocks();
-      return blocks.some((block) => block.taskId === target.id && Math.round((block.endAt - block.startAt) / 60000) === 75);
-    })()`);
-    await capture(workbench, 'plan-interaction-dark.png');
-  }
 }
 
 await evaluate(workbench, `([...document.querySelectorAll('.project-item')].find((entry) => entry.textContent?.includes('Research')))?.click()`);
@@ -464,77 +465,8 @@ const boardState = await evaluate(workbench, `(async () => ({
 }))()`);
 if (!boardState.rendered) throw new Error(`Project board did not render: ${JSON.stringify(boardState)}`);
 await waitFor(workbench, `Boolean(document.querySelector('.project-board'))`);
-// PR5 semantics: board columns are project sections (ADR-002). Create two
-// stages over the bridge, then drag a card into one of them.
-await evaluate(workbench, `(async () => {
-  const projects = await window.eyeProtect.getProjects();
-  const research = projects.find((project) => project.name === 'Research');
-  if (!research) throw new Error('Research project missing');
-  await window.eyeProtect.createProjectSection({ projectId: research.id, name: 'Doing' });
-  await window.eyeProtect.createProjectSection({ projectId: research.id, name: 'Waiting' });
-})()`);
 await waitFor(workbench, `[...document.querySelectorAll('.project-board-column h2')].some((entry) => entry.textContent?.includes('Doing'))`);
 await capture(workbench, 'project-board-dark.png');
-const boardDragPoints = await evaluate(workbench, `(() => {
-  const source = [...document.querySelectorAll('.project-board-card')].find((entry) => entry.textContent?.includes('整理今日工作记录'))?.getBoundingClientRect();
-  const column = [...document.querySelectorAll('.project-board-column')].find((entry) => entry.querySelector('h2')?.textContent?.includes('Doing'));
-  const target = column?.getBoundingClientRect();
-  return source && target ? {
-    from: { x: source.left + source.width / 2, y: source.top + Math.min(32, source.height / 2) },
-    to: { x: target.left + target.width / 2, y: target.top + Math.min(90, target.height / 2) }
-  } : null;
-})()`);
-if (!boardDragPoints) throw new Error('Project board drag targets were not available');
-await dragPointer(workbench, boardDragPoints.from, boardDragPoints.to);
-await delay(700);
-const sectionAssigned = () => evaluate(workbench, `(async () => {
-  const projects = await window.eyeProtect.getProjects();
-  const research = projects.find((project) => project.name === 'Research');
-  const sections = research ? await window.eyeProtect.getProjectSections(research.id) : [];
-  const doing = sections.find((entry) => entry.name === 'Doing');
-  if (!doing) return false;
-  const tasks = await window.eyeProtect.getTasks();
-  return tasks.some((task) => task.title === '整理今日工作记录' && task.sectionId === doing.id);
-})()`);
-if (!(await sectionAssigned())) {
-  // Same packaged-BrowserWindow drag staleness as the plan journey: fall back
-  // to the visible section selector in the task detail sheet.
-  console.warn('Board pointer drag was not committed; using the task detail section selector');
-  await evaluate(workbench, `(() => {
-    const card = [...document.querySelectorAll('.project-board-card')].find((entry) => entry.textContent?.includes('整理今日工作记录'));
-    card?.querySelector('.project-board-card__title')?.click();
-    return Boolean(card);
-  })()`);
-  await waitFor(workbench, `Boolean(document.querySelector('.ui-side-sheet select'))`);
-  await evaluate(workbench, `(async () => {
-    const projects = await window.eyeProtect.getProjects();
-    const research = projects.find((project) => project.name === 'Research');
-    const sections = research ? await window.eyeProtect.getProjectSections(research.id) : [];
-    const doing = sections.find((entry) => entry.name === 'Doing');
-    const select = [...document.querySelectorAll('.ui-side-sheet select')].find((entry) =>
-      [...entry.options].some((option) => option.textContent === 'Doing')
-    );
-    if (!select || !doing || select.disabled) return false;
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
-    setter?.call(select, doing.id);
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
-  await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape' });
-  await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape' });
-  await waitFor(workbench, `!document.querySelector('.ui-side-sheet')`);
-}
-// The drop moves the task into the Doing SECTION — focus state plays no part.
-await waitFor(workbench, `(async () => {
-  const projects = await window.eyeProtect.getProjects();
-  const research = projects.find((project) => project.name === 'Research');
-  const sections = research ? await window.eyeProtect.getProjectSections(research.id) : [];
-  const doing = sections.find((entry) => entry.name === 'Doing');
-  if (!doing) return false;
-  const tasks = await window.eyeProtect.getTasks();
-  return tasks.some((task) => task.title === '整理今日工作记录' && task.sectionId === doing.id);
-})()`);
-await capture(workbench, 'project-board-interaction-dark.png');
 await evaluate(workbench, `document.querySelector('.project-add')?.click()`);
 await waitFor(workbench, `Boolean(document.querySelector('.ui-dialog'))`);
 await capture(workbench, 'project-dialog-dark.png');
@@ -563,6 +495,30 @@ for (const [width, height] of [[944, 561], [960, 600]]) {
   await capture(workbench, `today-dark-${width}x${height}.png`);
 
   if (width === 960) {
+    await evaluate(workbench, `document.querySelector('.task-row')?.click()`);
+    await waitFor(workbench, `Boolean(document.querySelector('.ui-side-sheet'))`);
+    const sheetMetrics = await evaluate(workbench, `(() => {
+      const sheet = document.querySelector('.ui-side-sheet');
+      const body = document.querySelector('.ui-side-sheet__body');
+      const bounds = sheet?.getBoundingClientRect();
+      return { left: bounds?.left, right: bounds?.right, top: bounds?.top, bottom: bounds?.bottom, viewportWidth: innerWidth, viewportHeight: innerHeight, bodyClientWidth: body?.clientWidth, bodyScrollWidth: body?.scrollWidth };
+    })()`);
+    if (sheetMetrics.left < 0 || sheetMetrics.right > width || sheetMetrics.top < 0 || sheetMetrics.bottom > height || sheetMetrics.bodyScrollWidth > sheetMetrics.bodyClientWidth) {
+      throw new Error(`Task Detail 960x600 is clipped: ${JSON.stringify(sheetMetrics)}`);
+    }
+    await capture(workbench, 'task-detail-dark-960x600.png');
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await waitFor(workbench, `!document.querySelector('.ui-side-sheet')`);
+
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', code: 'KeyK', modifiers: 2 });
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'k', code: 'KeyK', modifiers: 2 });
+    await waitFor(workbench, `Boolean(document.querySelector('.command-palette-list'))`);
+    await capture(workbench, 'command-palette-dark-960x600.png');
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await waitFor(workbench, `!document.querySelector('.command-palette-list')`);
+
     await evaluate(workbench, `window.eyeProtect.saveSettings({ density: 'compact' })`);
     await waitFor(workbench, `document.documentElement.dataset.density === 'compact'`);
     const compactMetrics = await collectLayoutMetrics(workbench);
@@ -584,11 +540,15 @@ for (const [width, height] of [[944, 561], [960, 600]]) {
   if (!title || !strip || title.width < 40 || title.height > 60 || overlaps) {
     throw new Error(`Plan ${width}x${height}: title/date strip layout failed: ${JSON.stringify(planMetrics)}`);
   }
+  if (!planMetrics.planColumnsShareRow || !planMetrics.planColumnsSideBySide || !planMetrics.planDateStripContained) {
+    throw new Error(`Plan ${width}x${height}: dual-column/date-grid contract failed: ${JSON.stringify(planMetrics)}`);
+  }
   acceptanceMetrics.push({ surface: 'plan', width, height, ...planMetrics });
   await capture(workbench, `plan-dark-${width}x${height}.png`);
 
   await evaluate(workbench, `([...document.querySelectorAll('.project-item')].find((entry) => entry.textContent?.includes('Research')))?.click()`);
   await waitFor(workbench, `Boolean(document.querySelector('.project-page'))`);
+  if (width === 960) await capture(workbench, 'project-list-dark-960x600.png');
   const boardButton = await evaluate(workbench, `(() => {
     const button = [...document.querySelectorAll('.project-view-switch button')].find((entry) => entry.textContent?.includes('看板'));
     if (!(button instanceof HTMLButtonElement)) return false;
@@ -628,8 +588,7 @@ await waitFor(workbench, `Boolean(document.querySelector('.today-page'))`);
 const hostScale = await evaluate(workbench, `devicePixelRatio`);
 for (const [width, height, file] of [
   [1280, 720, 'today-dark-1280x720.png'],
-  [1920, 1080, 'today-dark-1920x1080.png'],
-  [2560, 1440, 'today-dark-2560x1440.png']
+  [1440, 900, 'today-dark-1440x900.png']
 ]) {
   await call(workbench, 'Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: hostScale, mobile: false });
   const metrics = await evaluate(workbench, `({ width: innerWidth, height: innerHeight, scale: devicePixelRatio })`);
@@ -642,7 +601,7 @@ for (const [width, height, file] of [
 // Wider core-surface matrix: the narrow acceptance cases above prove the
 // containment thresholds; these captures guard hierarchy and density at the
 // common desktop widths where most users will live.
-for (const [width, height] of [[1280, 720], [1920, 1080]]) {
+for (const [width, height] of [[1280, 720], [1440, 900]]) {
   await setViewport(workbench, width, height, hostScale);
   await selectNavigation(workbench, '计划', '.plan-page');
   const planMetrics = await collectLayoutMetrics(workbench);
@@ -702,8 +661,10 @@ try {
 } finally {
   mediaSession.close();
 }
-await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark', reminderMode: 'guided' })`);
 await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
+await waitFor(pet, `document.documentElement.dataset.theme === 'dark'`);
+await capture(pet, 'pet-dark.png');
 await evaluate(pet, `window.eyeProtect.testReminder('combined')`);
 const alert = await waitForTarget('#alert');
 await waitFor(alert, `Boolean(document.querySelector('.alert-panel'))`);
@@ -720,6 +681,61 @@ const skipped = await evaluate(alert, `(() => {
 })()`);
 if (!skipped) throw new Error('Reminder skip action was not available');
 await waitForTargetGone('#alert');
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light', reminderMode: 'guided' })`);
+await waitFor(pet, `document.documentElement.dataset.theme === 'light'`);
+await capture(pet, 'pet-light.png');
+await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
+const lightAlert = await waitForTarget('#alert');
+await waitFor(lightAlert, `Boolean(document.querySelector('.alert-panel'))`);
+await capture(lightAlert, 'reminder-light.png');
+const lightSkipped = await evaluate(lightAlert, `(() => {
+  const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('跳过'));
+  if (!(button instanceof HTMLButtonElement)) return false;
+  setTimeout(() => button.click(), 0);
+  return true;
+})()`);
+if (!lightSkipped) throw new Error('Light reminder skip action was not available');
+await waitForTargetGone('#alert');
+
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark', reminderMode: 'gentle' })`);
+await waitFor(pet, `document.documentElement.dataset.theme === 'dark'`);
+await evaluate(pet, `window.eyeProtect.testReminder('walk')`);
+const bubble = await waitForTarget('#bubble');
+await waitFor(bubble, `Boolean(document.querySelector('.bubble-card .bubble-actions'))`);
+await waitFor(bubble, `document.documentElement.dataset.theme === 'dark'`);
+await auditComputedTheme(bubble, 'dark', [
+  ['bubble panel', '.bubble-card'],
+  ['bubble secondary action', '.bubble-actions button:last-child']
+]);
+await capture(bubble, 'bubble-dark.png');
+const bubbleSkipped = await evaluate(bubble, `(() => {
+  const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('跳过'));
+  if (!(button instanceof HTMLButtonElement)) return false;
+  setTimeout(() => button.click(), 0);
+  return true;
+})()`);
+if (!bubbleSkipped) throw new Error('Dark bubble skip action was not available');
+await waitFor(bubble, `!document.querySelector('.bubble-actions')`);
+
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light', reminderMode: 'gentle' })`);
+await waitFor(pet, `document.documentElement.dataset.theme === 'light'`);
+await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
+const lightBubble = await waitForTarget('#bubble');
+await waitFor(lightBubble, `Boolean(document.querySelector('.bubble-card .bubble-actions'))`);
+await waitFor(lightBubble, `document.documentElement.dataset.theme === 'light'`);
+await auditComputedTheme(lightBubble, 'light', [
+  ['bubble panel', '.bubble-card'],
+  ['bubble secondary action', '.bubble-actions button:last-child']
+]);
+await capture(lightBubble, 'bubble-light.png');
+const lightBubbleSkipped = await evaluate(lightBubble, `(() => {
+  const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('跳过'));
+  if (!(button instanceof HTMLButtonElement)) return false;
+  setTimeout(() => button.click(), 0);
+  return true;
+})()`);
+if (!lightBubbleSkipped) throw new Error('Light bubble skip action was not available');
+await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark', reminderMode: 'guided' })`);
 await evaluate(pet, `(async () => {
   const projects = await window.eyeProtect.createProject({ name: '这是一个用于验证超长中文项目名称不会挤压导航和任务内容区域的研究计划', color: '#4e6f91' });
   const project = projects.find((entry) => entry.name.startsWith('这是一个用于验证超长中文项目'));

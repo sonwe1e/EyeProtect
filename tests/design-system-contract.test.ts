@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
@@ -13,6 +13,16 @@ const read = (relative: string) => readFileSync(resolve(root, relative), 'utf8')
 const tokensCss = read('src/renderer/src/styles/tokens.css');
 const themeCss = read('src/renderer/src/styles/theme.css');
 const workbenchCss = read('src/renderer/src/styles/workbench.css');
+const legacyCss = read('src/renderer/src/styles.css');
+const planCss = read('src/renderer/src/features/tasks/PlanWorkspace.module.css');
+const windowsSource = read('src/main/windows.ts');
+
+function cssFilesIn(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    return entry.isDirectory() ? cssFilesIn(path) : entry.name.endsWith('.css') ? [path] : [];
+  });
+}
 
 function extractDefinedTokens(source: string): Map<string, string> {
   // Strip block comments so commented-out declarations are not counted.
@@ -101,4 +111,53 @@ test('no token name is declared in both tokens.css and theme.css', () => {
   const themeTokens = extractDefinedTokens(themeCss);
   const shared = [...tokenTokens.keys()].filter((name) => themeTokens.has(name));
   assert.deepEqual(shared, [], `tokens must not be owned by both files: ${shared.join(', ')}`);
+});
+
+test('Workbench dimensions stay on the visual-hardening contract', () => {
+  const tokens = extractDefinedTokens(tokensCss);
+  const rootBlock = tokensCss.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.equal(tokens.get('--workbench-sidebar-width'), '208px');
+  assert.equal(tokens.get('--workbench-toolbar-height'), '52px');
+  assert.match(rootBlock, /--workbench-page-top:\s*32px/);
+  assert.match(rootBlock, /--workbench-section-gap:\s*24px/);
+  assert.equal(tokens.get('--radius-medium'), '8px');
+  assert.equal(tokens.get('--radius-large'), '12px');
+  assert.match(planCss, /grid-template-columns:\s*minmax\(210px,\s*0\.65fr\)\s+minmax\(430px,\s*1\.35fr\)/);
+  assert.match(planCss, /@container\s+workspace\s*\(max-width:\s*600px\)/);
+});
+
+test('legacy stylesheet cannot reclaim Workbench feature selectors', () => {
+  for (const selector of ['task-row', 'project-item', 'detail-card', 'detail-field']) {
+    assert.doesNotMatch(
+      legacyCss,
+      new RegExp(`\\.${selector}(?:[\\s:{.#>+~]|$)`),
+      `styles.css must not own Workbench selector .${selector}`
+    );
+  }
+});
+
+test('theme.css is the only renderer stylesheet allowed to declare raw colors', () => {
+  const rawColor = /#[0-9a-f]{3,8}\b|\brgba?\s*\(/i;
+  for (const path of cssFilesIn(resolve(root, 'src/renderer/src'))) {
+    if (path.endsWith('theme.css')) continue;
+    assert.doesNotMatch(
+      readFileSync(path, 'utf8'),
+      rawColor,
+      `${path.slice(root.length + 1)} must use semantic colors from theme.css`
+    );
+  }
+});
+
+test('Workbench selection stays neutral while active navigation icons carry the brand', () => {
+  assert.match(workbenchCss, /\.app-nav-item\.is-active[^}]*background:\s*var\(--surface-selected\)/);
+  assert.match(workbenchCss, /\.app-nav-item\.is-active svg[^}]*color:\s*var\(--brand\)/);
+  assert.match(workbenchCss, /\.task-row\.is-selected[^}]*background:\s*var\(--surface-selected\)/);
+});
+
+test('theme changes reach every live renderer window', () => {
+  assert.match(
+    windowsSource,
+    /\[this\.workbenchWindow, this\.petWindow, this\.bubbleWindow, this\.alertWindow\][\s\S]*?'settings:changed'/,
+    'settings broadcasts must include Workbench, pet, bubble, and alert renderers'
+  );
 });

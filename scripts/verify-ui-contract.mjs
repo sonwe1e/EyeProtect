@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -16,6 +16,7 @@ const collection = read('src/renderer/src/styles/collection.css');
 const settings = read('src/renderer/src/styles/settings.css');
 const plan = read('src/renderer/src/features/tasks/PlanWorkspace.module.css');
 const project = read('src/renderer/src/features/tasks/ProjectWorkspace.module.css');
+const taskDetail = read('src/renderer/src/features/tasks/TaskDetail.module.css');
 const focus = read('src/renderer/src/features/tasks/FocusSurface.module.css');
 const health = read('src/renderer/src/components/AppHealthBanner.module.css');
 const manifest = JSON.parse(read('package.json'));
@@ -38,8 +39,9 @@ const chrome = [
 ].join('\n');
 
 for (const token of [
-  '--bg-app', '--bg-sidebar', '--surface', '--surface-hover', '--fg-primary',
-  '--fg-secondary', '--brand', '--brand-subtle', '--danger'
+  '--bg-app', '--bg-sidebar', '--surface', '--surface-raised', '--surface-hover',
+  '--surface-selected', '--fg-primary', '--fg-secondary', '--fg-tertiary',
+  '--brand', '--brand-contrast', '--brand-subtle', '--danger', '--warning', '--success'
 ]) {
   requireMatch(theme, new RegExp(`${token.replace('-', '\\-')}:`), `Missing semantic token ${token}`);
 }
@@ -52,10 +54,22 @@ for (const [name, source] of [
   ['settings.css', settings],
   ['PlanWorkspace.module.css', plan],
   ['ProjectWorkspace.module.css', project],
+  ['TaskDetail.module.css', taskDetail],
   ['FocusSurface.module.css', focus],
   ['AppHealthBanner.module.css', health]
 ]) {
   if (rawColor.test(source)) failures.push(`${name} contains a raw color; use a semantic token`);
+}
+
+const cssFilesIn = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  const path = resolve(directory, entry.name);
+  return entry.isDirectory() ? cssFilesIn(path) : entry.name.endsWith('.css') ? [path] : [];
+});
+for (const path of cssFilesIn(resolve(root, 'src/renderer/src'))) {
+  if (path.endsWith('theme.css')) continue;
+  if (rawColor.test(readFileSync(path, 'utf8'))) {
+    failures.push(`${path.slice(root.length + 1)} contains a raw color outside theme.css`);
+  }
 }
 
 if (/\p{Extended_Pictographic}/u.test(chrome)) {
@@ -69,6 +83,7 @@ for (const [source, label] of [
   [settings, 'settings.css'],
   [plan, 'PlanWorkspace.module.css'],
   [project, 'ProjectWorkspace.module.css'],
+  [taskDetail, 'TaskDetail.module.css'],
   [focus, 'FocusSurface.module.css'],
   [health, 'AppHealthBanner.module.css']
 ]) {
@@ -78,7 +93,13 @@ for (const [source, label] of [
 }
 
 const workbenchSource = read('src/renderer/src/views/WorkbenchView.tsx');
+const legacyStyles = read('src/renderer/src/styles.css');
 if (/workbench-shell/.test(workbenchSource)) failures.push('Workbench must not inherit the legacy shell stylesheet');
+for (const selector of ['task-row', 'project-item', 'detail-card', 'detail-field']) {
+  if (new RegExp(`\\.${selector}(?:[\\s:{.#>+~]|$)`).test(legacyStyles)) {
+    failures.push(`styles.css must not own Workbench selector .${selector}`);
+  }
+}
 // The navigation contract is asserted against the single source of truth in
 // workbench-navigation.ts (covered by tests/workbench-navigation.test.ts). The
 // renderer must consume that config rather than re-declaring a nav array.
@@ -172,23 +193,39 @@ const darkBlock = theme.match(/:root\[data-theme='dark'\]\s*\{([\s\S]*?)\n\}/)?.
 const light = declarationsIn(lightBlock);
 const dark = declarationsIn(darkBlock);
 
-const lightBg = resolveHex(light.get('--bg-app'), light, new Set());
-const darkBg = resolveHex(dark.get('--bg-app'), dark, new Set());
-if (!lightBg) failures.push('theme.css light block must define --bg-app');
-if (!darkBg) failures.push('theme.css dark block must define --bg-app');
-
 const cases = [
-  ['light primary', light, '--fg-primary', lightBg, 4.5],
-  ['light secondary', light, '--fg-secondary', lightBg, 4.5],
-  ['light brand graphical', light, '--brand', lightBg, 3],
-  ['dark primary', dark, '--fg-primary', darkBg, 4.5],
-  ['dark secondary', dark, '--fg-secondary', darkBg, 4.5],
-  ['dark brand graphical', dark, '--brand', darkBg, 3]
+  ['light primary/app', light, '--fg-primary', '--bg-app', 4.5],
+  ['light secondary/app', light, '--fg-secondary', '--bg-app', 4.5],
+  ['light tertiary/app', light, '--fg-tertiary', '--bg-app', 4.5],
+  ['light primary/surface', light, '--fg-primary', '--surface', 4.5],
+  ['light secondary/surface', light, '--fg-secondary', '--surface', 4.5],
+  ['light selected text', light, '--fg-primary', '--surface-selected', 4.5],
+  ['light selected metadata', light, '--fg-secondary', '--surface-selected', 4.5],
+  ['light brand/subtle', light, '--brand', '--brand-subtle', 4.5],
+  ['light primary button', light, '--brand-contrast', '--brand', 4.5],
+  ['light danger', light, '--danger', '--danger-subtle', 4.5],
+  ['light warning', light, '--warning', '--warning-subtle', 4.5],
+  ['dark primary/app', dark, '--fg-primary', '--bg-app', 4.5],
+  ['dark secondary/app', dark, '--fg-secondary', '--bg-app', 4.5],
+  ['dark tertiary/app', dark, '--fg-tertiary', '--bg-app', 4.5],
+  ['dark primary/surface', dark, '--fg-primary', '--surface', 4.5],
+  ['dark secondary/surface', dark, '--fg-secondary', '--surface', 4.5],
+  ['dark selected text', dark, '--fg-primary', '--surface-selected', 4.5],
+  ['dark selected metadata', dark, '--fg-secondary', '--surface-selected', 4.5],
+  ['dark brand/subtle', dark, '--brand', '--brand-subtle', 4.5],
+  ['dark primary button', dark, '--brand-contrast', '--brand', 4.5],
+  ['dark danger', dark, '--danger', '--danger-subtle', 4.5],
+  ['dark warning', dark, '--warning', '--warning-subtle', 4.5]
 ];
-for (const [label, tokens, fgToken, bg, minimum] of cases) {
+for (const [label, tokens, fgToken, bgToken, minimum] of cases) {
   const fg = resolveHex(tokens.get(fgToken), tokens, new Set());
+  const bg = resolveHex(tokens.get(bgToken), tokens, new Set());
   if (!fg) {
     failures.push(`${label} contrast: could not resolve ${fgToken} to a hex value`);
+    continue;
+  }
+  if (!bg) {
+    failures.push(`${label} contrast: could not resolve ${bgToken} to a hex value`);
     continue;
   }
   const ratio = contrast(fg, bg);

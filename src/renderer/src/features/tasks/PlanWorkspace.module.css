@@ -1,48 +1,50 @@
 .root :global(.page-header) {
   align-items: flex-start;
-  flex-wrap: wrap;
   row-gap: 12px;
 }
 
-/* The date strip can be wide (7 days + nav); let it scroll horizontally on
-   its own line rather than squeezing the page title into word-per-line
-   wrapping (USERPLAN 1.2 B6: 960×600 title must stay on one line). */
+.root :global(.plan-heading) { display: grid; flex: none; gap: 4px; }
+.root :global(.plan-heading .ui-status-chip) { width: max-content; margin-top: 5px; }
+
+/* Fixed seven-day grid: the strip has one stable cell per date and never
+   creates a nested horizontal scrollbar. */
 .root :global(.plan-day-switch) {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px repeat(7, minmax(36px, 1fr)) 36px;
   align-items: center;
+  width: min(100%, 470px);
   min-width: 0;
   gap: 4px;
-  overflow-x: auto;
-  flex: 1 1 auto;
   white-space: nowrap;
 }
 
-.root :global(.plan-day-switch .ui-button) { min-height: 36px; padding: 0 11px; color: var(--fg-secondary); }
-.root :global(.plan-day-switch .ui-button.is-active) { color: var(--brand); background: var(--brand-subtle); }
-.root :global(.plan-day-switch .ui-status-chip) { margin-left: 8px; }
+.root :global(.plan-day-switch .ui-button) { min-width: 0; min-height: 36px; padding: 0 5px; color: var(--fg-secondary); }
+.root :global(.plan-day-switch .ui-button.is-active) { color: var(--brand); background: var(--surface-active); }
 
 /* Double-column layout only when the workspace channel is wide enough to
    hold both min-widths (250 + 440) plus the gap. Below that, stack. The
    threshold is calibrated against real workspace metrics: at a 960px window
    the workspace column is ~736px, which is too narrow for the 710px minimum,
    so it stacks and avoids page-level horizontal overflow. */
-.root :global(.plan-layout) { display: grid; grid-template-columns: minmax(250px, 0.7fr) minmax(440px, 1.3fr); align-items: start; gap: 20px; }
+.root :global(.plan-layout) { display: grid; grid-template-columns: minmax(210px, 0.65fr) minmax(430px, 1.35fr); align-items: start; gap: 14px; }
 .root :global(.plan-column) { min-width: 0; padding: 18px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); }
 .root :global(.plan-column > header) { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .root :global(.plan-column > header h2) { display: flex; align-items: center; gap: 7px; }
 .root :global(.plan-column h2) { margin: 0; font-size: 15px; }
 .root :global(.plan-column header span) { color: var(--fg-secondary); font-size: 12px; }
 .root :global(.plan-column-hint) { margin: -4px 0 14px; color: var(--fg-secondary); font-size: 12px; line-height: 1.5; }
-.root :global(.plan-task-list) { display: grid; gap: 8px; }
-.root :global(.plan-task-card) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; padding: 12px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px; cursor: grab; }
+.root :global(.plan-task-list) { display: grid; gap: 3px; }
+.root :global(.plan-task-card) { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 44px; gap: 2px 10px; padding: 7px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-medium); cursor: grab; }
+.root :global(.plan-task-card:hover),
+.root :global(.plan-task-card:focus-within) { background: var(--surface-hover); border-color: var(--border-subtle); }
 .root :global(.plan-task-card:active) { cursor: grabbing; }
 .root :global(.plan-task-title) { min-width: 0; color: var(--fg-primary); text-align: left; background: transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root :global(.plan-task-card > span) { color: var(--fg-secondary); font-size: 12px; }
-.root :global(.plan-task-actions) { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.root :global(.plan-task-actions) { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .root :global(.plan-task-actions .ui-button) { min-height: 34px; padding: 0 9px; font-size: 12px; }
 .root :global(.plan-drag-hint) { display: inline-flex; align-items: center; gap: 2px; color: var(--fg-tertiary); font-size: 11px; }
 .root :global(.plan-timeline) { max-height: calc(100vh - 180px); overflow: auto; }
-.root :global(.timeline-grid) { position: relative; min-width: 420px; margin-top: 6px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
+.root :global(.timeline-grid) { position: relative; min-width: 0; margin-top: 6px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
 .root :global(.timeline-hour) { position: absolute; right: 0; left: 0; height: 1px; background: var(--border-subtle); pointer-events: none; }
 .root :global(.timeline-hour > span) { position: absolute; top: 6px; left: 10px; color: var(--fg-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .root :global(.timeline-blocks) { position: absolute; inset: 0; pointer-events: none; }
@@ -71,7 +73,7 @@
 /* Responsive: drive the breakpoint from the real workspace inline-size, not
    the BrowserWindow width. Stack backlog + timeline when the channel is too
    narrow for the 710px column minimum. */
-@container workspace (max-width: 820px) {
+@container workspace (max-width: 600px) {
   .root :global(.page-header) {
     flex-direction: column;
   }

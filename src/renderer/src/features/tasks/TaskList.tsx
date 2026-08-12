@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarClock, Check, Flag, Footprints, Globe, Monitor, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, Check, Flag, Footprints, Trash2 } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
   nextTodoPriority,
@@ -8,12 +8,14 @@ import {
   type TaskStatus,
   type TaskUpdateInput,
   type TaskView,
+  type TimeBlock,
   type TodoPriority
 } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
 import { useCommand } from '../../hooks/useCommand';
 import { commands } from '../../lib/commands';
 import { resolveSiblingDrop } from './taskReorder';
+import { getTaskRowMetadata } from './taskRowMetadata';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
@@ -49,23 +51,6 @@ const isToday = (timestamp: number, now: number): boolean => {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 };
 
-const contextIcon = (context: Task['context']) => {
-  switch (context) {
-    case 'away':
-      return <Footprints size={11} />;
-    case 'desk':
-      return <Monitor size={11} />;
-    default:
-      return <Globe size={11} />;
-  }
-};
-
-const contextLabel: Record<Task['context'], string> = {
-  desk: '桌面',
-  away: '外出',
-  any: '任意'
-};
-
 /** One task row. Owns its own command state for status toggle, priority cycle,
  *  inline rename, and delete — so each row's buttons reflect their own
  *  pending/success/error state independently of the rest of the list. */
@@ -82,6 +67,8 @@ function TaskRow({
   siblingIndex,
   siblingCount,
   isDragging,
+  timeBlocks,
+  scopedToProject,
   onSelect,
   onMove,
   onDragStartRow,
@@ -100,6 +87,8 @@ function TaskRow({
   siblingIndex: number;
   siblingCount: number;
   isDragging: boolean;
+  timeBlocks: TimeBlock[];
+  scopedToProject: boolean;
   onSelect: (id: string) => void;
   onMove: (index: number, direction: -1 | 1) => void;
   onDragStartRow: (id: string) => void;
@@ -114,6 +103,7 @@ function TaskRow({
   const cyclePriority = useCommand((priority: TodoPriority) => commands.tasks.update(task.id, { priority }));
   const rename = useCommand((input: TaskUpdateInput) => commands.tasks.update(task.id, input));
   const remove = useCommand(() => commands.tasks.delete(task.id));
+  const metadata = getTaskRowMetadata(task, view, now, projectName, timeBlocks, scopedToProject);
 
   const startEdit = useCallback((current: string) => {
     setEditingId(task.id);
@@ -249,31 +239,25 @@ function TaskRow({
           </button>
         )}
         <div className="task-meta">
-          {task.plannedAt !== null ? (
-            <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-              <CalendarClock size={11} aria-hidden="true" />{isToday(task.plannedAt, now) ? formatDateTime(task.plannedAt) : `计划 ${formatDue(task.plannedAt)}`}
-            </span>
-          ) : null}
-          {task.dueAt !== null ? (
-            <span className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
-              <Flag size={11} aria-hidden="true" />{isToday(task.dueAt, now) ? formatDateTime(task.dueAt) : `截止 ${formatDue(task.dueAt)}`}
-            </span>
-          ) : null}
-          <span className="context-tag" title={`上下文：${contextLabel[task.context]}`}>
-            {contextIcon(task.context)}
-            <span>{contextLabel[task.context]}</span>
-          </span>
-          {projectName ? (
-            <span className="project-chip" style={{ ['--chip-color' as string]: '#8aa0a6' }}>
-              <span className="project-chip-dot" />
-              <span>{projectName}</span>
-            </span>
-          ) : null}
-          {task.tags.slice(0, 2).map((tag) => (
-            <span key={tag} className="task-tag">
-              #{tag}
-            </span>
-          ))}
+          {metadata.map((item) => {
+            if (item.kind === 'scheduled' && item.timestamp !== undefined) {
+              return <span key={item.kind} className="task-due"><CalendarClock size={11} aria-hidden="true" />{formatDateTime(item.timestamp)}</span>;
+            }
+            if (item.kind === 'due' && item.timestamp !== undefined) {
+              return (
+                <span key={item.kind} className={`task-due ${overdue && task.status !== 'done' ? 'is-overdue' : ''}`}>
+                  <Flag size={11} aria-hidden="true" />{isToday(item.timestamp, now) ? formatDateTime(item.timestamp) : `截止 ${formatDue(item.timestamp)}`}
+                </span>
+              );
+            }
+            if (item.kind === 'context') {
+              return <span key={item.kind} className="context-tag"><Footprints size={11} /><span>{item.value}</span></span>;
+            }
+            if (item.kind === 'project') {
+              return <span key={item.kind} className="project-chip"><span className="project-chip-dot" /><span>{item.value}</span></span>;
+            }
+            return <span key={`${item.kind}-${item.value}`} className="task-tag">#{item.value}</span>;
+          })}
         </div>
       </div>
       <span className="task-status-label">{STATUS_LABELS[task.status] ?? task.status}</span>
@@ -306,6 +290,7 @@ export function TaskList({
   now,
   selectedTaskId,
   scopeProjectId,
+  timeBlocks = [],
   onSelect,
   onMove
 }: {
@@ -315,6 +300,7 @@ export function TaskList({
   now: number;
   selectedTaskId: string | null;
   scopeProjectId?: string | null;
+  timeBlocks?: TimeBlock[];
   onSelect: (id: string) => void;
   onMove?: (taskId: string, beforeTaskId: string | null) => void;
 }): JSX.Element {
@@ -426,6 +412,8 @@ export function TaskList({
             siblingIndex={siblingIndex}
             siblingCount={siblings.length}
             isDragging={draggingId === task.id}
+            timeBlocks={timeBlocks}
+            scopedToProject={Boolean(scopeProjectId)}
             onSelect={onSelect}
             onMove={handleMove}
             onDragStartRow={setDraggingId}

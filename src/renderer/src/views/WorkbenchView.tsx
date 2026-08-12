@@ -265,6 +265,7 @@ export default function WorkbenchView(): JSX.Element {
       now={now}
       selectedTaskId={selectedTaskId}
       scopeProjectId={scopeProjectId}
+      timeBlocks={allBlocks}
       onSelect={setSelectedTaskId}
       onMove={view === 'inbox' ? (taskId, beforeTaskId) => {
         void moveTask.run({
@@ -327,7 +328,7 @@ export default function WorkbenchView(): JSX.Element {
           </div>
         );
       }
-      return <ProjectWorkspace project={selectedProject} tasks={tasks} projects={projects} activeTaskId={activeTaskId} now={now} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} />;
+      return <ProjectWorkspace project={selectedProject} tasks={tasks} projects={projects} timeBlocks={allBlocks} activeTaskId={activeTaskId} now={now} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} />;
     }
     if (section === 'inbox') {
       return (

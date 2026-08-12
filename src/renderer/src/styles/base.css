@@ -15,6 +15,12 @@ input {
   font: inherit;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-secondary);
+  opacity: 1;
+}
+
 button {
   border: 0;
   cursor: pointer;

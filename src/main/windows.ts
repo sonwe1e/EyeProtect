@@ -526,10 +526,14 @@ export class AppWindows {
     this.destroyBubble();
   }
 
-  /** Preferences matter to the settings window and the pet's skin/size. */
+  /** Every live renderer owns theme tokens and must track preference changes. */
   broadcastSettings(settings: Settings): void {
     this.refreshWorkbenchTheme(settings);
-    this.sendTo([this.workbenchWindow, this.petWindow], 'settings:changed', settings);
+    this.sendTo(
+      [this.workbenchWindow, this.petWindow, this.bubbleWindow, this.alertWindow],
+      'settings:changed',
+      settings
+    );
   }
 
   /** Keep the native window fill in lockstep with CSS when the OS theme changes. */

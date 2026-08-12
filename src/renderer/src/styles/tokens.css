@@ -1,5 +1,5 @@
 :root {
-  color: #1f2a2e;
+  color: var(--fg-primary);
   font-family:
     "Microsoft YaHei UI",
     "Microsoft YaHei",
@@ -20,8 +20,8 @@
 
   /* ── Radius scale (single source of truth — theme.css must NOT override) */
   --radius-small: 6px;
-  --radius-medium: 10px;
-  --radius-large: 14px;
+  --radius-medium: 8px;
+  --radius-large: 12px;
 
   /* ── Motion ────────────────────────────────────────────────────────── */
   --motion-fast: 140ms;
@@ -35,11 +35,11 @@
   --task-row-height: 52px;
 
   /* ── Workbench layout ──────────────────────────────────────────────── */
-  --workbench-sidebar-width: 224px;
-  --workbench-toolbar-height: 58px;
+  --workbench-sidebar-width: 208px;
+  --workbench-toolbar-height: 52px;
   --workbench-content-max: 960px;
-  --workbench-page-top: 42px;
-  --workbench-section-gap: 28px;
+  --workbench-page-top: 32px;
+  --workbench-section-gap: 24px;
 }
 
 :root[data-theme='dark'] {

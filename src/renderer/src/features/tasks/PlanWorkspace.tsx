@@ -287,7 +287,10 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
   return (
     <div className={`workspace-page plan-page ${styles.root}`}>
       <header className="page-header">
-        <div><span className="page-eyebrow">安排节奏</span><h1>计划</h1></div>
+        <div className="plan-heading">
+          <span className="page-eyebrow">安排节奏</span><h1>计划</h1>
+          <StatusChip tone="brand">已排 {scheduledMinutes} 分钟 · {blocksOfDay.length} 块</StatusChip>
+        </div>
         <div className="plan-day-switch" aria-label="选择计划日期">
           <Button variant="ghost" aria-label="更早的日期" onClick={() => setStripAnchor(addLocalDays(stripAnchor, -STRIP_DAYS))}><ChevronLeft size={15} /></Button>
           {stripDays.map((entry) => (
@@ -303,7 +306,6 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
             </Button>
           ))}
           <Button variant="ghost" aria-label="更晚的日期" onClick={() => setStripAnchor(addLocalDays(stripAnchor, STRIP_DAYS))}><ChevronRight size={15} /></Button>
-          <StatusChip tone="brand">已排 {scheduledMinutes} 分钟 · {blocksOfDay.length} 块</StatusChip>
         </div>
       </header>
       <div className="plan-layout">

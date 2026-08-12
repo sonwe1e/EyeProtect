@@ -62,22 +62,52 @@ jobs:
           New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
           $env:EYEPROTECT_DATA_DIR = $smokeData
           $env:EYEPROTECT_SMOKE = '1'
-          $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
           $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
           $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9333' -PassThru -WindowStyle Hidden
           try {
             npm run smoke:running -- 9333
             npm run smoke:experience -- 9333
-            try {
-              npm run capture:ui -- 9333 $snapshotDir
-            } catch {
-              # The packaged renderer under heavy CDP emulation (device-metrics
-              # + media emulation + screenshots on a hidden window) can crash
-              # intermittently with STATUS_STACK_BUFFER_OVERRUN at random
-              # journey points. Retry once; a second failure is a real bug.
-              Write-Warning "capture:ui failed once — retrying after suspected renderer crash flake"
-              npm run capture:ui -- 9333 $snapshotDir
-            }
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Smoke test Workbench interactions and restart persistence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-workbench-interaction-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $env:EYEPROTECT_SMOKE = '1'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9336' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:workbench-interactions -- 9336 exercise
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9336' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:workbench-interactions -- 9336 verify
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Capture deterministic UI snapshots
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-capture-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $env:EYEPROTECT_SMOKE = '1'
+          $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping capture'; exit 0 }
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9337' -PassThru -WindowStyle Hidden
+          try {
+            npm run capture:ui -- 9337 $snapshotDir --repeat 3
           } finally {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
@@ -91,12 +121,14 @@ jobs:
           if-no-files-found: warn
 
       - name: Capture Windows scale-factor matrix
+        if: success() || failure()
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
           $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping scale matrix'; exit 0 }
           $matrix = @(
             @{ Label = '100'; Scale = 1.0; Port = 9340 },
             @{ Label = '125'; Scale = 1.25; Port = 9341 },

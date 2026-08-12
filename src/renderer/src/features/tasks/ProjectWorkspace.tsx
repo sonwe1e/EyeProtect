@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Columns3, List, Play, Plus, Trash2 } from 'lucide-react';
 import {
   PROJECT_GOAL_MAX,
   SECTION_TEMPLATE,
   type Project,
   type ProjectSection,
-  type Task
+  type Task,
+  type TimeBlock
 } from '../../../../shared/types';
 import { groupTasksBySection } from '../../../../shared/projectSections';
 import { CommandButton } from '../../components/CommandButton';
@@ -117,6 +118,7 @@ export function ProjectWorkspace({
   project,
   tasks,
   projects,
+  timeBlocks,
   activeTaskId,
   now,
   selectedTaskId,
@@ -125,12 +127,15 @@ export function ProjectWorkspace({
   project: Project;
   tasks: Task[];
   projects: Project[];
+  timeBlocks: TimeBlock[];
   activeTaskId: string | null;
   now: number;
   selectedTaskId: string | null;
   onSelectTask: (id: string) => void;
 }): JSX.Element {
   const [goalDraft, setGoalDraft] = useState(project.goal ?? '');
+  const [goalEditing, setGoalEditing] = useState(false);
+  const cancelGoalRef = useRef(false);
   const [newSectionName, setNewSectionName] = useState('');
   const [sectionCreatorOpen, setSectionCreatorOpen] = useState(false);
   const { sections, refresh } = useProjectSections(project.id);
@@ -143,6 +148,7 @@ export function ProjectWorkspace({
   useEffect(() => {
     setNewSectionName('');
     setSectionCreatorOpen(false);
+    setGoalEditing(false);
   }, [project.id]);
 
   const projectTasks = useMemo(
@@ -196,7 +202,40 @@ export function ProjectWorkspace({
       <header className="project-page-header">
         <div className="project-heading">
           <ProjectDot color={project.color} />
-          <div><span className="page-eyebrow">项目</span><h1>{project.name}</h1></div>
+          <div>
+            <span className="page-eyebrow">项目</span><h1>{project.name}</h1>
+            {goalEditing ? (
+              <input
+                className="project-goal-input"
+                autoFocus
+                value={goalDraft}
+                maxLength={PROJECT_GOAL_MAX}
+                aria-label="项目目标"
+                placeholder="这个项目完成时，什么会变得不同？"
+                onChange={(event) => setGoalDraft(event.currentTarget.value)}
+                onBlur={() => {
+                  if (cancelGoalRef.current) {
+                    cancelGoalRef.current = false;
+                    setGoalDraft(project.goal ?? '');
+                  } else {
+                    saveGoal();
+                  }
+                  setGoalEditing(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                  if (event.key === 'Escape') {
+                    cancelGoalRef.current = true;
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            ) : (
+              <button type="button" className="project-goal-text" onClick={() => setGoalEditing(true)}>
+                {project.goal || '添加项目目标'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="project-view-switch" aria-label="项目视图">
           <Button
@@ -216,23 +255,6 @@ export function ProjectWorkspace({
         </div>
       </header>
       {updateProject.error ? <p className="project-page-error" role="alert">{updateProject.error.message}</p> : null}
-      <label className="project-goal-field">
-        <span>项目目标</span>
-        <input
-          value={goalDraft}
-          maxLength={PROJECT_GOAL_MAX}
-          placeholder="这个项目完成时，什么会变得不同？"
-          onChange={(event) => setGoalDraft(event.currentTarget.value)}
-          onBlur={saveGoal}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur();
-            if (event.key === 'Escape') {
-              setGoalDraft(project.goal ?? '');
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      </label>
       <div className="project-progress-summary"><StatusChip tone="brand">{openTasks.length} 进行中 · {done.length} 已完成</StatusChip></div>
       <TaskComposer projects={projects} defaultProjectId={project.id} />
 
@@ -282,6 +304,7 @@ export function ProjectWorkspace({
                   now={now}
                   selectedTaskId={selectedTaskId}
                   scopeProjectId={project.id}
+                  timeBlocks={timeBlocks}
                   onSelect={onSelectTask}
                   onMove={(taskId, beforeTaskId) => void moveTask.run({ taskId, beforeTaskId, scope: { type: 'project', projectId: project.id } })}
                 />
@@ -298,6 +321,7 @@ export function ProjectWorkspace({
                 now={now}
                 selectedTaskId={selectedTaskId}
                 scopeProjectId={project.id}
+                timeBlocks={timeBlocks}
                 onSelect={onSelectTask}
               />
             </details>
@@ -352,6 +376,7 @@ export function ProjectWorkspace({
             now={now}
             selectedTaskId={selectedTaskId}
             scopeProjectId={project.id}
+            timeBlocks={timeBlocks}
             onSelect={onSelectTask}
           />
         </details>

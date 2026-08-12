@@ -57,3 +57,6 @@
 }
 
 .workbench-v2 .settings-shell input[type='checkbox'] { accent-color: var(--brand); }
+
+.settings-inline-field { display: grid; gap: 6px; color: var(--fg-secondary); font-size: 12px; }
+.settings-inline-field select { min-height: 40px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-medium); }

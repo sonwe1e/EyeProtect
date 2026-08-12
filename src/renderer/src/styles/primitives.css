@@ -215,7 +215,7 @@
 .ui-side-sheet {
   position: absolute;
   inset: 0 0 0 auto;
-  width: min(460px, calc(100% - 48px));
+  width: min(520px, calc(100% - 48px));
   color: var(--fg-primary);
   background: var(--surface);
   border-left: 1px solid var(--border-subtle);

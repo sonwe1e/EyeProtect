@@ -11,14 +11,14 @@
 
 .card {
   padding: 12px;
-  border: 1px solid rgb(31 42 46 / 10%);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .card span {
   display: block;
-  color: #637174;
+  color: var(--fg-secondary);
   font-size: 12px;
 }
 
@@ -26,19 +26,19 @@
   display: block;
   margin-top: 6px;
   font-size: 20px;
-  color: #1f2a2e;
+  color: var(--fg-primary);
 }
 
 .card small {
   display: block;
   margin-top: 6px;
-  color: #7b8b8f;
+  color: var(--fg-tertiary);
   font-size: 11px;
 }
 
 .empty {
   margin: 0;
-  color: #7b8b8f;
+  color: var(--fg-tertiary);
 }
 
 .taskList {
@@ -51,9 +51,9 @@
 
 .taskList li {
   padding: 9px 10px;
-  border: 1px solid rgb(31 42 46 / 10%);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #f9f9f5;
+  background: var(--surface-raised);
 }
 
 .taskList li div {
@@ -63,11 +63,11 @@
 }
 
 .taskList li strong {
-  color: #25333a;
+  color: var(--fg-primary);
 }
 
 .taskList li span {
-  color: #7b8b8f;
+  color: var(--fg-tertiary);
   font-size: 12px;
 }
 
@@ -78,6 +78,5 @@
 }
 
 .review-loading {
-  color: #7b8b8f;
+  color: var(--fg-tertiary);
 }
-
