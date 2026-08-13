@@ -13,6 +13,7 @@
 - [ ] packaged app：`npm run smoke:running -- <port>`
 - [ ] reminder journey：`npm run smoke:experience -- <port>`
 - [ ] Workbench 交互与重启持久化：分别运行 `npm run smoke:workbench-interactions -- <port> exercise` 和 `verify`
+- [ ] Plan 交互与重启持久化：分别运行 `npm run smoke:plan-interactions -- <port> exercise` 和 `verify`
 - [ ] emergency fallback：`npm run smoke:emergency -- <port>`
 - [ ] pet renderer isolation：`npm run smoke:pet-failure -- <port>`
 - [ ] `npm run capture:ui -- <port> <output-dir> --repeat 3` 生成三轮一致的布局指标

@@ -10,7 +10,7 @@ EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应�
 - 提醒界面由一个 Surface Manager 管理；主提醒渲染器异常时会依次降级到应急窗口和系统通知。
 - 桌宠由本地种子实时生成 SVG 结构，不再把固定姿势图片当作皮肤。每天会有一位随机访客，可收集、改名、收藏、固定出场，并独立切换材质与配饰。
 - 护眼、走动与合并提醒复用当前公仔的程序化动作；gentle 气泡使用精简动作，guided/focused 卡片使用完整舞台，reduced-motion 下停在静态关键姿势。
-- 工作台包含 Today、Inbox、Upcoming、Overdue、Away、Completed 与项目视图，支持全库搜索、临时筛选、自动保存、拖放/键盘排序和 10 秒持久撤销。
+- 工作台包含 今天、收件箱、日程、专注、项目 五个主视图，以及 今日复盘、独立提醒、公仔收藏、设置 四个工具视图，支持全库搜索、临时筛选、自动保存、拖放/键盘排序和 10 秒持久撤销。
 - 当前任务与任务状态分离。Rhythm 条同时显示连续活跃时间和当前任务活跃时间；任务达到预估时长时只轻提示一次。
 - 重复父任务完成后会创建下一周期的完整子任务树；子任务重置为未完成并保留相对日期。
 - 任务、独立提醒和 timebox 共用持久化通知队列。只有系统通知 `show()` 成功后才消费 occurrence，失败按 30 秒、2 分钟、5 分钟重试。
@@ -24,7 +24,7 @@ EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应�
 - `data/reminder-history.json`：本地健康趋势。
 - `data/eyeprotect.db`：SQLite Task Core、独立提醒、公仔收藏、通知投递、任务工时和撤销状态。
 
-Renderer 不直接访问 Node/Electron；窗口能力统一经 sandboxed preload 和主进程 IPC。桌宠是唯一常驻 renderer，工作台按需创建；提醒窗口在结束后销毁。
+Renderer 不直接访问 Node/Electron；窗口能力统一经 sandboxed preload 和主进程 IPC。桌宠是唯一常驻 renderer，且只订阅轻量计数通道（待办数、护理状态等），不接收全量任务数据；工作台按需创建；提醒窗口在结束后销毁。
 
 若 SQLite 打开或迁移失败，EyeProtect 会保留数据库文件族快照，并以内存恢复会话启动。恢复会话不写回原数据库，设置页会显示快照路径和数据目录入口。
 
@@ -44,7 +44,10 @@ npm run build
 ```powershell
 npm run smoke:experience -- 9333
 npm run smoke:emergency -- 9333
+npm run smoke:running -- 9333
 ```
+
+工作台交互 smoke（`smoke:workbench-interactions`、`smoke:plan-interactions`）以 `exercise` 阶段写入数据、`verify` 阶段重启后校验持久化，见 `.github/workflows/windows.yml`。所有 smoke/capture 脚本共用 `scripts/lib/cdp.mjs` 的 DevTools 连接工具，改动 CDP 交互只需改一处。
 
 ## 打包
 

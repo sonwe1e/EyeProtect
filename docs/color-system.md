@@ -54,7 +54,7 @@ EyeProtect 使用“中性石墨 + 少量玉石青”的配色方向。背景、
 
 ## 工程约束与验收
 
-- `styles.css` 只服务桌宠和提醒窗口；Workbench 样式由 `styles/` 下的设计令牌和分层样式负责。
+- `styles.css` 服务桌宠、提醒气泡/卡片窗口，以及 Workbench 内嵌的设置页与独立提醒页；Workbench 主体样式由 `styles/` 下的设计令牌和分层样式负责（旧的面板/闹钟/待办窗口样式已随对应窗口删除）。
 - 自动检查覆盖真实组件状态、Light/Dark 主题、raw color、命中区域、forced-colors 和 reduced-motion。
 - 截图矩阵覆盖 Today、Task Detail、Command Palette、Plan、Project List/Board、Pet、Reminder 和 Bubble。
 - 页面级横向滚动必须为零，只有 Project Board 自身允许横向滚动。

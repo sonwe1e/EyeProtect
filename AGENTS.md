@@ -9,9 +9,9 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 - `src/main/`：Electron 主进程代码，负责应用生命周期、托盘、窗口、IPC、提醒调度、设置读写和开机自启。
 - `src/preload/`：预加载脚本，通过 `contextBridge` 把安全 API 暴露给 React 渲染端。
 - `src/shared/`：主进程、preload、renderer 共用的类型、默认设置和设置范围。
-- `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放待办、闹钟、提醒和桌宠组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌。
-- `tests/`：Node 内置 test runner 测试，覆盖提醒调度、运行状态恢复、系统生命周期、闹钟、设置事件和 IPC 页面白名单。
-- `public/assets/`：静态资源。包含托盘图标和应用图标；桌宠与提醒主体由程序化内联 SVG 渲染。
+- `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放任务、提醒、桌宠、计划、复盘等组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌（`styles.css` 为遗留窗口样式：桌宠/提醒/气泡 + 工作台内嵌设置页）。
+- `tests/`：Node 内置 test runner 测试，覆盖提醒调度、调度内核、运行状态恢复、系统生命周期、任务/项目/计划/专注、备份、设置事件、提醒追踪日志和 IPC 页面白名单。`tests/electron-loader.mjs` + `tests/electron-stub.mjs` 为 reminder surface 测试在纯 Node 下打桩 Electron。
+- `public/assets/`：静态资源。只包含 `tray-icon.png`（托盘）和 `app-icon.ico`（打包图标）；桌宠与提醒主体由程序化内联 SVG 渲染。`app-icon.png` 源文件在 `scripts/assets/`（仅 `npm run build:icon` 生成 .ico 时使用），不会被打包。
 - `out/`、`release/`、`node_modules/`：构建产物、发行产物和依赖目录，通常不要手动修改。
 
 ## 功能修改位置速查
@@ -23,7 +23,7 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 | 设置文件读取、写入、容错、保存目录 | `src/main/settings.ts` | 默认目录由 `getDataDir()` 决定；不要把本地 `data/settings.json` 提交为源码。 |
 | 开机自启 | `src/main/settings.ts` | 修改 `syncStartupShortcut()`；它只在 packaged 模式下写入 Windows Startup 快捷方式。 |
 | 系统托盘菜单、单实例锁、退出行为 | `src/main/index.ts` | 托盘菜单在 `createTray()` 中；IPC handler 也在这里注册。 |
-| 桌宠、提醒、设置、面板、气泡和遮罩窗口 | `src/main/windows.ts` | 提醒窗口与桌宠窗口相互独立；修改显示器相对布局时同步覆盖窗口生命周期和 bounds 测试。 |
+| 桌宠、提醒、设置、气泡和遮罩窗口 | `src/main/windows.ts` | 提醒窗口与桌宠窗口相互独立；设置是工作台内嵌页，没有独立窗口；修改显示器相对布局时同步覆盖窗口生命周期和 bounds 测试。 |
 | 主进程到渲染端的新能力/API | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | 先定义 `EyeProtectApi`，再在 preload 调用 IPC，最后在 main 注册 handler。三处通道名保持一致。 |
 | 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
 | 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。 |
@@ -38,10 +38,11 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 - `npm run dev`：启动 Electron 开发环境。
 - `npm run typecheck`：执行 `tsc --noEmit`，检查严格 TypeScript 类型。
 - `npm test`：执行 `tsx --test tests/*.test.ts`。
-- `npm run build`：用 electron-vite 构建到 `out/`。
+- `npm run build`：用 electron-vite 构建到 `out/`，并运行 `verify:build` 契约检查（sandbox preload、CJS 输出等）。
 - `npm run start`：预览已构建应用。
 - `npm run verify:ui-contract`：检查语义颜色、CSS 所有权、可访问性模式、命中区域和对比度。
-- `npm run package`：先构建，再通过 electron-builder 生成 Windows x64 NSIS 安装包和 portable exe 到 `release/`。
+- `npm run package`：先构建，再通过 electron-builder 生成 Windows x64 NSIS 安装包和 portable exe 到 `release/`。`package:nsis` / `package:portable` 只构建其中一种目标。
+- smoke 与 UI 截图脚本：`smoke:running` / `smoke:experience` / `smoke:emergency` / `smoke:pet-failure` / `smoke:workbench-interactions` / `smoke:plan-interactions` / `capture:ui` / `capture:ui-scale`。全部通过 `scripts/lib/cdp.mjs` 与打包应用通信；修改 CDP 连接逻辑只改这一处。
 
 ## 代码风格与约定
 

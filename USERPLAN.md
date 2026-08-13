@@ -1,3 +1,5 @@
+> **历史归档**：本文是早期「产品完成度 / Completion Pass」轮次的实施计划。其中列出的所有 P0/P1 问题与第二批、第三批建议均已落地（CommandButton 成功反馈策略、TimeBlock 逆向拖出、todayViewModel 唯一模型、Focus 沉浸条件、计划→日程改名、TaskComposer placement、Project rename 错误保持等，均有对应代码与测试）。后续开发请以 README/AGENTS/CLAUDE 和现有测试为准，不要把本文当作待办清单。
+
 ## 核心结论
 
 这一轮我建议**暂时冻结你现在满意的配色，不再做大范围视觉改造，正式进入一次“产品完成度 / Completion Pass”**。重点不是继续增加功能，而是把已经存在的任务管理流程做到“可理解、可逆、无意外、无小毛刺”。
