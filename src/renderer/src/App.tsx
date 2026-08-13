@@ -14,7 +14,6 @@ const resolveView = () => {
       return AlertView;
     case 'bubble':
       return BubbleView;
-    case 'panel':
     case 'settings':
       return WorkbenchView;
     case 'workbench':

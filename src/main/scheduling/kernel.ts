@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 
 /**
  * SchedulerKernel — the single deadline queue behind every timed event in the
- * app (eye/walk reminders, alarms, task reminders, pause expiry). It owns ONE
+ * app (eye/walk reminders, standalone reminders, task reminders, pause expiry).
+ * It owns ONE
  * `setTimeout` fired at the nearest deadline, plus a low-frequency watchdog
  * that detects wall-clock drift and reconciles after suspend/resume/unlock.
  *

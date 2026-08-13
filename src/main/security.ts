@@ -4,7 +4,6 @@ const ALLOWED_RENDERER_HASHES = new Set([
   '',
   '#pet',
   '#settings',
-  '#panel',
   '#bubble',
   '#alert',
   '#workbench'

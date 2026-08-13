@@ -8,7 +8,7 @@ const packagedIndex = join('I:\\', 'EyeProtect', 'out', 'renderer', 'index.html'
 const packagedUrl = pathToFileURL(packagedIndex).href;
 
 test('packaged renderer accepts only the known index views', () => {
-  for (const hash of ['', '#pet', '#settings', '#panel', '#bubble', '#alert', '#workbench']) {
+  for (const hash of ['', '#pet', '#settings', '#bubble', '#alert', '#workbench']) {
     assert.equal(isTrustedRendererUrl(`${packagedUrl}${hash}`, undefined, packagedIndex), true);
   }
 

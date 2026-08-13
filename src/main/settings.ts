@@ -315,9 +315,10 @@ export const getDataDir = (): string => {
  *                      shortcut, pet window). Todo/alarm mutations no longer
  *                      fire this, so checking a todo can never re-sync the
  *                      startup shortcut or resize the pet window.
- * - 'todos-changed'  — todo list changed; only pet/bubble/panel care.
- * Alarm persistence (persistAlarms) and pet-position saves are silent: the
- * AlarmClock owns alarm notifications, and nobody needs position echoes.
+ * - 'todos-changed'  — todo list changed; only pet/bubble care.
+ * Alarm persistence (persistAlarms) and pet-position saves are silent:
+ * nobody needs position echoes (legacy AlarmClock was removed; the alarms
+ * field survives only as migration input to the Task Core).
  */
 export class SettingsStore extends EventEmitter {
   private readonly dataDir: string;
@@ -473,8 +474,8 @@ export class SettingsStore extends EventEmitter {
   }
 
   /**
-   * AlarmClock is the source of truth and announces changes itself; this only
-   * mirrors its list to disk — no 'changed' cascade.
+   * Persist legacy alarm fields for the one-time Task Core migration; emits
+   * no 'changed' cascade (the migration is the only consumer).
    */
   persistAlarms(alarms: Alarm[]): void {
     const next = sanitizeSettings({ ...this.get(), alarms });

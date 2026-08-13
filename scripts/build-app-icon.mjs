@@ -4,7 +4,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const sourcePath = resolve(root, 'public/assets/app-icon.png');
+// Build-time source only: the PNG is not shipped in the app (it is only
+// used to regenerate the .ico). It lives under scripts/assets so it never
+// lands in out/ or the installer asar.
+const sourcePath = resolve(root, 'scripts/assets/app-icon.png');
 const outputPath = resolve(root, 'public/assets/app-icon.ico');
 const sizes = [16, 24, 32, 48, 64, 128, 256];
 
