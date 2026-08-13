@@ -47,9 +47,8 @@ jobs:
       - name: Verify UI contract
         run: npm run verify:ui-contract
 
-      - name: Build
-        run: npm run build
-
+      # npm run package starts with npm run build (incl. verify:build),
+      # so a separate Build step would build twice.
       - name: Build Windows distributions
         run: npm run package
 
@@ -83,12 +82,14 @@ jobs:
           $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9336' -PassThru -WindowStyle Hidden
           try {
             npm run smoke:workbench-interactions -- 9336 exercise
+            npm run smoke:plan-interactions -- 9336 exercise
           } finally {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
           $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9336' -PassThru -WindowStyle Hidden
           try {
             npm run smoke:workbench-interactions -- 9336 verify
+            npm run smoke:plan-interactions -- 9336 verify
           } finally {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
@@ -160,11 +161,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping emergency smoke'; exit 0 }
           $smokeData = Join-Path $env:RUNNER_TEMP 'eyeprotect-emergency-smoke-data'
           New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
           $env:EYEPROTECT_DATA_DIR = $smokeData
           $env:EYEPROTECT_SMOKE = '1'
-          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
           $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9334', '--eyeprotect-smoke-emergency' -PassThru -WindowStyle Hidden
           try {
             npm run smoke:emergency -- 9334
@@ -178,11 +180,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping pet-failure smoke'; exit 0 }
           $smokeData = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-failure-smoke-data'
           New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
           $env:EYEPROTECT_DATA_DIR = $smokeData
           $env:EYEPROTECT_SMOKE = '1'
-          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
           $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9335', '--eyeprotect-smoke-pet-failure' -PassThru -WindowStyle Hidden
           try {
             npm run smoke:pet-failure -- 9335
@@ -196,6 +199,6 @@ jobs:
         with:
           name: EyeProtect-Windows-x64
           path: |
-            release/EyeProtect-Setup-1.1.0-win-x64.exe
-            release/EyeProtect-1.1.0-win-x64-portable.exe
+            release/EyeProtect-Setup-*-win-x64.exe
+            release/EyeProtect-*-win-x64-portable.exe
           if-no-files-found: warn

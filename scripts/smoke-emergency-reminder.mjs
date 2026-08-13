@@ -1,29 +1,6 @@
 const port = Number(process.argv[2] ?? 9334);
 const endpoint = `http://127.0.0.1:${port}`;
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-const listTargets = async () => {
-  const response = await fetch(`${endpoint}/json`);
-  if (!response.ok) throw new Error(`CDP target list returned HTTP ${response.status}`);
-  return response.json();
-};
-
-const waitForTarget = async (predicate, label, timeoutMs = 15_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await listTargets()).find(
-        (candidate) => candidate.type === 'page' && predicate(candidate)
-      );
-      if (target) return target;
-    } catch {
-      // Packaged startup and window swaps are transient.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-};
-
+import { delay, listTargets, waitForTarget } from './lib/cdp.mjs';
 const evaluate = async (target, expression) => {
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
@@ -55,7 +32,7 @@ const evaluate = async (target, expression) => {
   }
 };
 
-const pet = await waitForTarget((target) => target.url.endsWith('#pet'), 'pet renderer');
+const pet = await waitForTarget(endpoint, (target) => target.url.endsWith('#pet'), 'pet renderer');
 const active = await evaluate(pet, `(async () => {
   await window.eyeProtect.saveSettings({ reminderMode: 'guided' });
   await window.eyeProtect.testReminder('eye');
@@ -63,8 +40,7 @@ const active = await evaluate(pet, `(async () => {
 })()`);
 if (!active?.id) throw new Error(`Test reminder did not start: ${JSON.stringify(active)}`);
 
-const emergency = await waitForTarget(
-  (target) => target.url.startsWith('data:text/html'),
+const emergency = await waitForTarget(endpoint, (target) => target.url.startsWith('data:text/html'),
   'emergency reminder'
 );
 await delay(Math.max(0, Number(active.unlockAt) - Date.now()) + 150);

@@ -7,6 +7,13 @@ import test from 'node:test';
 // tokens have a single owner, density changes the core work metrics, and the
 // Workbench uses a workspace container rather than viewport breakpoints.
 
+// NOTE: token-overlap, nav hitbox, workspace-container, legacy-selector-ban and
+// raw-color checks are asserted once in scripts/verify-ui-contract.mjs (CI +
+// `npm run verify:ui-contract`). Keeping them in the test file as well meant
+// every contract change had to be made in two places, so they live in the
+// script only. This file keeps the behavioral contracts the script cannot
+// express.
+
 const root = resolve(import.meta.dirname, '..');
 const read = (relative: string) => readFileSync(resolve(root, relative), 'utf8');
 
@@ -58,21 +65,6 @@ test('tokens.css owns only non-color foundation tokens', () => {
   }
 });
 
-test('theme.css does not redeclare foundation tokens owned by tokens.css', () => {
-  const foundationTokens = [
-    '--space-1', '--space-2', '--space-3', '--space-4', '--space-6',
-    '--radius-small', '--radius-medium', '--radius-large',
-    '--motion-fast', '--motion-standard', '--motion-slow',
-    '--hit-target-min', '--control-height-sm', '--control-height-md', '--task-row-height',
-    '--workbench-sidebar-width', '--workbench-toolbar-height', '--workbench-content-max',
-    '--workbench-page-top', '--workbench-section-gap'
-  ];
-  const defined = extractDefinedTokens(themeCss);
-  for (const name of foundationTokens) {
-    assert.ok(!defined.has(name), `theme.css must not redeclare foundation token ${name}`);
-  }
-});
-
 test('compact density makes the core task row genuinely more compact', () => {
   const compactMatch = tokensCss.match(/\[data-density='compact'\]\s*\{([\s\S]*?)\}/);
   assert.ok(compactMatch, 'tokens.css must define a [data-density=compact] block');
@@ -88,31 +80,6 @@ test('compact density makes the core task row genuinely more compact', () => {
   assert.ok(comfortableRow >= 52, `comfortable row (${comfortableRow}) must be >= 52px`);
 });
 
-test('primary navigation hitbox never shrinks below the 44px target', () => {
-  const navMatch = workbenchCss.match(/\.app-nav-item\s*\{([\s\S]*?)\}/);
-  assert.ok(navMatch, 'workbench.css must style .app-nav-item');
-  const minHeight = navMatch[1].match(/min-height:\s*(\d+)px/);
-  assert.ok(minHeight, '.app-nav-item must declare a min-height');
-  assert.ok(Number(minHeight[1]) >= 44, `.app-nav-item min-height (${minHeight[1]}px) must be >= 44px`);
-});
-
-test('workbench defines a named workspace container', () => {
-  assert.ok(/container-type:\s*inline-size/.test(workbenchCss), 'workspace-scroll must set container-type: inline-size');
-  assert.ok(/container-name:\s*workspace/.test(workbenchCss), 'workspace-scroll must set container-name: workspace');
-});
-
-test('workbench uses at least one @container workspace query', () => {
-  const containerQueries = workbenchCss.match(/@container\s+workspace/g) ?? [];
-  assert.ok(containerQueries.length >= 1, 'workbench feature CSS must use @container workspace queries');
-});
-
-test('no token name is declared in both tokens.css and theme.css', () => {
-  const tokenTokens = extractDefinedTokens(tokensCss);
-  const themeTokens = extractDefinedTokens(themeCss);
-  const shared = [...tokenTokens.keys()].filter((name) => themeTokens.has(name));
-  assert.deepEqual(shared, [], `tokens must not be owned by both files: ${shared.join(', ')}`);
-});
-
 test('Workbench dimensions stay on the visual-hardening contract', () => {
   const tokens = extractDefinedTokens(tokensCss);
   const rootBlock = tokensCss.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
@@ -124,28 +91,6 @@ test('Workbench dimensions stay on the visual-hardening contract', () => {
   assert.equal(tokens.get('--radius-large'), '12px');
   assert.match(planCss, /grid-template-columns:\s*minmax\(210px,\s*0\.65fr\)\s+minmax\(430px,\s*1\.35fr\)/);
   assert.match(planCss, /@container\s+workspace\s*\(max-width:\s*600px\)/);
-});
-
-test('legacy stylesheet cannot reclaim Workbench feature selectors', () => {
-  for (const selector of ['task-row', 'project-item', 'detail-card', 'detail-field']) {
-    assert.doesNotMatch(
-      legacyCss,
-      new RegExp(`\\.${selector}(?:[\\s:{.#>+~]|$)`),
-      `styles.css must not own Workbench selector .${selector}`
-    );
-  }
-});
-
-test('theme.css is the only renderer stylesheet allowed to declare raw colors', () => {
-  const rawColor = /#[0-9a-f]{3,8}\b|\brgba?\s*\(/i;
-  for (const path of cssFilesIn(resolve(root, 'src/renderer/src'))) {
-    if (path.endsWith('theme.css')) continue;
-    assert.doesNotMatch(
-      readFileSync(path, 'utf8'),
-      rawColor,
-      `${path.slice(root.length + 1)} must use semantic colors from theme.css`
-    );
-  }
 });
 
 test('Workbench selection stays neutral while active navigation icons carry the brand', () => {

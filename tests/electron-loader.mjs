@@ -1,7 +1,5 @@
 // Node module-customization hook: redirect bare 'electron' imports to the local
 // stub so the ReminderSurfaceManager can be unit-tested under plain Node.
-import { fileURLToPath } from 'node:url';
-
 const stubUrl = new URL('./electron-stub.mjs', import.meta.url).href;
 
 export async function resolve(specifier, context, nextResolve) {
@@ -10,6 +8,3 @@ export async function resolve(specifier, context, nextResolve) {
   }
   return nextResolve(specifier, context);
 }
-
-// fileURLToPath kept to avoid an unused-import warning in strict configs.
-void fileURLToPath;

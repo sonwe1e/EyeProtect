@@ -1,83 +1,12 @@
 const port = Number(process.argv[2] ?? 9333);
 const endpoint = `http://127.0.0.1:${port}`;
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-const listTargets = async () => {
-  const response = await fetch(`${endpoint}/json`);
-  if (!response.ok) throw new Error(`CDP target list returned HTTP ${response.status}`);
-  return response.json();
-};
-
-const waitForTarget = async (hash, timeoutMs = 12_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await listTargets()).find(
-        (candidate) => candidate.type === 'page' && candidate.url.endsWith(hash)
-      );
-      if (target) return target;
-    } catch {
-      // The packaged application may still be starting.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${hash}`);
-};
-
-const waitForTargetGone = async (hash, timeoutMs = 12_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const exists = (await listTargets()).some((candidate) => candidate.type === 'page' && candidate.url.endsWith(hash));
-      if (!exists) return;
-    } catch {
-      // The debugging endpoint may briefly update while a window closes.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${hash} to close`);
-};
-
-const evaluate = async (target, expression) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
-  });
-  try {
-    const id = 1;
-    const response = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error(`CDP evaluation timed out: ${expression.replace(/\s+/g, ' ').slice(0, 140)}`)),
-        15_000
-      );
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== id) return;
-        clearTimeout(timeout);
-        message.error ? reject(new Error(message.error.message)) : resolve(message.result);
-      });
-      socket.send(JSON.stringify({
-        id,
-        method: 'Runtime.evaluate',
-        params: { expression, awaitPromise: true, returnByValue: true }
-      }));
-    });
-    if (response.exceptionDetails) {
-      throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
-    }
-    return response.result?.value;
-  } finally {
-    socket.close();
-  }
-};
-
+import { delay, evaluate, listTargets, waitForTarget, waitForTargetGone } from './lib/cdp.mjs';
 const waitForValue = async (hash, expression, predicate, timeoutMs = 12_000) => {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
     try {
-      const target = await waitForTarget(hash, 1_000);
+      const target = await waitForTarget(endpoint, hash, 1_000);
       last = await evaluate(target, expression);
       if (predicate(last)) return { target, value: last };
     } catch {
@@ -121,7 +50,7 @@ assert(alert.resume === '修改论文', 'break did not preserve the active task'
 assert(alert.actions === 3, 'reminder actions are incomplete', alert);
 assert(alert.proceduralSvg, 'reminder choreography is not using the procedural character', alert);
 
-const initialAlertTarget = await waitForTarget('#alert');
+const initialAlertTarget = await waitForTarget(endpoint, '#alert');
 const skippedInitialBreak = await evaluate(initialAlertTarget, `(() => {
   const button = [...document.querySelectorAll('.alert-actions button')].find((entry) => entry.textContent?.includes('跳过'));
   if (!(button instanceof HTMLButtonElement)) return false;
@@ -129,7 +58,7 @@ const skippedInitialBreak = await evaluate(initialAlertTarget, `(() => {
   return true;
 })()`);
 assert(skippedInitialBreak, 'Reminder skip pointer path was unavailable', skippedInitialBreak);
-await waitForTargetGone('#alert');
+await waitForTargetGone(endpoint, '#alert');
 await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
 const today = (await waitForValue('#workbench', `(() => ({
   ready: Boolean(document.querySelector('.workbench-v2')),
@@ -138,7 +67,7 @@ const today = (await waitForValue('#workbench', `(() => ({
 }))()`, (value) => value?.ready && value?.composer)).value;
 assert(today.tasks >= 1, 'Workbench Today contract failed', today);
 
-const projectTarget = await waitForTarget('#workbench');
+const projectTarget = await waitForTarget(endpoint, '#workbench');
 await evaluate(projectTarget, `(() => {
   const projectNav = [...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('项目'));
   projectNav?.click();
@@ -230,14 +159,14 @@ const journeyAlert = (await waitForValue('#alert', `(() => ({
   resume: document.querySelector('.break-return-task strong')?.textContent
 }))()`, (value) => value?.ready && value?.resume)).value;
 assert(journeyAlert.resume === 'Smoke Journey Task', 'Focus task was not preserved into the break', journeyAlert);
-const journeyAlertTarget = await waitForTarget('#alert');
+const journeyAlertTarget = await waitForTarget(endpoint, '#alert');
 await evaluate(journeyAlertTarget, `(() => {
   const button = [...document.querySelectorAll('.alert-actions button')].find((entry) => entry.textContent?.includes('跳过'));
   if (!(button instanceof HTMLButtonElement)) return false;
   setTimeout(() => button.click(), 0);
   return true;
 })()`);
-await waitForTargetGone('#alert');
+await waitForTargetGone(endpoint, '#alert');
 const resumedFocus = (await waitForValue('#workbench', `(() => ({
   focus: Boolean(document.querySelector('.focus-surface')),
   title: document.querySelector('.focus-title')?.textContent

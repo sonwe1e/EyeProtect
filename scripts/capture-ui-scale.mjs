@@ -6,60 +6,9 @@ const outputDir = resolve(process.argv[3]);
 const label = process.argv[4];
 const expectedScale = Number(process.argv[5]);
 const endpoint = `http://127.0.0.1:${port}`;
-const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
-
-const targets = async () => (await fetch(`${endpoint}/json`)).json();
-const waitForTarget = async (hash) => {
-  const deadline = Date.now() + 12_000;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await targets()).find((entry) => entry.type === 'page' && entry.url.endsWith(hash));
-      if (target) return target;
-    } catch {
-      // Process is still starting.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${hash}`);
-};
-const call = async (target, method, params = {}) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolveOpen, reject) => {
-    socket.addEventListener('open', resolveOpen, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP connection failed')), { once: true });
-  });
-  try {
-    return await new Promise((resolveCall, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`${method} timed out`)), 12_000);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== 1) return;
-        clearTimeout(timeout);
-        if (message.error) reject(new Error(message.error.message));
-        else resolveCall(message.result);
-      });
-      socket.send(JSON.stringify({ id: 1, method, params }));
-    });
-  } finally {
-    socket.close();
-  }
-};
-const evaluate = async (target, expression) => {
-  const response = await call(target, 'Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-  if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
-  return response.result?.value;
-};
-const waitFor = async (target, expression) => {
-  const deadline = Date.now() + 12_000;
-  while (Date.now() < deadline) {
-    if (await evaluate(target, expression)) return;
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for UI state: ${expression}`);
-};
-
+import { call, delay, evaluate, listTargets, waitFor, waitForTarget } from './lib/cdp.mjs';
 mkdirSync(outputDir, { recursive: true });
-const pet = await waitForTarget('#pet');
+const pet = await waitForTarget(endpoint, '#pet');
 await waitFor(pet, `Boolean(window.eyeProtect) && ['saveSettings', 'createTask', 'upsertDailyPlan', 'openWorkbench'].every((name) => typeof window.eyeProtect[name] === 'function')`);
 await evaluate(pet, `(async () => {
   await window.eyeProtect.saveSettings({ theme: 'dark' });
@@ -68,7 +17,7 @@ await evaluate(pet, `(async () => {
   if (task) await window.eyeProtect.upsertDailyPlan({ taskId: task.id, localDate: new Date().toLocaleDateString('en-CA'), plannedMinutes: 30 });
   await window.eyeProtect.openWorkbench('today');
 })()`);
-const workbench = await waitForTarget('#workbench');
+const workbench = await waitForTarget(endpoint, '#workbench');
 let snapshot;
 for (let attempt = 0; attempt < 120; attempt += 1) {
   snapshot = await evaluate(workbench, `(() => ({

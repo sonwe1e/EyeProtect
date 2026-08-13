@@ -1,71 +1,13 @@
 const port = Number(process.argv[2] ?? 9337);
 const mode = process.argv[3] ?? 'exercise';
 const endpoint = `http://127.0.0.1:${port}`;
-const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
 if (!['exercise', 'verify'].includes(mode)) {
   throw new Error('Usage: smoke-plan-interactions.mjs <port> <exercise|verify>');
 }
 
-const listTargets = async () => {
-  const response = await fetch(`${endpoint}/json`);
-  if (!response.ok) throw new Error(`CDP target list returned HTTP ${response.status}`);
-  return response.json();
-};
-
-const waitForTarget = async (hash, timeoutMs = 15_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await listTargets()).find((candidate) => candidate.type === 'page' && candidate.url.endsWith(hash));
-      if (target) return target;
-    } catch {
-      // The packaged application may still be exposing its debugging target.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${hash}`);
-};
-
-const call = async (target, method, params = {}) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolveOpen, reject) => {
-    socket.addEventListener('open', resolveOpen, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
-  });
-  try {
-    return await new Promise((resolveCall, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`${method} timed out`)), 15_000);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== 1) return;
-        clearTimeout(timeout);
-        if (message.error) reject(new Error(message.error.message));
-        else resolveCall(message.result);
-      });
-      socket.send(JSON.stringify({ id: 1, method, params }));
-    });
-  } finally {
-    socket.close();
-  }
-};
-
-const evaluate = async (target, expression) => {
-  const response = await call(target, 'Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-  if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
-  return response.result?.value;
-};
-
-const waitFor = async (target, expression, timeoutMs = 15_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await evaluate(target, expression)) return;
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for UI state: ${expression}`);
-};
-
-const pet = await waitForTarget('#pet');
+import { call, delay, evaluate, listTargets, waitFor, waitForTarget } from './lib/cdp.mjs';
+const pet = await waitForTarget(endpoint, '#pet');
 await waitFor(pet, `Boolean(window.eyeProtect?.getTasks && window.eyeProtect?.getTimeBlocks && window.eyeProtect?.openWorkbench)`);
 
 if (mode === 'exercise') {
@@ -81,7 +23,7 @@ if (mode === 'exercise') {
     await window.eyeProtect.openWorkbench('plan');
   })()`);
 
-  const workbench = await waitForTarget('#workbench');
+  const workbench = await waitForTarget(endpoint, '#workbench');
   await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await waitFor(workbench, `Boolean(document.querySelector('.workbench-v2'))`);
   await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('今天')))?.click()`);
@@ -154,7 +96,7 @@ if (mode === 'exercise') {
   console.log('Plan in/out, multi-block and resize interactions persisted successfully');
 } else {
   await evaluate(pet, `window.eyeProtect.openWorkbench('plan')`);
-  const workbench = await waitForTarget('#workbench');
+  const workbench = await waitForTarget(endpoint, '#workbench');
   await waitFor(workbench, `Boolean(document.querySelector('.workbench-v2'))`);
   await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('日程')))?.click()`);
   await waitFor(workbench, `Boolean(document.querySelector('.plan-page .timeline-grid'))`);

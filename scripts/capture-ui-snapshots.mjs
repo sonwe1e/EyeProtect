@@ -33,152 +33,7 @@ if (repeat > 1) {
   process.exit(0);
 }
 const endpoint = `http://127.0.0.1:${port}`;
-const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
-
-const listTargets = async () => {
-  const response = await fetch(`${endpoint}/json`);
-  if (!response.ok) throw new Error(`CDP target list returned HTTP ${response.status}`);
-  return response.json();
-};
-
-const waitForTarget = async (hash, timeoutMs = 12_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await listTargets()).find((candidate) => candidate.type === 'page' && candidate.url.endsWith(hash));
-      if (target) return target;
-    } catch {
-      // The application may still be opening its remote-debugging endpoint.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${hash}`);
-};
-
-const waitForTargetGone = async (hash, timeoutMs = 12_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await listTargets()).find((candidate) => candidate.type === 'page' && candidate.url.endsWith(hash));
-      if (!target) return;
-    } catch {
-      // A closing renderer can briefly make the debugging endpoint unavailable.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for ${hash} to close`);
-};
-
-const call = async (target, method, params = {}) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolveOpen, reject) => {
-    socket.addEventListener('open', resolveOpen, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
-  });
-  try {
-    return await new Promise((resolveCall, reject) => {
-      const id = 1;
-      const timeout = setTimeout(() => reject(new Error(`${method} timed out`)), 12_000);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== id) return;
-        clearTimeout(timeout);
-        if (message.error) reject(new Error(message.error.message));
-        else resolveCall(message.result);
-      });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
-  } finally {
-    socket.close();
-  }
-};
-
-/**
- * Persistent CDP session. `Emulation.setEmulatedMedia` state is scoped to the
- * DevTools session that set it: closing the socket reverts the emulation
- * (verified against the packaged build — the OS media value returns the
- * moment the session closes). Every call that mutates session state and the
- * audits/screenshots that depend on it must therefore share ONE socket.
- */
-const openSession = async (target) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolveOpen, reject) => {
-    socket.addEventListener('open', resolveOpen, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
-  });
-  let nextId = 0;
-  const pending = new Map();
-  socket.addEventListener('message', (event) => {
-    const message = JSON.parse(String(event.data));
-    if (!message.id || !pending.has(message.id)) return;
-    const { resolveMessage, rejectMessage, timeout } = pending.get(message.id);
-    pending.delete(message.id);
-    clearTimeout(timeout);
-    if (message.error) rejectMessage(new Error(message.error.message));
-    else resolveMessage(message.result);
-  });
-  return {
-    call(method, params = {}) {
-      const id = ++nextId;
-      const promise = new Promise((resolveMessage, rejectMessage) => {
-        const timeout = setTimeout(() => rejectMessage(new Error(`${method} timed out`)), 12_000);
-        pending.set(id, { resolveMessage, rejectMessage, timeout });
-      });
-      socket.send(JSON.stringify({ id, method, params }));
-      return promise;
-    },
-    close() {
-      socket.close();
-    }
-  };
-};
-const callSequence = async (target, steps) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolveOpen, reject) => {
-    socket.addEventListener('open', resolveOpen, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
-  });
-  try {
-    for (let index = 0; index < steps.length; index += 1) {
-      const id = index + 1;
-      await new Promise((resolveStep, reject) => {
-        const timeout = setTimeout(() => reject(new Error(`${steps[index].method} timed out`)), 12_000);
-        const onMessage = (event) => {
-          const message = JSON.parse(String(event.data));
-          if (message.id !== id) return;
-          socket.removeEventListener('message', onMessage);
-          clearTimeout(timeout);
-          if (message.error) reject(new Error(message.error.message));
-          else resolveStep(message.result);
-        };
-        socket.addEventListener('message', onMessage);
-        socket.send(JSON.stringify({ id, ...steps[index] }));
-      });
-      // Electron's HTML5 drag recognizer can miss a zero-duration burst of
-      // synthetic mouse moves in packaged builds. A human-scale interval keeps
-      // this a real pointer path while making the regression deterministic.
-      if (steps[index].method === 'Input.dispatchMouseEvent') await delay(24);
-    }
-  } finally {
-    socket.close();
-  }
-};
-
-const evaluate = async (target, expression) => {
-  const response = await call(target, 'Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-  if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
-  return response.result?.value;
-};
-
-const waitFor = async (target, expression, timeoutMs = 12_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await evaluate(target, expression)) return;
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for UI state: ${expression}`);
-};
-
+import { call, callSequence, delay, evaluate, listTargets, openSession, waitFor, waitForTarget, waitForTargetGone } from './lib/cdp.mjs';
 const capture = async (target, name) => {
   await evaluate(target, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   const result = await call(target, 'Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: true });
@@ -319,7 +174,7 @@ const assertPageLayout = (label, metrics) => {
 };
 
 mkdirSync(outputDir, { recursive: true });
-const pet = await waitForTarget('#pet');
+const pet = await waitForTarget(endpoint, '#pet');
 await waitFor(pet, `(async () => {
   const api = window.eyeProtect;
   const methods = ['getTasks', 'createTask', 'deleteTask', 'getProjects', 'createProject', 'deleteProject', 'updateProject', 'updateTask', 'setActiveTask', 'upsertDailyPlan', 'createTimeBlock', 'createProjectSection', 'startFocus', 'pauseFocus', 'saveSettings', 'openWorkbench', 'getCharacterCollection'];
@@ -368,7 +223,7 @@ await evaluate(pet, `(async () => {
   await window.eyeProtect.openWorkbench('today');
 })()`);
 
-const workbench = await waitForTarget('#workbench');
+const workbench = await waitForTarget(endpoint, '#workbench');
 await waitFor(workbench, `document.querySelector('.workbench-v2') && document.documentElement.dataset.theme === 'light'`);
 await auditComputedTheme(workbench, 'light', [
   ['app shell', '.workbench-v2'],
@@ -698,7 +553,7 @@ await waitFor(workbench, `document.documentElement.dataset.theme === 'dark'`);
 await waitFor(pet, `document.documentElement.dataset.theme === 'dark'`);
 await capture(pet, 'pet-dark.png');
 await evaluate(pet, `window.eyeProtect.testReminder('combined')`);
-const alert = await waitForTarget('#alert');
+const alert = await waitForTarget(endpoint, '#alert');
 await waitFor(alert, `Boolean(document.querySelector('.alert-panel'))`);
 await auditComputedTheme(alert, 'dark', [
   ['reminder panel', '.alert-panel'],
@@ -712,12 +567,12 @@ const skipped = await evaluate(alert, `(() => {
   return true;
 })()`);
 if (!skipped) throw new Error('Reminder skip action was not available');
-await waitForTargetGone('#alert');
+await waitForTargetGone(endpoint, '#alert');
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light', reminderMode: 'guided' })`);
 await waitFor(pet, `document.documentElement.dataset.theme === 'light'`);
 await capture(pet, 'pet-light.png');
 await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
-const lightAlert = await waitForTarget('#alert');
+const lightAlert = await waitForTarget(endpoint, '#alert');
 await waitFor(lightAlert, `Boolean(document.querySelector('.alert-panel'))`);
 await capture(lightAlert, 'reminder-light.png');
 const lightSkipped = await evaluate(lightAlert, `(() => {
@@ -727,12 +582,12 @@ const lightSkipped = await evaluate(lightAlert, `(() => {
   return true;
 })()`);
 if (!lightSkipped) throw new Error('Light reminder skip action was not available');
-await waitForTargetGone('#alert');
+await waitForTargetGone(endpoint, '#alert');
 
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'dark', reminderMode: 'gentle' })`);
 await waitFor(pet, `document.documentElement.dataset.theme === 'dark'`);
 await evaluate(pet, `window.eyeProtect.testReminder('walk')`);
-const bubble = await waitForTarget('#bubble');
+const bubble = await waitForTarget(endpoint, '#bubble');
 await waitFor(bubble, `Boolean(document.querySelector('.bubble-card .bubble-actions'))`);
 await waitFor(bubble, `document.documentElement.dataset.theme === 'dark'`);
 await auditComputedTheme(bubble, 'dark', [
@@ -752,7 +607,7 @@ await waitFor(bubble, `!document.querySelector('.bubble-actions')`);
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light', reminderMode: 'gentle' })`);
 await waitFor(pet, `document.documentElement.dataset.theme === 'light'`);
 await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
-const lightBubble = await waitForTarget('#bubble');
+const lightBubble = await waitForTarget(endpoint, '#bubble');
 await waitFor(lightBubble, `Boolean(document.querySelector('.bubble-card .bubble-actions'))`);
 await waitFor(lightBubble, `document.documentElement.dataset.theme === 'light'`);
 await auditComputedTheme(lightBubble, 'light', [

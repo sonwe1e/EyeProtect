@@ -7,109 +7,7 @@ const packageJson = JSON.parse(
 );
 const expectedVersion = packageJson.version;
 
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-const listTargets = async () => {
-  const response = await fetch(`${endpoint}/json`);
-  if (!response.ok) {
-    throw new Error(`CDP target list returned HTTP ${response.status}`);
-  }
-  return response.json();
-};
-
-const waitForTarget = async (hash, timeoutMs = 10_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const target = (await listTargets()).find(
-        (candidate) => candidate.type === 'page' && candidate.url.endsWith(hash)
-      );
-      if (target) {
-        return target;
-      }
-    } catch {
-      // The packaged process may still be starting its debugging endpoint.
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for the ${hash} renderer`);
-};
-
-const call = async (target, method, params = {}) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), { once: true });
-  });
-  try {
-    return await new Promise((resolve, reject) => {
-      const id = 1;
-      const timeout = setTimeout(() => reject(new Error(`${method} timed out`)), 10_000);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== id) return;
-        clearTimeout(timeout);
-        if (message.error) reject(new Error(message.error.message));
-        else resolve(message.result);
-      });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
-  } finally {
-    socket.close();
-  }
-};
-
-const evaluate = async (target, expression) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), {
-      once: true
-    });
-  });
-
-  try {
-    const id = 1;
-    const response = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('CDP evaluation timed out')), 10_000);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== id) {
-          return;
-        }
-        clearTimeout(timeout);
-        if (message.error) {
-          reject(new Error(message.error.message));
-        } else {
-          resolve(message.result);
-        }
-      });
-      socket.send(
-        JSON.stringify({
-          id,
-          method: 'Runtime.evaluate',
-          params: {
-            expression,
-            awaitPromise: true,
-            returnByValue: true
-          }
-        })
-      );
-    });
-
-    if (response.exceptionDetails) {
-      const description =
-        response.exceptionDetails.exception?.description ??
-        response.exceptionDetails.text ??
-        'unknown renderer exception';
-      throw new Error(description);
-    }
-    return response.result?.value;
-  } finally {
-    socket.close();
-  }
-};
-
+import { call, delay, evaluate, listTargets, waitForTarget } from './lib/cdp.mjs';
 const waitForValue = async (target, expression, predicate, timeoutMs = 10_000) => {
   const deadline = Date.now() + timeoutMs;
   let last;
@@ -121,7 +19,7 @@ const waitForValue = async (target, expression, predicate, timeoutMs = 10_000) =
   throw new Error(`Timed out waiting for renderer state: ${JSON.stringify(last)}`);
 };
 
-const petTarget = await waitForTarget('#pet');
+const petTarget = await waitForTarget(endpoint, '#pet');
 const petProbeStartedAt = Date.now();
 const pet = await waitForValue(
   petTarget,
@@ -176,7 +74,7 @@ if (!characterCenter) throw new Error('Pet character click target was unavailabl
 for (const [type, clickCount] of [['mousePressed', 1], ['mouseReleased', 1], ['mousePressed', 2], ['mouseReleased', 2]]) {
   await call(petTarget, 'Input.dispatchMouseEvent', { type, x: characterCenter.x, y: characterCenter.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount });
 }
-const workbenchTarget = await waitForTarget('#workbench');
+const workbenchTarget = await waitForTarget(endpoint, '#workbench');
 await waitForValue(workbenchTarget, `Boolean(document.querySelector('.today-page'))`, Boolean);
 await evaluate(petTarget, "window.eyeProtect.openWorkbench('collection')");
 const collection = await waitForValue(workbenchTarget, `(() => ({
