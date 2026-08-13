@@ -27,6 +27,8 @@ export class TaskScheduler extends EventEmitter {
   private readonly persist: (events: PersistedScheduledEvent[]) => void;
   private readonly isConsumed: (task: Task) => boolean;
   private readonly onWake: (owner: string, events: ScheduledEvent[]) => void;
+  /** Signature of the last persisted/kernel-armed pending set (see arm). */
+  private lastArmSignature = '';
 
   constructor(kernel: SchedulerKernel, getTasks: () => Task[], now: () => number = Date.now, options: TaskSchedulerOptions = {}) {
     super();
@@ -50,8 +52,9 @@ export class TaskScheduler extends EventEmitter {
    * resume; the kernel coalesces it into its one timer.
    */
   arm(now: number = this.now()): void {
+    const tasks = this.getTasks();
     const events: ScheduledEvent[] = [];
-    for (const task of this.getTasks()) {
+    for (const task of tasks) {
       if (task.status === 'done' || task.status === 'archived') {
         continue;
       }
@@ -67,11 +70,22 @@ export class TaskScheduler extends EventEmitter {
         revision: ++this.sequence
       });
     }
-    const tasks = new Map(this.getTasks().map((task) => [task.id, task]));
+    const byId = new Map(tasks.map((task) => [task.id, task]));
     const pending = events.filter((event) => {
-      const task = tasks.get(event.id.replace('task-reminder-', ''));
+      const task = byId.get(event.id.replace('task-reminder-', ''));
       return this.consumed.get(event.id) !== event.fireAt && !(task && this.isConsumed(task));
     });
+    // Most task edits do not touch reminderAt; skip the scheduled-events rewrite
+    // and kernel re-arm when the pending deadline set is unchanged. This keeps a
+    // per-keystroke autosave from deleting+reinserting rows for nothing.
+    const signature = pending
+      .map((event) => `${event.id}:${event.fireAt}`)
+      .sort()
+      .join('|');
+    if (signature === this.lastArmSignature) {
+      return;
+    }
+    this.lastArmSignature = signature;
     this.persist(pending.map((event) => ({ ...event, owner: 'task', payloadRef: event.id.replace('task-reminder-', '') })));
     const nearest = pending.sort((a, b) => a.fireAt - b.fireAt)[0];
     this.kernel.set('task', nearest ? [nearest] : []);
@@ -85,6 +99,9 @@ export class TaskScheduler extends EventEmitter {
   /** Drop the registered deadline; the kernel keeps running for other owners. */
   suspend(): void {
     this.kernel.set('task', []);
+    // The kernel now has nothing registered for 'task'; the next arm() must
+    // re-register even if the deadline set is otherwise unchanged.
+    this.lastArmSignature = '';
   }
 
   /** Unsubscribe from the kernel and clear our deadline. Call on shutdown. */

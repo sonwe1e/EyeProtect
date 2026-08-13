@@ -334,7 +334,8 @@ app.whenReady().then(async () => {
   // reads a recent checkpoint from THIS session instead of a stale prior exit.
   runtimeStateStore.beginSession();
   const historyStore = new ReminderHistoryStore(settingsStore.getDataDir());
-  // One shared deadline queue for every timed event (breaks, alarms, tasks).
+  // One shared deadline queue for every timed event (breaks, standalone
+  // reminders, task reminders, pause expiry).
   // A rolling reminder-trace backs the kernel so a missed reminder can be
   // diagnosed from data instead of guesswork (USERPLAN §四.B).
   const reminderTrace: ReminderTraceSink = new ReminderTrace(settingsStore.getDataDir());
@@ -1123,6 +1124,15 @@ app.whenReady().then(async () => {
   // All handlers are sender-verified (handleIpc) and coerce their arguments.
   // Every mutation flows through TaskService, which re-emits domain events that
   // the wiring above broadcasts to the workbench and re-arms the task scheduler.
+  // Pet window badge: a count, not the task list (perf pass). The pet is
+  // the only always-resident renderer, so it must not rebuild a task Map on
+  // every edit elsewhere in the app.
+  handleIpc('task:pending-count', () =>
+    taskService
+      .getTasks()
+      .filter((task) => task.status !== 'done' && task.status !== 'archived').length
+  );
+
   const asTaskInput = (value: unknown): TaskInput => {
     const candidate = (value && typeof value === 'object' ? value : {}) as Partial<TaskInput>;
     return {
@@ -1436,10 +1446,16 @@ app.whenReady().then(async () => {
   handleIpc('window:workbench:close', () => windows.closeWorkbenchWindow());
   handleIpc('window:workbench:section', () => windows.getWorkbenchSection());
 
+  // Start the pet renderer as soon as its IPC surface exists so first paint
+  // overlaps the control-plane sync below. The load is async and non-fatal:
+  // a pet-window failure is caught+retried inside loadPetWindowBestEffort()
+  // and never aborts startup, so the scheduler/tray below still start
+  // regardless (the pet is best-effort eye-candy, not a dependency).
+  void windows.loadPetWindowBestEffort();
+
   // The control plane (kernel, scheduler, tray, delivery queue, activity
   // monitor, task work tracker) must start even if the pet renderer fails to
-  // load: the pet is best-effort eye-candy, not a scheduling dependency. So the
-  // scheduler etc. come first, and the pet window is created last and non-fatally.
+  // load: the pet is best-effort eye-candy, not a scheduling dependency.
   kernel.start();
   scheduler.start();
   runtimeStateStore.startCheckpoint(() => scheduler.serialize());
@@ -1447,15 +1463,15 @@ app.whenReady().then(async () => {
   // Dead-letter recovery: any delivery that reached terminal `failed` in a
   // prior run is reset to `due` so it is retried instead of forgotten.
   taskStore.reconcileFailedDeliveries();
+  // Bounded storage: terminal deliveries older than 30 days are dropped; the
+  // dedup key only matters for in-flight rows (see pruneDeliveries).
+  taskStore.pruneDeliveries(Date.now(), 30 * 24 * 60 * 60 * 1_000);
   deliveryQueue.start();
   taskWorkTracker.start(taskService.getActiveTaskId());
   applyGlobalHotkeys(settingsStore.get().hotkeysEnabled);
   createTray(windows, scheduler, settingsStore, () => taskService.getTasks());
   syncStartupShortcut(settingsStore.get());
   startDiagnostics();
-  // Best-effort: a pet-window startup failure is caught+retried inside
-  // loadPetWindowBestEffort() and never aborts startup.
-  void windows.loadPetWindowBestEffort();
   if (process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-pet-failure')) {
     // Keep a renderer control surface available to the packaged fault smoke;
     // the pet itself remains intentionally unavailable.

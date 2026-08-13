@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent } from 'react';
 import { Clock3, Gift, Heart, ListChecks, Settings as SettingsIcon, X } from 'lucide-react';
 import type { PetMood, StandaloneReminder } from '../../../shared/types';
 import { PetCharacter } from '../features/pet/PetCharacter';
 import { useCareStatus } from '../hooks/useCareStatus';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useTasks } from '../hooks/useTasks';
+import { usePendingTaskCount } from '../hooks/usePendingTaskCount';
 import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
 import { commands } from '../lib/commands';
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
   const care = useCareStatus();
-  const tasks = useTasks();
+  const pendingCount = usePendingTaskCount();
   const collection = useCharacterCollection();
   const [firingAlarms, setFiringAlarms] = useState<StandaloneReminder[]>([]);
 
@@ -45,7 +45,6 @@ export default function PetView(): JSX.Element {
     });
   }, []);
 
-  const pendingCount = useMemo(() => tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length, [tasks]);
   const isFiring = firingAlarms.length > 0;
   const mood: PetMood = reminderStatus.preAlert ? 'anticipating' : care.mood;
   const character = activeCharacterFrom(collection);

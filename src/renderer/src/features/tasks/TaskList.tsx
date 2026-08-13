@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, CalendarClock, Check, Flag, Footprints, Trash2 } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
@@ -45,6 +45,10 @@ const formatDue = (timestamp: number): string => shortDateFormatter.format(new D
 
 const formatDateTime = (timestamp: number): string => dateFormatter.format(new Date(timestamp));
 
+const overdueSince = (startOfToday: number, task: Task): boolean =>
+  (task.dueAt !== null && task.dueAt < startOfToday) ||
+  (task.plannedAt !== null && task.plannedAt < startOfToday);
+
 const isToday = (timestamp: number, now: number): boolean => {
   const a = new Date(timestamp);
   const b = new Date(now);
@@ -54,7 +58,7 @@ const isToday = (timestamp: number, now: number): boolean => {
 /** One task row. Owns its own command state for status toggle, priority cycle,
  *  inline rename, and delete — so each row's buttons reflect their own
  *  pending/success/error state independently of the rest of the list. */
-function TaskRow({
+const TaskRow = memo(function TaskRow({
   task,
   view,
   now,
@@ -283,7 +287,7 @@ function TaskRow({
       </CommandButton>
     </li>
   );
-}
+});
 
 export function TaskList({
   tasks,
@@ -319,11 +323,14 @@ export function TaskList({
   // to every other row.
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  const { orderedTasks, depthById } = useMemo(() => {
+  const { orderedTasks, depthById, siblingsByParent } = useMemo(() => {
     const ids = new Set(tasks.map((task) => task.id));
     const children = new Map<string, Task[]>();
     const roots: Task[] = [];
+    const siblingsByParent = new Map<string, Task[]>();
     for (const task of tasks) {
+      const parentKey = task.parentId ?? '';
+      siblingsByParent.set(parentKey, [...(siblingsByParent.get(parentKey) ?? []), task]);
       if (task.parentId && ids.has(task.parentId)) {
         children.set(task.parentId, [...(children.get(task.parentId) ?? []), task]);
       } else {
@@ -346,7 +353,7 @@ export function TaskList({
     };
     roots.forEach((task) => visit(task, 0));
     tasks.forEach((task) => visit(task, 0));
-    return { orderedTasks: ordered, depthById: depths };
+    return { orderedTasks: ordered, depthById: depths, siblingsByParent };
   }, [tasks]);
 
   const handleMove = useCallback((index: number, direction: -1 | 1) => {
@@ -375,6 +382,20 @@ export function TaskList({
     onMove(sourceId, beforeTaskId);
   }, [orderedTasks, onMove]);
 
+  const handleDragEnd = useCallback((): void => {
+    setDraggingId(null);
+  }, []);
+
+  // Stable per-render callback for row drops: resolves the dragged id from
+  // the list-level state. Recreated only when the drag target changes.
+  const handleRowDrop = useCallback((targetId: string): void => {
+    setDraggingId(null);
+    handleDropOnRow(targetId, draggingId);
+  }, [handleDropOnRow, draggingId]);
+
+  // Computed once per render instead of per row (O(n) vs O(n²)).
+  const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+
   if (tasks.length === 0) {
     return <p className="task-empty empty-state">这里还没有任务，添加一件吧。</p>;
   }
@@ -393,12 +414,10 @@ export function TaskList({
       }}
     >
       {orderedTasks.map((task, index) => {
-        const siblings = orderedTasks.filter((entry) => entry.parentId === task.parentId);
+        const siblings = siblingsByParent.get(task.parentId ?? '') ?? [];
         const siblingIndex = siblings.findIndex((entry) => entry.id === task.id);
         const project = task.projectId ? projectById.get(task.projectId) : undefined;
-        const overdue =
-          (task.dueAt !== null && task.dueAt < new Date(now).setHours(0, 0, 0, 0)) ||
-          (task.plannedAt !== null && task.plannedAt < new Date(now).setHours(0, 0, 0, 0));
+        const overdue = overdueSince(startOfToday, task);
         return (
           <TaskRow
             key={task.id}
@@ -419,12 +438,8 @@ export function TaskList({
             onSelect={onSelect}
             onMove={handleMove}
             onDragStartRow={setDraggingId}
-            onDropOnRow={(targetId) => {
-              const sourceId = draggingId;
-              setDraggingId(null);
-              handleDropOnRow(targetId, sourceId);
-            }}
-            onDragEndRow={() => setDraggingId(null)}
+            onDropOnRow={handleRowDrop}
+            onDragEndRow={handleDragEnd}
           />
         );
       })}

@@ -241,9 +241,9 @@ export class AppWindows {
 
   /**
    * The Workbench is the v1.1 task-management surface (USERPLAN §三): a normal,
-   * resizable, taskbar-visible MainWindow (~1080×720) hosting the Inbox/Today/
-   * Upcoming/Projects/Completed views. Unlike the pet/panel it is not a
-   * floating overlay — it is a real workspace the user switches to.
+   * resizable, taskbar-visible MainWindow (~1080×720) hosting the Today/Inbox/
+   * Plan/Focus/Projects views. Unlike the pet it is not a floating overlay —
+   * it is a real workspace the user switches to.
    */
   showWorkbenchWindow(
     section:
@@ -482,6 +482,8 @@ export class AppWindows {
     const active = status.activeReminder;
     const tasks = this.getTasks();
     const pending = tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length;
+    // The always-resident pet window subscribes to the count channel only.
+    this.sendTo([this.petWindow], 'task:pending-count:changed', pending);
     const petAlive = Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
 
     // Gentle reminders and soft pre-alerts use the bubble as their surface
@@ -581,7 +583,10 @@ export class AppWindows {
   }
 
   broadcastStandaloneReminderFired(reminder: StandaloneReminder): void {
-    this.sendTo([this.workbenchWindow], 'standalone-reminder:fired', reminder);
+    // The pet is the only renderer that renders the dismiss badge for a fired
+    // standalone reminder (PetView.onStandaloneReminderFired); the workbench
+    // shows the persisted list instead.
+    this.sendTo([this.petWindow], 'standalone-reminder:fired', reminder);
   }
 
   broadcastFailedDeliveries(notices: FailedDeliveryNotice[]): void {
@@ -1037,11 +1042,12 @@ export class AppWindows {
   }
 
   // Push the full task list to every live window so hooks subscribed to
-  // onTasksChanged re-render. The workbench is the primary consumer; the pet/
-  // panel ignore the channel (per the project's separate-subscriptions rule).
+  // onTasksChanged re-render. The workbench is the primary consumer; the pet
+  // receives only the pending count via refreshBubble (separate-subscriptions
+  // rule: the always-resident pet window does not rebuild the task list).
   broadcastTasks(tasks: Task[]): void {
     this.sendTo(
-      [this.petWindow, this.bubbleWindow, this.workbenchWindow],
+      [this.bubbleWindow, this.workbenchWindow],
       'task:changed',
       tasks
     );
@@ -1054,13 +1060,15 @@ export class AppWindows {
 
   // Delta stream (USERPLAN 1.2 PR2): single-entity mutations no longer
   // broadcast the entire Task[] — typing one character updates one row.
+  // The pet window is deliberately excluded: it only needs the pending badge
+  // count, which refreshBubble pushes on the dedicated count channel.
   broadcastTaskUpserted(task: Task): void {
-    this.sendTo([this.petWindow, this.bubbleWindow, this.workbenchWindow], 'task:upserted', task);
+    this.sendTo([this.bubbleWindow, this.workbenchWindow], 'task:upserted', task);
     this.refreshBubble();
   }
 
   broadcastTaskRemoved(taskId: string): void {
-    this.sendTo([this.petWindow, this.bubbleWindow, this.workbenchWindow], 'task:removed', taskId);
+    this.sendTo([this.bubbleWindow, this.workbenchWindow], 'task:removed', taskId);
     this.refreshBubble();
   }
 

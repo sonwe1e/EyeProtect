@@ -72,6 +72,14 @@ const SECTION_ICON: Record<string, LucideIcon> = {
   settings: Settings2
 };
 
+// Module-scope formatter: constructing an Intl.DateTimeFormat on every render
+// is wasteful, and this view re-renders at least once a minute (useClock).
+const reviewDateFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: 'long',
+  day: 'numeric',
+  weekday: 'long'
+});
+
 type WorkbenchSection = WorkbenchSectionId;
 
 const formatMinutes = (value: number): string => `${Math.max(0, Math.floor(value / 60_000))}m`;
@@ -102,8 +110,7 @@ export default function WorkbenchView(): JSX.Element {
   const [search, setSearch] = useState('');
   const [failedDeliveries, setFailedDeliveries] = useState<FailedDeliveryNotice[]>([]);
   const [reviewDate, setReviewDate] = useState(localDateKey(now));
-  const reviewDateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
-    .format(new Date(`${reviewDate}T00:00:00`));
+  const reviewDateLabel = reviewDateFormatter.format(new Date(`${reviewDate}T00:00:00`));
   const { summary: reviewSummary, refresh: refreshReview } = useDailyReview(reviewDate);
 
   useEffect(() => {
@@ -384,7 +391,7 @@ export default function WorkbenchView(): JSX.Element {
     return (
       <div className="workspace-page today-page">
         <header className="page-header">
-          <div><span className="page-eyebrow">{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now))}</span><h1>今天</h1><p className="page-description">今天真正承诺完成的工作；安排具体时间是可选的。</p></div>
+          <div><span className="page-eyebrow">{reviewDateFormatter.format(new Date(now))}</span><h1>今天</h1><p className="page-description">今天真正承诺完成的工作；安排具体时间是可选的。</p></div>
           <div className="today-header-actions">
             <Button onClick={() => setPlanningOpen(true)}><CalendarDays size={15} />规划今天</Button>
             <div className="rhythm-summary"><span><Eye size={16} />{formatMinutes(eyeRemaining)}</span><span><Footprints size={16} />{formatMinutes(walkRemaining)}</span></div>

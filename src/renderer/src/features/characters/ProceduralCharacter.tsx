@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import type {
   CollectibleCharacter,
   PetAccessory,
@@ -19,7 +20,7 @@ const pointOnBody = (
   };
 };
 
-export function ProceduralCharacter({
+export const ProceduralCharacter = memo(function ProceduralCharacter({
   character,
   mood = 'calm',
   action = 'idle',
@@ -40,11 +41,18 @@ export function ProceduralCharacter({
   const bodyY = 52 - recipe.bodyHeight / 2;
   const radius = Math.min(recipe.bodyWidth, recipe.bodyHeight) * recipe.bodyRoundness / 200;
   const attentionGap = recipe.attentionSpread;
+  // Stable style object so React.memo can actually skip re-rendering the SVG
+  // when the character (and thus palette) is unchanged — the alert window
+  // re-renders every second for countdowns and must not redraw the artwork.
+  const characterStyle = useMemo(
+    () => ({ '--character-base': base, '--character-light': light, '--character-ink': ink }) as React.CSSProperties,
+    [base, light, ink]
+  );
 
   return (
     <div
       className={`procedural-character style-${character.style} material-${character.material} action-${action} mood-${mood} ${compact ? 'is-compact' : ''}`.trim()}
-      style={{ '--character-base': base, '--character-light': light, '--character-ink': ink } as React.CSSProperties}
+      style={characterStyle}
       role="img"
       aria-label={label ?? `${character.name}，${character.personality}`}
       data-character-id={character.id}
@@ -134,4 +142,4 @@ export function ProceduralCharacter({
       </svg>
     </div>
   );
-}
+});

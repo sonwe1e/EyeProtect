@@ -104,6 +104,20 @@ export class TaskStore extends EventEmitter {
   private transactionDepth = 0;
   private recovery: TaskDatabaseRecovery = { readOnly: false, snapshotPath: null, reason: null };
 
+  /**
+   * Emit 'tasks-changed' only when someone actually listens. Production wires
+   * the delta events (task-upserted / task-removed / tasks-replaced) instead,
+   * so this full-list snapshot was being SELECTed on every mutation for a
+   * listener that never existed. Tests that assert the bulk event register a
+   * listener first and still receive it.
+   */
+  private emitTasksChanged(tasks?: Task[]): void {
+    if (this.listenerCount('tasks-changed') === 0) {
+      return;
+    }
+    this.emit('tasks-changed', tasks ?? this.getTasks());
+  }
+
   constructor(dataDir: string, options: TaskStoreOptions = {}) {
     super();
     this.filePath = join(dataDir, DATABASE_FILE);
@@ -287,7 +301,7 @@ export class TaskStore extends EventEmitter {
       this.writeTaskTags(task.id, task.tags);
     });
     const result = this.getTask(task.id)!;
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     this.emit('task-upserted', result);
     return result;
   }
@@ -328,7 +342,7 @@ export class TaskStore extends EventEmitter {
       }
     });
     const result = this.getTask(id);
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     if (result) this.emit('task-upserted', result);
     return result;
   }
@@ -378,7 +392,7 @@ export class TaskStore extends EventEmitter {
       const statement = this.db.prepare('UPDATE tasks SET sort_order = ?, updated_at = ? WHERE id = ?');
       rest.forEach((entry, index) => statement.run(index, now, entry.id));
     });
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     // Delta stream: every reordered sibling changed its sort_order.
     for (const entry of rest) {
       const fresh = this.getTask(entry.id);
@@ -397,7 +411,7 @@ export class TaskStore extends EventEmitter {
       this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
       this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(id);
     });
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     this.emit('task-removed', id);
     for (const child of promotedChildren) {
       const fresh = this.getTask(child.id);
@@ -427,7 +441,7 @@ export class TaskStore extends EventEmitter {
         this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(taskId);
       }
     });
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     for (const task of removed) {
       this.emit('task-removed', task.id);
     }
@@ -501,7 +515,7 @@ export class TaskStore extends EventEmitter {
       }
       this.db.prepare('DELETE FROM undo_operations WHERE id = ?').run(operationId);
     });
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     // Undo restores/removes whole trees — broadcast the full list as truth.
     this.emit('tasks-replaced', this.getTasks());
     return true;
@@ -568,7 +582,7 @@ export class TaskStore extends EventEmitter {
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
     });
     this.emit('projects-changed', this.getProjects());
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     this.emit('project-removed', id);
     for (const task of detachedTasks) {
       const fresh = this.getTask(task.id);
@@ -600,7 +614,7 @@ export class TaskStore extends EventEmitter {
         }
       }
     });
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     this.emit('tasks-replaced', this.getTasks());
     return this.getTasks();
   }
@@ -629,7 +643,7 @@ export class TaskStore extends EventEmitter {
       }
     });
     this.emit('projects-changed', this.getProjects());
-    this.emit('tasks-changed', this.getTasks());
+    this.emitTasksChanged();
     this.emit('projects-replaced', this.getProjects());
     this.emit('tasks-replaced', this.getTasks());
     return this.getProjects();
@@ -741,7 +755,7 @@ export class TaskStore extends EventEmitter {
     }
     const result = this.getTasks();
     if (result.length > 0) {
-      this.emit('tasks-changed', result);
+      this.emitTasksChanged(result);
       this.emit('tasks-replaced', result);
     }
     return result;
@@ -949,6 +963,23 @@ export class TaskStore extends EventEmitter {
           last_attempt_at = NULL, first_due_at = ?
       WHERE state = 'failed'
     `).run(now, now);
+  }
+
+  /**
+   * Prune terminal delivery rows (delivered/clicked/dismissed/failed) older
+   * than `retentionMs`. The UNIQUE(source, source_id, occurrence_at) dedup
+   * only needs in-flight rows: an occurrence that reached a terminal state
+   * long ago will never be re-enqueued, so keeping it only grows the table
+   * without bound. Non-terminal rows are always preserved.
+   */
+  pruneDeliveries(now: number = Date.now(), retentionMs: number): number {
+    const cutoff = now - retentionMs;
+    const result = this.db.prepare(`
+      DELETE FROM reminder_delivery
+      WHERE state IN ('delivered', 'clicked', 'dismissed', 'failed')
+        AND first_due_at < ?
+    `).run(cutoff);
+    return Number(result.changes);
   }
 
   recordWorkSegment(taskId: string, startedAt: number, endedAt: number, activeMs: number): void {
@@ -1684,7 +1715,7 @@ export class TaskStore extends EventEmitter {
     const detached = this.getTasks().filter((task) => task.sectionId === id);
     const result = this.db.prepare('DELETE FROM project_sections WHERE id = ?').run(id);
     if (Number(result.changes) === 1) {
-      this.emit('tasks-changed', this.getTasks());
+      this.emitTasksChanged();
       for (const task of detached) {
         const fresh = this.getTask(task.id);
         if (fresh) this.emit('task-upserted', fresh);

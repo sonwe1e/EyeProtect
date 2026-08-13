@@ -82,11 +82,19 @@ export class ReminderTrace implements ReminderTraceSink {
     this.flush();
     try {
       const raw = readFileSync(this.filePath, 'utf8');
-      return raw
-        .split('\n')
-        .filter((line) => line.trim())
-        .slice(-count)
-        .map((line) => JSON.parse(line) as ReminderTraceEntry);
+      const parsed: ReminderTraceEntry[] = [];
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) {
+          continue;
+        }
+        try {
+          parsed.push(JSON.parse(line) as ReminderTraceEntry);
+        } catch {
+          // A torn/corrupted line (crash mid-write) must not wipe out the
+          // rest of the trace; skip it and keep the surviving entries.
+        }
+      }
+      return parsed.slice(-count);
     } catch {
       return [];
     }

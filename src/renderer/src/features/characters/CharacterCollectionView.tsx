@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Dice5, Gift, Heart, Pin, Sparkles, Trash2 } from 'lucide-react';
 import { CHARACTER_MATERIALS } from '../../../../shared/characters';
 import type { CharacterMaterial, CollectibleCharacter, PetAccessory } from '../../../../shared/types';
@@ -25,8 +25,13 @@ const ACCESSORIES: Array<{ value: PetAccessory; label: string }> = [
 export function CharacterCollectionView(): JSX.Element {
   const state = useCharacterCollection();
   const candidate = state.candidate?.decision === 'pending' ? state.candidate.character : null;
-  const characters = [...state.characters].sort((left, right) =>
-    Number(right.favorite) - Number(left.favorite) || right.createdAt - left.createdAt
+  const characters = useMemo(
+    () =>
+      [...state.characters].sort(
+        (left, right) =>
+          Number(right.favorite) - Number(left.favorite) || right.createdAt - left.createdAt
+      ),
+    [state.characters]
   );
   const collect = useCommand(() => commands.characters.collect());
   const discard = useCommand(() => commands.characters.discard());
@@ -61,7 +66,7 @@ export function CharacterCollectionView(): JSX.Element {
   );
 }
 
-function CharacterCard({ character, active, pinned }: { character: CollectibleCharacter; active: boolean; pinned: boolean }): JSX.Element {
+const CharacterCard = memo(function CharacterCard({ character, active, pinned }: { character: CollectibleCharacter; active: boolean; pinned: boolean }): JSX.Element {
   const [name, setName] = useState(character.name);
   const rename = useCommand((name: string) => commands.characters.rename(character.id, name));
   const setMaterial = useCommand((material: CharacterMaterial) => commands.characters.setMaterial(character.id, material));
@@ -90,7 +95,7 @@ function CharacterCard({ character, active, pinned }: { character: CollectibleCh
       </div>
     </article>
   );
-}
+});
 
 const personalityCopy = (character: CollectibleCharacter): string => ({
   curious: '总想看看屏幕外面发生了什么。',

@@ -18,7 +18,13 @@ export default function BubbleView(): JSX.Element {
   const tasks = useTasks();
   const activeTaskId = useActiveTaskId();
   const status = useReminderStatus();
-  const now = useClock(1_000);
+  // Countdowns (gentle reminder wait, pre-alert seconds) need second ticks;
+  // the todo-preview branch only uses `now` for an overdue sort that changes
+  // at most daily, so a slow clock avoids waking this window every second.
+  const needsSecondTicks =
+    Boolean(status.activeReminder && status.activeReminder.mode === 'gentle') ||
+    Boolean(status.preAlert);
+  const now = useClock(needsSecondTicks ? 1_000 : 60_000);
   const character = activeCharacterFrom(useCharacterCollection());
   const completeBreakTask = useCommand((id: string) => commands.tasks.setStatus(id, 'done'));
   const openTodos = useCallback(() => {

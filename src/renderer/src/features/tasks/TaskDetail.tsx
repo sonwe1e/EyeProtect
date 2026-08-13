@@ -16,6 +16,12 @@ import { useProjectSections } from '../../hooks/useProjectSections';
 import { commands } from '../../lib/commands';
 import styles from './TaskDetail.module.css';
 
+// Debounced field autosave (perf pass): `setTimeout(0)` sent one IPC + SQLite
+// write per keystroke. The effect cleanup cancels the pending timer on every
+// edit, so rapid typing coalesces into a single write; the side-sheet close
+// flush below still guarantees the newest draft lands.
+const FIELD_AUTOSAVE_DEBOUNCE_MS = 400;
+
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
   important: '重要',
@@ -257,7 +263,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     const timer = setTimeout(() => {
       const { notes: _notes, ...input } = latestDraftRef.current;
       persist(input);
-    }, 0);
+    }, FIELD_AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [title, priority, context, remindOnBreak, projectId, sectionId, parentId, plannedAt, dueAt, reminderAt, hasPlanned, hasDue, hasReminder, estimateMinutes, tags, task.title, persist]);
 

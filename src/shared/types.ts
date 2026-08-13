@@ -835,6 +835,10 @@ export interface EyeProtectApi {
    *  onTasksChanged (bulk), single-entity mutations arrive incrementally. */
   onTaskUpserted: (callback: (task: Task) => void) => () => void;
   onTaskRemoved: (callback: (taskId: string) => void) => () => void;
+  /** Lightweight pending-count channel for the always-resident pet window:
+   *  it only needs the badge number, not the full task list (perf pass). */
+  getPendingTaskCount: () => Promise<number>;
+  onPendingTaskCountChanged: (callback: (count: number) => void) => () => void;
   getDailyPlans: (localDate: string) => Promise<DailyTaskPlan[]>;
   upsertDailyPlan: (input: DailyTaskPlanInput) => Promise<DailyTaskPlan[]>;
   removeDailyPlan: (taskId: string, localDate: string) => Promise<DailyTaskPlan[]>;

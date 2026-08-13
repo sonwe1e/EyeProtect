@@ -1147,6 +1147,9 @@ export class ReminderScheduler extends EventEmitter {
     }
     // No in-flight break (or an eye-only break): surface via native
     // notification so we never pop a window over the user's current work.
+    // The native-notification enqueue lives in index.ts's `task-reminder`
+    // handler (deliveryQueue.enqueue) — this method only attaches the away
+    // suggestion to an already-visible walk reminder.
   }
 
   private intervalFor(kind: SingleReminderKind): number {
