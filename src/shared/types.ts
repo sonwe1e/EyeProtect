@@ -1017,23 +1017,6 @@ export const sanitizeTodos = (value: unknown): TodoItem[] => {
   return value.map((entry) => sanitizeTodo(entry)).filter((entry): entry is TodoItem => Boolean(entry));
 };
 
-const PRIORITY_RANK: Record<TodoPriority, number> = { urgent: 0, important: 1, normal: 2 };
-
-/** Display order: pending items first (higher priority first, then insertion
- * order), then completed sunk to the bottom ordered by when they were
- * completed. Storage stays append-only. */
-export const sortTodosForDisplay = (todos: TodoItem[]): TodoItem[] => {
-  const pending = todos
-    .filter((todo) => !todo.completed)
-    .sort(
-      (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt - b.createdAt
-    );
-  const done = todos
-    .filter((todo) => todo.completed)
-    .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
-  return [...pending, ...done];
-};
-
 export const sanitizeAlarm = (value: unknown): Alarm | null => {
   if (!value || typeof value !== 'object') {
     return null;
