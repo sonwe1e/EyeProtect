@@ -32,6 +32,8 @@
 | 17 | 托盘「立即休息」/测试按钮在暂停或提醒进行中时点击无效果 | 菜单按状态禁用无效项 |
 | 18 | 桌宠窗口 `firingAlarms` 无界增长 | 只保留最近 5 条已触发提醒 |
 | 19 | 仓库行尾混用（26 个源文件 CRLF / 其余 LF），每次提交都警告 | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制白名单） |
+| 20 | `updateSettings` 清除可见 pre-alert 但保留按 deadline 的标记，延长导前时间后当前 deadline 不再出现新 pre-alert | 同时清除标记，使新导前时间立即生效，附回归测试 |
+| 21 | focused 模式暗化遮罩为全黑不透明窗口（`transparent:false` + `#000000`），桌面完全不可见 | 用 `setOpacity(0.55)` 半透明暗化，保留不透明窗口实现避免透明窗口绘制问题 |
 
 ## 已验证无问题的重点
 
@@ -44,5 +46,6 @@
 
 ## 验证
 
-- `npm run typecheck`、`npm test`（当前 423 个用例）、`npm run verify:ui-contract`、`npm run build`（含构建契约）全部通过。
+- `npm run typecheck`、`npm test`（当前 427 个用例）、`npm run verify:ui-contract`、`npm run build`（含构建契约）全部通过。
+- `npm run package` 本地验证通过：NSIS 安装包与 portable exe 均正常生成（`release/`，不入库）。
 - UI 快照与打包 smoke 由 GitHub Actions Windows CI 覆盖。
