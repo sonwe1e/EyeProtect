@@ -5,6 +5,7 @@ import {
   type StandaloneReminderSchedule
 } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
+import { useClock } from '../../hooks/useClock';
 import { useCommand } from '../../hooks/useCommand';
 import { commands } from '../../lib/commands';
 import { useStandaloneReminders } from '../../hooks/useStandaloneReminders';
@@ -20,6 +21,9 @@ const localDateTime = (timestamp: number): string => {
 
 export function StandaloneReminderSection(): JSX.Element {
   const reminders = useStandaloneReminders();
+  // Minute ticks keep the "next fire" timestamps in each row from going stale
+  // while the section stays open (the list only re-renders on data changes).
+  const now = useClock(60_000);
   const [label, setLabel] = useState('');
   const [type, setType] = useState<ScheduleType>('once');
   const [dateTime, setDateTime] = useState(localDateTime(Date.now() + 3_600_000));
@@ -96,7 +100,7 @@ export function StandaloneReminderSection(): JSX.Element {
       </form>
       <ul className="standalone-list">
         {reminders.map((reminder) => (
-          <ReminderItem key={reminder.id} reminder={reminder} />
+          <ReminderItem key={reminder.id} reminder={reminder} now={now} />
         ))}
         {reminders.length === 0 ? <li className="empty-state">还没有独立提醒。</li> : null}
       </ul>
@@ -105,11 +109,11 @@ export function StandaloneReminderSection(): JSX.Element {
 }
 
 /** One reminder row. Owns its own command state for enable-toggle and delete. */
-function ReminderItem({ reminder }: { reminder: ReturnType<typeof useStandaloneReminders>[number] }): JSX.Element {
+function ReminderItem({ reminder, now }: { reminder: ReturnType<typeof useStandaloneReminders>[number]; now: number }): JSX.Element {
   const toggle = useCommand((enabled: boolean) => commands.reminders.update(reminder.id, { enabled }));
   const remove = useCommand(() => commands.reminders.remove(reminder.id));
 
-  const next = nextStandaloneReminderFireAt(reminder.schedule);
+  const next = nextStandaloneReminderFireAt(reminder.schedule, now);
 
   return (
     <li>

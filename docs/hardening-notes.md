@@ -34,6 +34,7 @@
 | 19 | 仓库行尾混用（26 个源文件 CRLF / 其余 LF），每次提交都警告 | 新增 `.gitattributes`（`* text=auto eol=lf` + 二进制白名单） |
 | 20 | `updateSettings` 清除可见 pre-alert 但保留按 deadline 的标记，延长导前时间后当前 deadline 不再出现新 pre-alert | 同时清除标记，使新导前时间立即生效，附回归测试 |
 | 21 | focused 模式暗化遮罩为全黑不透明窗口（`transparent:false` + `#000000`），桌面完全不可见 | 用 `setOpacity(0.55)` 半透明暗化，保留不透明窗口实现避免透明窗口绘制问题 |
+| 22 | `tests/` 不在 typecheck 范围内，测试与领域类型漂移（旧字段、缺失的新列、null 收窄违规）长期潜伏 | `tsconfig` 纳入 `tests/`（`allowJs` + `allowImportingTsExtensions`），修复 64 处潜在类型错误；顺带修正 `BackupDomainInput` 的 `Omit & 可选` 交集类型缺陷 |
 
 ## 已验证无问题的重点
 
@@ -46,7 +47,7 @@
 
 ## 验证
 
-- `npm run typecheck`、`npm test`（当前 427 个用例）、`npm run verify:ui-contract`、`npm run build`（含构建契约）全部通过。
+- `npm run typecheck`（覆盖 `src/` 与 `tests/`）、`npm test`（当前 425 个用例）、`npm run verify:ui-contract`、`npm run build`（含构建契约）全部通过。
 - `npm run package` 本地验证通过：NSIS 安装包与 portable exe 均正常生成（`release/`，不入库）。
 - 本地端到端 smoke：`smoke:running` 与 `smoke:experience` 对打包产物全部通过（bridge、拖拽区域、任务/日计划 IPC 往返、主题权威审计）。`smoke:workbench-interactions` 的 CDP 模拟 HTML5 拖放在本机会话不派发 drop 事件（dragstart/dragover 正常、drop 缺失）——经手动派发 drop 事件验证 React 拖放处理完好，属环境差异而非代码回归；CI 的 windows runner 上该脚本正常。
 - UI 快照与打包 smoke 由 GitHub Actions Windows CI 覆盖。
