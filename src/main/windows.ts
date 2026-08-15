@@ -39,6 +39,12 @@ const ALL_DONE_DISPLAY_MS = 2_500;
 const BUBBLE_DESTROY_DELAY_MS = 30_000;
 /** Coalesce bursts of display-added/removed/metrics events into one relayout. */
 const DISPLAY_CHANGE_DEBOUNCE_MS = 250;
+/**
+ * Window-level alpha of the focused-mode dim mask. 0.55 keeps the desktop
+ * visible but clearly dimmed (55 % black); the mask is an opaque black window
+ * so it avoids transparent-window paint quirks on Windows.
+ */
+const DIM_MASK_OPACITY = 0.55;
 const forceEmergencySmoke =
   process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-emergency');
 const forcePetLoadFailure =
@@ -798,6 +804,10 @@ export class AppWindows {
         }
       });
 
+      // "Dim the desktop", not black it out: the opaque black mask stays
+      // cheap (no transparent-window paint issues), and setOpacity() dims the
+      // whole window uniformly. DWM applies it per window on Windows.
+      mask.setOpacity(DIM_MASK_OPACITY);
       // Mask sits on the 'floating' band while the alert card runs on
       // 'screen-saver', so the card is always above regardless of show order.
       mask.setAlwaysOnTop(true, 'floating');
