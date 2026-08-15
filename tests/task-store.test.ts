@@ -614,5 +614,7 @@ const migrateShape = (todo: TodoItem): Task => ({
   sortOrder: 0,
   createdAt: todo.createdAt,
   updatedAt: todo.createdAt,
-  completedAt: todo.completed ? todo.completedAt ?? todo.createdAt : null
+  completedAt: todo.completed ? todo.completedAt ?? todo.createdAt : null,
+  sectionId: null,
+  revision: 1
 });

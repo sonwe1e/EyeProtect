@@ -20,7 +20,6 @@ const task = (overrides: Partial<Task> = {}): Task => ({
   plannedAt: NOW - 86_400_000,
   dueAt: NOW + 3_600_000,
   reminderAt: null,
-  reminderConsumedAt: null,
   estimateMinutes: 60,
   recurrence: null,
   sortOrder: 0,
@@ -36,6 +35,7 @@ const block = (startAt: number): TimeBlock => ({
   taskId: 'task-1',
   startAt,
   endAt: startAt + 60 * 60_000,
+  timeZone: 'local',
   source: 'planner',
   createdAt: NOW,
   updatedAt: NOW

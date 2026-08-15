@@ -26,7 +26,7 @@ test('complete v4 backup round-trips Task Core, characters, occurrences and remi
     id: 'task-1', title: '接水', notes: null, status: 'open', priority: 'important',
     projectId: null, parentId: null, tags: [], plannedAt: null, dueAt: null,
     reminderAt: 50, recurrence: null, context: 'away', remindOnBreak: true, estimateMinutes: null,
-    sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null
+    sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null, sectionId: null, revision: 1
   };
   const text = createBackup(settings, [event], '1.1.0', 123_456, {
     tasks: [task],
@@ -98,7 +98,8 @@ test('parseBackup rejects a cyclic task graph (A->B->A)', () => {
     id: 'a', title: 'A', notes: null, status: 'open', priority: 'normal',
     projectId: null, parentId: 'b', tags: [], plannedAt: null, dueAt: null,
     reminderAt: null, recurrence: null, context: 'desk', remindOnBreak: false,
-    estimateMinutes: null, sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null
+    estimateMinutes: null, sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null,
+    sectionId: null, revision: 1
   };
   const taskB: Task = {
     ...taskA, id: 'b', title: 'B', parentId: 'a'
@@ -122,7 +123,8 @@ test('parseBackup preserves a valid task DAG (A->B->C)', () => {
     notes: null, status: 'open' as const, priority: 'normal' as const,
     projectId: null, tags: [] as string[], plannedAt: null, dueAt: null,
     reminderAt: null, recurrence: null, context: 'desk' as const,
-    remindOnBreak: false, estimateMinutes: null, createdAt: 1, updatedAt: 1, completedAt: null
+    remindOnBreak: false, estimateMinutes: null, createdAt: 1, updatedAt: 1,
+    completedAt: null, sectionId: null, revision: 1
   };
   const tasks: Task[] = [
     { ...base, id: 'a', title: 'A', parentId: null, sortOrder: 0 },
@@ -152,7 +154,8 @@ test('replaceAll rejects a cyclic task graph without changing storage', () => {
       notes: null, status: 'open' as const, priority: 'normal' as const,
       projectId: null, tags: [] as string[], plannedAt: null, dueAt: null,
       reminderAt: null, recurrence: null, context: 'desk' as const,
-      remindOnBreak: false, estimateMinutes: null, createdAt: 1, updatedAt: 1, completedAt: null
+      remindOnBreak: false, estimateMinutes: null, createdAt: 1, updatedAt: 1,
+      completedAt: null, sectionId: null, revision: 1
     };
     const tasks: Task[] = [
       { ...base, id: 'a', title: 'A', parentId: 'b', sortOrder: 0 },
@@ -169,8 +172,8 @@ test('replaceAll rejects a cyclic task graph without changing storage', () => {
 
 test('project cycles are rejected by both backup parsing and storage replacement', () => {
   const projects: Project[] = [
-    { id: 'a', name: 'A', color: null, parentId: 'b', sortOrder: 0, createdAt: 1, updatedAt: 1 },
-    { id: 'b', name: 'B', color: null, parentId: 'a', sortOrder: 1, createdAt: 1, updatedAt: 1 }
+    { id: 'a', name: 'A', color: null, goal: null, viewMode: 'list', status: 'active', parentId: 'b', sortOrder: 0, createdAt: 1, updatedAt: 1 },
+    { id: 'b', name: 'B', color: null, goal: null, viewMode: 'list', status: 'active', parentId: 'a', sortOrder: 1, createdAt: 1, updatedAt: 1 }
   ];
   assert.throws(() => parseBackup(JSON.stringify({
     version: 4,
@@ -211,3 +214,6 @@ test('backup parser sanitizes settings instead of trusting imported paths or ran
   assert.equal(restored.settings.eyeIntervalMinutes, 240);
   assert.deepEqual(restored.settings.quietAppWhitelist, ['powerpnt']);
 });
+
+
+

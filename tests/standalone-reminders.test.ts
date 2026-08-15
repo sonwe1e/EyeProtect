@@ -101,9 +101,11 @@ test('weekly next-fire with no weekdays produces nothing (defensive)', () => {
 
 test('a once reminder is deleted only after delivery acknowledgement', () => {
   withService((service, store, kernel, clock) => {
-    let fired: StandaloneReminder | null = null;
+    // Boxed because TS narrows a `let x: T | null = null` that is only ever
+    // assigned inside a callback to `never` at later read sites.
+    const fired: { current: StandaloneReminder | null } = { current: null };
     service.on('fired', (reminder: StandaloneReminder) => {
-      fired = reminder;
+      fired.current = reminder;
     });
     service.create({ label: '喝水', schedule: { type: 'once', fireAt: NOW + 1_000 } });
 
@@ -111,7 +113,7 @@ test('a once reminder is deleted only after delivery acknowledgement', () => {
     clock.now += 1_000;
     kernel.reconcile();
 
-    assert.equal(fired?.label, '喝水');
+    assert.equal(fired.current?.label, '喝水');
     assert.equal(service.list().length, 1, 'unacknowledged occurrence stays durable');
     service.acknowledgeDelivery(service.list()[0].id, NOW + 1_000);
     assert.deepEqual(service.list(), []);
@@ -121,10 +123,10 @@ test('a once reminder is deleted only after delivery acknowledgement', () => {
 
 test('the fired event carries the scheduled fireAt for crash-replay dedupe', () => {
   withService((service, store, kernel, clock) => {
-    let firedReminder: StandaloneReminder | null = null;
+    const firedReminder: { current: StandaloneReminder | null } = { current: null };
     let firedFireAt: number | null = null;
     service.on('fired', (reminder: StandaloneReminder, fireAt: number) => {
-      firedReminder = reminder;
+      firedReminder.current = reminder;
       firedFireAt = fireAt;
     });
     const scheduledFireAt = NOW + 1_000;
@@ -137,7 +139,7 @@ test('the fired event carries the scheduled fireAt for crash-replay dedupe', () 
     clock.now += 1_000;
     kernel.reconcile();
 
-    assert.equal(firedReminder?.label, '喝水');
+    assert.equal(firedReminder.current?.label, '喝水');
     assert.equal(firedFireAt, scheduledFireAt, 'fired emits the scheduled fireAt, not Date.now()');
   });
 });

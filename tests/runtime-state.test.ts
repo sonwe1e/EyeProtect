@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { RuntimeStateStore } from '../src/main/runtimeState';
+import type { PersistedBreakSession } from '../src/shared/types';
 import type { ReminderSnapshot } from '../src/main/reminders';
 
 const T0 = new Date(2026, 6, 8, 10, 0, 0, 0).getTime();
@@ -59,14 +60,14 @@ test('clean exit -> relaunch -> checkpoint -> crash never reuses the first sessi
   try {
     let now = T0;
     const clock = () => now;
-    const active = {
-      kind: 'eye' as const,
-      kinds: ['eye'] as const,
+    const active: PersistedBreakSession = {
+      kind: 'eye',
+      kinds: ['eye'],
       startedAt: T0,
       scheduledAt: T0,
       unlockAt: T0 + 30_000,
       snoozeAllowedAt: T0,
-      mode: 'focused' as const,
+      mode: 'focused',
       snoozeCount: 0,
       activityIds: ['eye-1'],
       breakTask: null
@@ -107,7 +108,7 @@ test('the store preserves an active session; the scheduler decides recovery', ()
   // scheduler-persistence.test.ts.) Here we assert the store round-trips it.
   const dataDir = tempDir();
   try {
-    const activeSession = {
+    const activeSession: PersistedBreakSession = {
       kind: 'eye',
       kinds: ['eye'],
       startedAt: T0,

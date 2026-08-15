@@ -21,10 +21,9 @@ const task = (id: string, status: Task['status'] = 'open'): Task => ({
   estimateMinutes: null,
   sortOrder: 0,
   reminderAt: null,
-  reminderEnabled: false,
-  reminderConsumedAt: null,
   recurrence: null,
-  breakSuggestion: null,
+  context: 'desk',
+  remindOnBreak: false,
   revision: 1
 });
 

@@ -487,7 +487,7 @@ test('backup import drops planning rows that lost their referential target', () 
     dailyTaskPlans: [{ taskId: 'ghost', localDate: '2026-08-10', plannedMinutes: 30, dailyRank: null, sortOrder: 0, createdAt: NOW, updatedAt: NOW }],
     timeBlocks: [{ id: 'tb', taskId: 'ghost', startAt: NOW, endAt: NOW + 1000, timeZone: 'local', source: 'manual', createdAt: NOW, updatedAt: NOW }],
     projectSections: [{ id: 'sec', projectId: 'ghost-project', name: 'Doing', sortOrder: 0, createdAt: NOW, updatedAt: NOW }],
-    focusSessions: [{ id: 'fs', taskId: 'ghost', timeBlockId: 'tb', startedAt: NOW, endedAt: NOW + 10, activeMs: 10, outcome: 'completed', createdAt: NOW }]
+    focusSessions: [{ id: 'fs', taskId: 'ghost', timeBlockId: 'tb', startedAt: NOW, endedAt: NOW + 10, activeMs: 10, outcome: 'completed', onBreak: false, createdAt: NOW }]
   });
   const backup = parseBackup(text);
   assert.deepEqual(backup.dailyTaskPlans, []);

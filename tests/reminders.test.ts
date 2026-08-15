@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ReminderScheduler } from '../src/main/reminders';
-import type { ReminderEvent, Settings, Task } from '../src/shared/types';
+import type { ReminderEvent, ReminderStatus, Settings, Task } from '../src/shared/types';
 
 const MINUTE = 60_000;
 const T0 = new Date(2026, 6, 8, 10, 0, 0, 0).getTime();
@@ -10,6 +10,10 @@ const baseSettings: Settings = {
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  naturalBreakMinutes: 5,
+  dailyCapacityMinutes: 360,
+  workStartMinutes: 7 * 60,
+  workEndMinutes: 21 * 60,
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
@@ -26,8 +30,11 @@ const baseSettings: Settings = {
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
   hotkeysEnabled: true,
+  theme: 'system',
+  density: 'comfortable',
   alarms: [],
-  todos: []
+  todos: [],
+  activeTaskId: null
 };
 
 const makeSettings = (overrides: Partial<Settings> = {}): Settings => ({
@@ -59,7 +66,7 @@ const makeTask = (id: string, title: string, priority: Task['priority'], context
   id, title, notes: null, status: 'open', priority, projectId: null, parentId: null,
   tags: [], plannedAt: null, dueAt: null, reminderAt: null, recurrence: null,
   context, remindOnBreak, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
-  updatedAt: sortOrder + 1, completedAt: null
+  updatedAt: sortOrder + 1, completedAt: null, sectionId: null, revision: 1
 });
 
 test('test reminders do not reset real schedules when completed', () => {
@@ -124,7 +131,7 @@ test('pause expiring on its own continues the frozen countdowns', () => {
   clock.advance(10 * MINUTE);
   const paused = scheduler.pause(5); // until T0+15min, eye frozen at 10min
 
-  clock.set(paused.pausedUntil + 1);
+  clock.set((paused.pausedUntil ?? 0) + 1);
   const status = scheduler.tick();
   assert.equal(status.pausedUntil, null);
   assert.equal(status.activeReminder, null, 'eye is not due until pause-end + frozen remainder');
@@ -208,7 +215,7 @@ test('restartCycle clears pause and starts both cycles fresh', () => {
 
 test('scheduler emits changed status for test reminder', () => {
   const { scheduler } = makeScheduler();
-  const seen = [];
+  const seen: ReminderStatus[] = [];
   scheduler.onChanged((status) => seen.push(status));
 
   scheduler.triggerTest('walk');
@@ -241,7 +248,7 @@ test('reminder becoming due while another is showing is absorbed into it', () =>
   // Walk is 2 minutes behind eye: outside the 60s combine window at fire
   // time, but it piles up while the eye reminder is on screen.
   const { clock, scheduler } = makeScheduler(makeSettings({ walkIntervalMinutes: 22 }));
-  const seen = [];
+  const seen: ReminderStatus[] = [];
   scheduler.onChanged((status) => seen.push(status));
 
   clock.advance(20 * MINUTE);
@@ -290,7 +297,7 @@ test('snooze count grows per snooze and resets on complete', () => {
   const first = scheduler.tick().activeReminder;
   assert.equal(first?.snoozeCount, 0);
 
-  scheduler.handleAction('snooze', first.id);
+  scheduler.handleAction('snooze', first!.id);
   clock.advance(5 * MINUTE + 1_000);
   const second = scheduler.tick().activeReminder;
   assert.equal(second?.snoozeCount, 1);
@@ -307,7 +314,7 @@ test('skip resets the snooze count', () => {
 
   clock.advance(20 * MINUTE);
   const first = scheduler.tick().activeReminder;
-  scheduler.handleAction('snooze', first.id);
+  scheduler.handleAction('snooze', first!.id);
   clock.advance(5 * MINUTE + 1_000);
   const second = scheduler.tick().activeReminder;
   assert.equal(second?.snoozeCount, 1);
@@ -324,7 +331,7 @@ test('test reminders neither report nor touch the snooze cycle', () => {
 
   clock.advance(20 * MINUTE);
   const real = scheduler.tick().activeReminder;
-  scheduler.handleAction('snooze', real.id);
+  scheduler.handleAction('snooze', real!.id);
 
   const testReminder = scheduler.triggerTest('eye').activeReminder;
   assert.equal(testReminder?.snoozeCount, 0);
@@ -343,7 +350,7 @@ test('due kinds are not absorbed into a running test reminder', () => {
   const duringTest = scheduler.tick();
   assert.equal(duringTest.activeReminder?.kind, 'eye');
 
-  scheduler.handleAction('complete', testReminder.id);
+  scheduler.handleAction('complete', testReminder!.id);
   clock.advance(1 * MINUTE);
   const afterTest = scheduler.tick();
   assert.equal(afterTest.activeReminder?.kind, 'combined');
@@ -367,7 +374,7 @@ test('pause resets the snooze count', () => {
 
   clock.advance(20 * MINUTE);
   const first = scheduler.tick().activeReminder;
-  scheduler.handleAction('snooze', first.id);
+  scheduler.handleAction('snooze', first!.id);
 
   const paused = scheduler.pause(60);
   clock.set(paused.nextEyeAt + 1_000);
@@ -501,7 +508,7 @@ test('settings changes drop a pending pre-alert and re-arm the new lead time', (
   assert.ok(scheduler.getStatus().preAlert, 'pre-alert is showing before the deadline');
 
   const before = scheduler.getStatus();
-  const next = scheduler.updateSettings(makeSettings({ preAlertSeconds: 60 }), before);
+  const next = scheduler.updateSettings(makeSettings({ preAlertSeconds: 60 }), makeSettings({ preAlertSeconds: 30 }));
   assert.equal(next.preAlert, null, 'a stale pre-alert is dropped on settings change');
 
   // The same deadline becomes eligible again under the longer lead time: the
@@ -611,7 +618,7 @@ test('real actions emit one history event with schedule context; tests emit none
   clock.set(T0 + 20 * MINUTE);
   const real = scheduler.tick().activeReminder;
   clock.advance(31_000);
-  scheduler.handleAction('complete', real?.id ?? '');
+  scheduler.handleAction('complete', real!.id);
 
   assert.equal(events.length, 1);
   assert.equal(events[0].action, 'complete');
@@ -709,3 +716,4 @@ test('scene-aware gate defers at most three times, explains each delay, then sho
   assert.equal(shown.contextDeferral, null);
   assert.equal(shown.activeReminder?.kind, 'eye');
 });
+

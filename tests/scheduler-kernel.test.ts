@@ -3,6 +3,7 @@ import test from 'node:test';
 import { ReminderScheduler } from '../src/main/reminders';
 import { SchedulerKernel } from '../src/main/scheduling/kernel';
 import type { ScheduledEvent } from '../src/main/scheduling/kernel';
+import type { KernelClock } from '../src/main/scheduling/kernel';
 import type { Settings } from '../src/shared/types';
 
 /** Deterministic wall + monotonic clock; monotonic always tracks wall. */
@@ -34,6 +35,10 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  naturalBreakMinutes: 5,
+  dailyCapacityMinutes: 360,
+  workStartMinutes: 7 * 60,
+  workEndMinutes: 21 * 60,
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
@@ -50,8 +55,11 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
   hotkeysEnabled: true,
+  theme: 'system',
+  density: 'comfortable',
   alarms: [],
   todos: [],
+  activeTaskId: null,
   ...overrides
 });
 
@@ -77,7 +85,7 @@ test('fires the nearest deadline exactly on time', () => {
   const { clock, kernel } = makeKernel();
   const seen: string[] = [];
   kernel.on('wake', (owner, events) => {
-    seen.push(...events.map((e) => `${owner}:${e.id}`));
+    seen.push(...events.map((e: ScheduledEvent) => `${owner}:${e.id}`));
   });
 
   kernel.set('svc', [
@@ -105,7 +113,7 @@ test('set() replaces only the owning service deadlines', () => {
   const { clock, kernel } = makeKernel();
   const seen: string[] = [];
   kernel.on('wake', (owner, events) => {
-    seen.push(...events.map((e) => `${owner}:${e.id}`));
+    seen.push(...events.map((e: ScheduledEvent) => `${owner}:${e.id}`));
   });
 
   kernel.set('break', [event('eye', 'break', 1000, 'eye')]);
@@ -129,7 +137,7 @@ test('clear() drops an owners deadlines', () => {
   const { clock, kernel } = makeKernel();
   const seen: string[] = [];
   kernel.on('wake', (owner, events) => {
-    seen.push(...events.map((e) => `${owner}:${e.id}`));
+    seen.push(...events.map((e: ScheduledEvent) => `${owner}:${e.id}`));
   });
 
   kernel.set('break', [event('eye', 'break', 1000, 'eye')]);
@@ -146,7 +154,7 @@ test('past deadlines fire immediately on reconcile (wall-clock jump)', () => {
   const { clock, kernel } = makeKernel();
   const seen: string[] = [];
   kernel.on('wake', (owner, events) => {
-    seen.push(...events.map((e) => `${owner}:${e.id}`));
+    seen.push(...events.map((e: ScheduledEvent) => `${owner}:${e.id}`));
   });
 
   kernel.set('svc', [event('a', 'svc', 1000)]);
@@ -166,7 +174,7 @@ test('elapsed deadlines ignore wall-clock jumps', () => {
     watchdogIntervalMs: Number.MAX_SAFE_INTEGER
   });
   const seen: string[] = [];
-  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry) => entry.id)));
+  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry: ScheduledEvent) => entry.id)));
   kernel.set('break', [{ ...event('eye', 'break', 1_000), clock: 'elapsed' }]);
   kernel.start();
 
@@ -187,7 +195,7 @@ test('pausing elapsed time freezes only elapsed deadlines', () => {
     watchdogIntervalMs: Number.MAX_SAFE_INTEGER
   });
   const seen: string[] = [];
-  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry) => entry.id)));
+  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry: ScheduledEvent) => entry.id)));
   kernel.set('svc', [
     event('wall', 'svc', 1_000),
     { ...event('elapsed', 'svc', 1_000), clock: 'elapsed' }
@@ -213,7 +221,7 @@ test('multiple due deadlines fire grouped by owner', () => {
   const seenByOwner = new Map<string, string[]>();
   kernel.on('wake', (owner, events) => {
     const list = seenByOwner.get(owner) ?? [];
-    list.push(...events.map((e) => e.id));
+    list.push(...events.map((e: ScheduledEvent) => e.id));
     seenByOwner.set(owner, list);
   });
 
@@ -264,7 +272,7 @@ test('watchdog detects wall-clock drift and reconciles', () => {
 
   const seen: string[] = [];
   kernel.on('wake', (owner, events) => {
-    seen.push(...events.map((e) => `${owner}:${e.id}`));
+    seen.push(...events.map((e: ScheduledEvent) => `${owner}:${e.id}`));
   });
 
   // Deadline 1s out. Baseline the drift tracker.
@@ -332,9 +340,9 @@ test('ReminderScheduler delegates its timer to the kernel when provided', () => 
   // Integration: the production wiring passes one shared kernel to the
   // scheduler. Verify the scheduler reports its next deadline to the kernel
   // (instead of arming its own setTimeout) and gets woken to reconcile.
-  const { kernel, scheduler } = makeKernel();
+  const { kernel } = makeKernel();
   let now = 0;
-  kernel.clock = { now: () => now, monotonic: () => now };
+  (kernel as unknown as { clock: KernelClock }).clock = { now: () => now, monotonic: () => now };
 
   const settings = makeSchedulerSettings();
   const wake: string[] = [];
@@ -346,7 +354,7 @@ test('ReminderScheduler delegates its timer to the kernel when provided', () => 
   s.start();
 
   // The scheduler's next deadline is registered under the 'break' owner.
-  const breakEvents = kernel.peek().filter((e) => e.owner === 'break');
+  const breakEvents = kernel.peek().filter((e: ScheduledEvent) => e.owner === 'break');
   assert.equal(breakEvents.length, 1, 'scheduler reports exactly one break deadline');
   assert.ok(breakEvents[0].fireAt > 0, 'deadline is in the future');
 
@@ -357,7 +365,7 @@ test('ReminderScheduler delegates its timer to the kernel when provided', () => 
   assert.ok(wake.includes('break'), 'kernel woke the scheduler');
 
   // After reconcile, the scheduler re-reported a (possibly new) deadline.
-  assert.equal(kernel.peek().filter((e) => e.owner === 'break').length, 1);
+  assert.equal(kernel.peek().filter((e: ScheduledEvent) => e.owner === 'break').length, 1);
   s.stop();
   kernel.stop();
 });
@@ -380,3 +388,6 @@ test('ReminderScheduler with a kernel fires a due reminder on reconcile', () => 
 
   assert.equal(scheduler.getStatus().activeReminder?.kind, 'eye', 'eye reminder fired through kernel');
 });
+
+
+

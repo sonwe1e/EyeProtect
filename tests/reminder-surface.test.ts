@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { ActiveReminder } from '../src/shared/types';
 import { emergencyTitleFor, escapeHtml, renderEmergencyHtml } from '../src/main/scheduling/emergencyTemplate';
 import { runReminderSurfaceFallback } from '../src/main/scheduling/surfaceFallback';
 
@@ -62,7 +63,7 @@ test('surface fallback stops only when the presentation is externally invalidate
 // before dynamically importing the manager. The stub is intentionally minimal
 // and mirrors only the surface touches used by reminderSurface.ts.
 
-const makeActive = () => ({
+const makeActive = (): ActiveReminder => ({
   id: 'r-1',
   kind: 'eye',
   kinds: ['eye'],

@@ -10,6 +10,10 @@ const baseSettings: Settings = {
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  naturalBreakMinutes: 5,
+  dailyCapacityMinutes: 360,
+  workStartMinutes: 7 * 60,
+  workEndMinutes: 21 * 60,
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
@@ -26,8 +30,11 @@ const baseSettings: Settings = {
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
   hotkeysEnabled: true,
+  theme: 'system',
+  density: 'comfortable',
   alarms: [],
-  todos: []
+  todos: [],
+  activeTaskId: null
 };
 
 const makeScheduler = (overrides: Partial<Settings> = {}) => {
@@ -106,3 +113,4 @@ test('suspend persists state via the onPersist hook', () => {
   assert.equal(saves.length, 1, 'suspend triggers exactly one persist');
   scheduler.stop();
 });
+

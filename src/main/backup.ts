@@ -59,13 +59,9 @@ const emptyDomain = (): BackupDomainData => ({
   focusSessions: []
 });
 
-type BackupDomainInput = Omit<BackupDomainData, 'taskReminderOccurrences' | 'characterCollection'> & {
+type BackupDomainInput = Partial<BackupDomainData> & {
   taskReminderOccurrences?: TaskReminderOccurrence[];
   characterCollection?: CharacterCollectionState | null;
-  dailyTaskPlans?: DailyTaskPlan[];
-  timeBlocks?: TimeBlock[];
-  projectSections?: ProjectSection[];
-  focusSessions?: FocusSession[];
 };
 
 const preferenceSettings = (settings: Settings): PreferenceSettings => {
@@ -86,6 +82,10 @@ export const createBackup = (
   settings: preferenceSettings(settings),
   reminderHistory: [...reminderHistory],
   ...domain,
+  tasks: domain.tasks ?? [],
+  projects: domain.projects ?? [],
+  standaloneReminders: domain.standaloneReminders ?? [],
+  activeTaskId: domain.activeTaskId ?? null,
   taskReminderOccurrences: domain.taskReminderOccurrences ?? [],
   characterCollection: domain.characterCollection ?? null,
   dailyTaskPlans: domain.dailyTaskPlans ?? [],

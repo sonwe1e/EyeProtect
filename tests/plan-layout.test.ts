@@ -20,11 +20,12 @@ const task = (id: string, minutes: number, duration: number): Task => ({
   estimateMinutes: duration,
   context: 'desk',
   remindOnBreak: false,
-  reminderConsumedAt: null,
   sortOrder: 0,
   createdAt: day,
   updatedAt: day,
-  completedAt: null
+  completedAt: null,
+  sectionId: null,
+  revision: 1
 });
 
 test('timeline layout separates overlaps and restores full width after the cluster', () => {

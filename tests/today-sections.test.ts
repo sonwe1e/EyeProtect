@@ -21,19 +21,18 @@ const task = (id: string, plannedAt: number | null = null): Task => ({
   estimateMinutes: null,
   sortOrder: 0,
   reminderAt: null,
-  reminderEnabled: false,
-  reminderConsumedAt: null,
   recurrence: null,
-  breakSuggestion: null,
+  context: 'desk',
+  remindOnBreak: false,
   revision: 1
 });
 
-const plan = (taskId: string, dailyRank: number | null): DailyTaskPlan => ({
-  id: `plan-${taskId}`,
+const plan = (taskId: string, dailyRank: DailyTaskPlan['dailyRank']): DailyTaskPlan => ({
   taskId,
   localDate: '2026-08-12',
   dailyRank,
   plannedMinutes: 30,
+  sortOrder: 0,
   createdAt: 1,
   updatedAt: 1
 });

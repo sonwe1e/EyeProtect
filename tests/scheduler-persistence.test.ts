@@ -14,6 +14,10 @@ const baseSettings: Settings = {
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  naturalBreakMinutes: 5,
+  dailyCapacityMinutes: 360,
+  workStartMinutes: 7 * 60,
+  workEndMinutes: 21 * 60,
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
@@ -30,8 +34,11 @@ const baseSettings: Settings = {
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
   hotkeysEnabled: true,
+  theme: 'system',
+  density: 'comfortable',
   alarms: [],
-  todos: []
+  todos: [],
+  activeTaskId: null
 };
 
 const withTempDir = (fn: (dir: string) => void): void => {
@@ -144,7 +151,7 @@ test('persistence happens on transitions, not per tick', () => {
 
   now = T0 + 20 * MINUTE;
   const active = scheduler.tick().activeReminder;
-  scheduler.handleAction('skip', active.id);
+  scheduler.handleAction('skip', active!.id);
   assert.equal(saves.length, 1, 'an action persists once');
 
   scheduler.pause(30);
@@ -353,7 +360,7 @@ test('a stale active session (past the grace window) is not recovered', () => {
 });
 
 test('a paused schedule never restores an active session', () => {
-  const restore = {
+  const restore: ReminderSnapshot = {
     nextEyeAt: T0 + 10 * MINUTE,
     nextWalkAt: T0 + 50 * MINUTE,
     pausedUntil: T0 + 40 * MINUTE,
@@ -380,3 +387,4 @@ test('a paused schedule never restores an active session', () => {
   assert.equal(scheduler.getStatus().activeReminder, null, 'paused + active is impossible: no session');
   assert.ok(scheduler.getStatus().pausedUntil, 'pause still applies');
 });
+
