@@ -54,7 +54,7 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 
 ## 提交与 PR 建议
 
-当前工作目录未暴露 Git 历史，因此提交信息采用简短祈使句，例如 `Fix reminder pause scheduling`、`Add settings field for pet scale`。PR 描述应说明用户可见变化、涉及的主要文件、运行过的验证命令；UI 改动附截图或录屏，打包相关改动说明对 `release/` 产物的影响。
+提交信息采用简短祈使句，例如 `Fix reminder pause scheduling`、`Add settings field for pet scale`。PR 描述应说明用户可见变化、涉及的主要文件、运行过的验证命令；UI 改动附截图或录屏，打包相关改动说明对 `release/` 产物的影响。
 
 ## 安全与配置注意事项
 
