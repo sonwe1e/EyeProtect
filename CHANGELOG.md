@@ -4,7 +4,7 @@
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。本机运行数据不会随版本升级迁移
 （`data/` 为运行时目录，见 README）。
 
-## [Unreleased] — 1.1.0（开发中）
+## [1.2.0] - 2026-08-16
 
 ### Added
 - 统一工作台：今天 / 收件箱 / 日程 / 专注 / 项目 五个主视图，今日复盘、独立提醒、公仔收藏、设置四个工具视图。
