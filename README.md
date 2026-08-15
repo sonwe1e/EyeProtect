@@ -55,4 +55,4 @@ npm run smoke:running -- 9333
 npm run package
 ```
 
-默认在 `release/` 生成 Windows 10/11 x64 的 NSIS 安装包和 portable exe。发行前按[发布检查表](docs/release-checklist.md)完成实体机验证；界面配色和验收约束见[配色系统](docs/color-system.md)。
+默认在 `release/` 生成 Windows 10/11 x64 的 NSIS 安装包和 portable exe。发行前按[发布检查表](docs/release-checklist.md)完成实体机验证；界面配色和验收约束见[配色系统](docs/color-system.md)；历史审计与加固记录见[加固记录](docs/hardening-notes.md)。
