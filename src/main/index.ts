@@ -34,10 +34,8 @@ import type {
   Settings,
   StandaloneReminderInput,
   Task,
-  TaskInput,
   TaskMoveInput,
   TaskStatus,
-  TaskUpdateInput,
   TimeBlockInput
 } from '../shared/types';
 import type { Project } from '../shared/types';
@@ -65,6 +63,7 @@ import { FocusSessionService } from './focusSession';
 import { CharacterService } from './characterService';
 import { buildDailyReview } from './dailyReview';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
+import { asTaskInput, asTaskUpdateInput } from './ipcTaskInput';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const rendererIndexPath = join(moduleDir, '../renderer/index.html');
@@ -327,6 +326,13 @@ app.on('web-contents-created', (_event, contents) => {
 });
 
 app.whenReady().then(async () => {
+  // A second instance already called app.quit() at module scope; quit() alone
+  // is not enough because whenReady can still fire in the dying process. Never
+  // start services or touch shared files (settings.json / eyeprotect.db) from
+  // a process that does not own the single-instance lock.
+  if (!lock) {
+    return;
+  }
   const settingsStore = new SettingsStore();
   const runtimeStateStore = new RuntimeStateStore(settingsStore.getDataDir());
   // Begin a session BEFORE load() so the new session id owns the restore and
@@ -960,8 +966,16 @@ app.whenReady().then(async () => {
     if (result.canceled || !result.filePath) {
       return false;
     }
-    writeFileSync(result.filePath, historyStore.export(normalized), 'utf8');
-    return true;
+    try {
+      writeFileSync(result.filePath, historyStore.export(normalized), 'utf8');
+      return true;
+    } catch (error) {
+      // A failed export (disk full, permission, portable read-only dir) must
+      // not surface as an unhandled rejection; report it like the other data
+      // actions do.
+      console.error('[history] export failed:', error);
+      return false;
+    }
   });
   handleIpc('hotkeys:status', () => hotkeyStatus);
   handleIpc('data:backup:export', async () => {
@@ -1109,11 +1123,16 @@ app.whenReady().then(async () => {
   });
   handleIpc('data:open-directory', async () => {
     const dataDir = settingsStore.getDataDir();
-    mkdirSync(dataDir, { recursive: true });
-    const error = await shell.openPath(dataDir);
-    return error
-      ? { success: false, message: error }
-      : { success: true, message: '已打开数据目录' };
+    try {
+      mkdirSync(dataDir, { recursive: true });
+      const error = await shell.openPath(dataDir);
+      return error
+        ? { success: false, message: error }
+        : { success: true, message: '已打开数据目录' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法打开数据目录';
+      return { success: false, message };
+    }
   });
   handleIpc('data:recovery-info', () => {
     const dataDir = settingsStore.getDataDir();
@@ -1137,70 +1156,6 @@ app.whenReady().then(async () => {
       .getTasks()
       .filter((task) => task.status !== 'done' && task.status !== 'archived').length
   );
-
-  const asTaskInput = (value: unknown): TaskInput => {
-    const candidate = (value && typeof value === 'object' ? value : {}) as Partial<TaskInput>;
-    return {
-      title: asString(candidate.title),
-      notes: typeof candidate.notes === 'string' || candidate.notes === null ? candidate.notes : undefined,
-      priority:
-        candidate.priority === 'important' || candidate.priority === 'urgent' || candidate.priority === 'normal'
-          ? candidate.priority
-          : undefined,
-      projectId: typeof candidate.projectId === 'string' || candidate.projectId === null ? candidate.projectId : undefined,
-      parentId: typeof candidate.parentId === 'string' || candidate.parentId === null ? candidate.parentId : undefined,
-      tags: Array.isArray(candidate.tags) ? candidate.tags.map((tag) => asString(tag)) : undefined,
-      plannedAt:
-        candidate.plannedAt === null || (typeof candidate.plannedAt === 'number' && Number.isFinite(candidate.plannedAt))
-          ? candidate.plannedAt
-          : undefined,
-      dueAt:
-        candidate.dueAt === null || (typeof candidate.dueAt === 'number' && Number.isFinite(candidate.dueAt)) ? candidate.dueAt : undefined,
-      reminderAt:
-        candidate.reminderAt === null || (typeof candidate.reminderAt === 'number' && Number.isFinite(candidate.reminderAt))
-          ? candidate.reminderAt
-          : undefined,
-      recurrence:
-        candidate.recurrence === null || (candidate.recurrence && typeof candidate.recurrence === 'object')
-          ? (candidate.recurrence as TaskInput['recurrence'])
-          : undefined,
-      context:
-        candidate.context === 'desk' || candidate.context === 'away' || candidate.context === 'any'
-          ? candidate.context
-          : undefined,
-      remindOnBreak:
-        typeof candidate.remindOnBreak === 'boolean' ? candidate.remindOnBreak : undefined,
-      estimateMinutes:
-        candidate.estimateMinutes === null || (typeof candidate.estimateMinutes === 'number' && Number.isFinite(candidate.estimateMinutes))
-          ? candidate.estimateMinutes
-          : undefined
-    };
-  };
-
-  const asTaskUpdateInput = (value: unknown): TaskUpdateInput => {
-    if (!value || typeof value !== 'object') {
-      return {};
-    }
-    const candidate = value as Partial<TaskUpdateInput>;
-    const input = asTaskInput(value) as TaskUpdateInput;
-    if (typeof candidate.title !== 'string') {
-      delete input.title;
-    }
-    for (const key of Object.keys(input) as Array<keyof TaskUpdateInput>) {
-      if (input[key] === undefined) {
-        delete input[key];
-      }
-    }
-    if (
-      candidate.status === 'open' || candidate.status === 'done' || candidate.status === 'archived'
-    ) {
-      input.status = candidate.status;
-    }
-    if (typeof candidate.sortOrder === 'number' && Number.isInteger(candidate.sortOrder) && candidate.sortOrder >= 0) {
-      input.sortOrder = candidate.sortOrder;
-    }
-    return input;
-  };
 
   handleIpc('task:list', () => taskService.getTasks());
   handleIpc('task:get', (id) => taskService.getTask(asString(id)));
@@ -1477,6 +1432,15 @@ app.whenReady().then(async () => {
   createTray(windows, scheduler, settingsStore, () => taskService.getTasks());
   syncStartupShortcut(settingsStore.get());
   startDiagnostics();
+  // A break session recovered from a crash (USERPLAN §一.3) is active in the
+  // scheduler, but startup never emits 'changed', so the presentation layer
+  // would never show it — the reminder would exist only in the tray until some
+  // later state change woke it. Present it explicitly right away.
+  const recoveredActive = scheduler.getStatus().activeReminder;
+  if (recoveredActive) {
+    presentedReminderId = recoveredActive.id;
+    void reminderSurface.present(recoveredActive);
+  }
   if (process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-pet-failure')) {
     // Keep a renderer control surface available to the packaged fault smoke;
     // the pet itself remains intentionally unavailable.
@@ -1490,6 +1454,8 @@ app.whenReady().then(async () => {
     activityMonitor.stop();
     deliveryQueue.stop();
     taskWorkTracker.stop();
+    // Flush the last ~250ms of trace entries; they are buffered for batching.
+    reminderTrace.flush();
     runtimeStateStore.markExiting();
     runtimeStateStore.save(scheduler.serialize());
     taskScheduler.dispose();
