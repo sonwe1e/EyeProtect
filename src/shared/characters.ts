@@ -23,11 +23,9 @@ const PALETTES: Array<[string, string, string]> = [
   ['#c7d95b', '#f8ffd9', '#46521d']
 ];
 
-export const localDateKey = (now: number = Date.now()): string => {
-  const date = new Date(now);
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-};
+// Civil-date keys come from the single sanctioned calendar module (ADR-003);
+// this re-export keeps the historical `characters.localDateKey` import working.
+export { localDateKey } from './calendar';
 
 const hash = (value: string): number => {
   let result = 2166136261;
