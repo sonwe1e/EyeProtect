@@ -87,6 +87,11 @@ const CharacterCard = memo(function CharacterCard({ character, active, pinned }:
           <label>材质<select value={character.material} onChange={(event) => void setMaterial.run(event.currentTarget.value as CharacterMaterial)}>{CHARACTER_MATERIALS.map((material) => <option key={material} value={material}>{MATERIAL_LABELS[material]}</option>)}</select></label>
           <label>配饰<select value={character.accessory} onChange={(event) => void setAccessory.run(event.currentTarget.value as PetAccessory)}>{ACCESSORIES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}</select></label>
         </div>
+        {rename.error || setMaterial.error || setAccessory.error ? (
+          <small className="character-card-error" role="alert">
+            {rename.error?.message ?? setMaterial.error?.message ?? setAccessory.error?.message}
+          </small>
+        ) : null}
         <div className="character-card-actions">
           <CommandButton type="button" className={pinned ? 'primary' : ''} state={pin.state} errorReason={pin.error?.message} onClick={() => void pin.run(character.id)}><Pin size={14} />{pinned ? '正在出场' : '固定出场'}</CommandButton>
           <CommandButton type="button" className={character.favorite ? 'is-favorite' : ''} title="收藏置顶" aria-label={character.favorite ? '取消收藏置顶' : '收藏置顶'} state={favorite.state} errorReason={favorite.error?.message} onClick={() => void favorite.run(!character.favorite)}><Heart size={14} fill={character.favorite ? 'currentColor' : 'none'} /></CommandButton>

@@ -319,6 +319,17 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
     flushDraft();
   }, [flushDraft]);
 
+  const flushTitle = useCallback((): void => {
+    if (!title.trim()) {
+      // An empty title is not a valid edit: revert the field and explain
+      // instead of silently keeping the stale draft (which looked accepted).
+      setTitle(taskRef.current.title);
+      setSaveError('标题不能为空');
+      return;
+    }
+    flushDraft();
+  }, [title, flushDraft]);
+
   return (
     <form className={`${styles.root} detail-card`} onSubmit={(event) => event.preventDefault()}>
       <div className="detail-header">
@@ -329,7 +340,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           value={title}
           maxLength={TASK_TITLE_MAX}
           onChange={(event) => setTitle(event.currentTarget.value)}
-          onBlur={flushDraft}
+          onBlur={flushTitle}
         />
         <span className={`detail-save-state ${saveError ? 'is-error' : ''}`}>{saveError ?? '自动保存'}</span>
       </div>

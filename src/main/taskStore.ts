@@ -924,7 +924,14 @@ export class TaskStore extends EventEmitter {
   }
 
   markDeliveryOutcome(id: string, state: 'clicked' | 'dismissed'): void {
-    this.db.prepare(`UPDATE reminder_delivery SET state = ? WHERE id = ? AND state = 'delivered'`).run(state, id);
+    // Windows fires click and close events for the same toast in either order.
+    // 'clicked' is the stronger signal: once the user clicked, the record must
+    // stay 'clicked' even when the close event arrives second.
+    if (state === 'clicked') {
+      this.db.prepare(`UPDATE reminder_delivery SET state = 'clicked' WHERE id = ? AND state IN ('delivered', 'dismissed')`).run(id);
+    } else {
+      this.db.prepare(`UPDATE reminder_delivery SET state = 'dismissed' WHERE id = ? AND state = 'delivered'`).run(id);
+    }
   }
 
   failDelivery(id: string, now: number = Date.now()): NotificationDelivery | null {

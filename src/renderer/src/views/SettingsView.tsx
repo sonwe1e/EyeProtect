@@ -33,6 +33,7 @@ import {
   type HotkeyAction,
   type HotkeyStatus,
   type ReminderMode,
+  type ReminderStatus,
   type RuntimeInfo,
   type Settings
 } from '../../../shared/types';
@@ -256,6 +257,39 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
       } catch (err) {
         setDataMessage(err instanceof Error ? err.message : String(err));
       }
+    },
+    []
+  );
+
+  // History export/clear and scheduler test/pause controls used to fire
+  // commands with the result discarded, so a failure (disk error, rejected
+  // IPC) vanished silently. Surface every outcome through the same
+  // data-message line the backup actions use.
+  const runHistoryExport = useCallback((format: 'json' | 'csv') => {
+    void commands.data.exportHistory(format).then((result) => {
+      if (!result.ok) {
+        setDataMessage(result.message);
+      } else if (result.data) {
+        setDataMessage(format === 'csv' ? '已导出 CSV 记录' : '已导出 JSON 记录');
+      } else {
+        setDataMessage('已取消导出');
+      }
+    });
+  }, []);
+
+  const runClearHistory = useCallback(() => {
+    void commands.data.clearHistory().then((result) => {
+      setDataMessage(result.ok ? '已清除本地提醒记录' : result.message);
+    });
+  }, []);
+
+  const runSchedulerAction = useCallback(
+    (action: () => Promise<CommandResult<ReminderStatus>>) => {
+      void action().then((result) => {
+        if (!result.ok) {
+          setDataMessage(result.message);
+        }
+      });
     },
     []
   );
@@ -736,11 +770,11 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                   <option value={90}>最近 90 天</option>
                 </select>
               </label>
-              <button onClick={() => void commands.data.exportHistory('csv')}>
+              <button onClick={() => runHistoryExport('csv')}>
                 <Download size={14} />
                 CSV
               </button>
-              <button onClick={() => void commands.data.exportHistory('json')}>
+              <button onClick={() => runHistoryExport('json')}>
                 <Download size={14} />
                 JSON
               </button>
@@ -752,7 +786,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                     return;
                   }
                   setConfirmClearHistory(false);
-                  void commands.data.clearHistory();
+                  runClearHistory();
                 }}
               >
                 <Trash2 size={14} />
@@ -771,7 +805,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                   return;
                 }
                 setConfirmClearHistory(false);
-                void commands.data.clearHistory();
+                runClearHistory();
               }}
             >
               <Trash2 size={14} />
@@ -833,40 +867,40 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
       <section className="settings-section compact">
         <h2>提醒控制</h2>
         <div className="test-actions">
-          <button onClick={() => void commands.scheduler.test('eye')}>
+          <button onClick={() => runSchedulerAction(() => commands.scheduler.test('eye'))}>
             <Eye size={18} />
             护眼提醒
           </button>
-          <button onClick={() => void commands.scheduler.test('walk')}>
+          <button onClick={() => runSchedulerAction(() => commands.scheduler.test('walk'))}>
             <Footprints size={18} />
             走动提醒
           </button>
           {paused ? (
             <>
-              <button onClick={() => void commands.scheduler.resume()}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.resume())}>
                 <Play size={18} />
                 恢复提醒
               </button>
-              <button onClick={() => void commands.scheduler.restartCycle()}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.restartCycle())}>
                 <RotateCcw size={18} />
                 重新开始计时
               </button>
             </>
           ) : (
             <>
-              <button onClick={() => void commands.scheduler.pause(10)}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(10))}>
                 <Pause size={18} />
                 暂停 10 分钟
               </button>
-              <button onClick={() => void commands.scheduler.pause(30)}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(30))}>
                 <Pause size={18} />
                 会议 30 分钟
               </button>
-              <button onClick={() => void commands.scheduler.pause(minutesUntilNextHour(now))}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(minutesUntilNextHour(now)))}>
                 <Clock3 size={18} />
                 到下一整点
               </button>
-              <button onClick={() => void commands.scheduler.pause(minutesUntilMidnight(now))}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(minutesUntilMidnight(now)))}>
                 <MoonStar size={18} />
                 今天不再提醒
               </button>
@@ -885,7 +919,7 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                 <span>分钟</span>
                 <button
                   type="button"
-                  onClick={() => void commands.scheduler.pause(customPauseMinutes)}
+                  onClick={() => runSchedulerAction(() => commands.scheduler.pause(customPauseMinutes))}
                 >
                   自定义暂停
                 </button>
@@ -899,7 +933,9 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                 <button
                   type="button"
                   onClick={() =>
-                    void commands.scheduler.pause(minutesUntilClockTime(meetingEndTime, now))
+                    runSchedulerAction(() =>
+                      commands.scheduler.pause(minutesUntilClockTime(meetingEndTime, now))
+                    )
                   }
                 >
                   暂停到会议结束

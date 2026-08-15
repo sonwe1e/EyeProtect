@@ -275,6 +275,7 @@ export default function WorkbenchView(): JSX.Element {
       selectedTaskId={selectedTaskId}
       scopeProjectId={scopeProjectId}
       timeBlocks={allBlocks}
+      onMovePending={moveTask.isPending}
       onSelect={setSelectedTaskId}
       onMove={view === 'inbox' ? (taskId, beforeTaskId) => {
         void moveTask.run({
@@ -305,7 +306,16 @@ export default function WorkbenchView(): JSX.Element {
         onRefresh={refreshReview}
       />
     );
-    if (searchOpen && query) {
+    if (searchOpen) {
+      if (!query) {
+        // Search bar open but nothing typed yet: a dedicated empty state so
+        // the affordance does not silently fall through to the Today page.
+        return (
+          <div className="workspace-page">
+            <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>搜索任务</h1><p className="page-description">输入关键词，查找标题、备注或标签。</p></div></header>
+          </div>
+        );
+      }
       return (
         <div className="workspace-page">
           <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>“{search.trim()}”</h1></div><span>{searchResults.length} 项结果</span></header>

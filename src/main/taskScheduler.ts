@@ -71,6 +71,13 @@ export class TaskScheduler extends EventEmitter {
       });
     }
     const byId = new Map(tasks.map((task) => [task.id, task]));
+    // Drop consumed markers for tasks that no longer exist; the map would
+    // otherwise grow for the whole process lifetime.
+    for (const key of this.consumed.keys()) {
+      if (!byId.has(key.replace('task-reminder-', ''))) {
+        this.consumed.delete(key);
+      }
+    }
     const pending = events.filter((event) => {
       const task = byId.get(event.id.replace('task-reminder-', ''));
       return this.consumed.get(event.id) !== event.fireAt && !(task && this.isConsumed(task));
