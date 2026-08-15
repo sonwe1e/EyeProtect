@@ -73,6 +73,7 @@ const TaskRow = memo(function TaskRow({
   isDragging,
   timeBlocks,
   scopedToProject,
+  movePending,
   onSelect,
   onMove,
   onDragStartRow,
@@ -93,6 +94,9 @@ const TaskRow = memo(function TaskRow({
   isDragging: boolean;
   timeBlocks: TimeBlock[];
   scopedToProject: boolean;
+  /** True while the list-level move command is in flight; arrows disable so a
+   *  press computed from stale row order cannot be silently dropped. */
+  movePending: boolean;
   onSelect: (id: string) => void;
   onMove: (index: number, direction: -1 | 1) => void;
   onDragStartRow: (id: string) => void;
@@ -127,10 +131,12 @@ const TaskRow = memo(function TaskRow({
         }
       });
     } else {
+      // An empty title is not a valid edit: revert the field instead of
+      // silently keeping the stale draft (which looked accepted).
+      setEditText(task.title);
       setEditingId(null);
-      setEditText('');
     }
-  }, [editingId, editText, rename]);
+  }, [editingId, editText, rename, task.title]);
 
   const cancelEdit = useCallback(() => {
     setEditingId(null);
@@ -268,8 +274,8 @@ const TaskRow = memo(function TaskRow({
       </div>
       <span className="task-status-label">{STATUS_LABELS[task.status] ?? task.status}</span>
       <span className="task-order-controls">
-        <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={!canReorder || siblingIndex === 0} onClick={(event) => { event.stopPropagation(); onMove(index, -1); }}><ArrowUp size={11} /></button>
-        <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={!canReorder || siblingIndex === siblingCount - 1} onClick={(event) => { event.stopPropagation(); onMove(index, 1); }}><ArrowDown size={11} /></button>
+        <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={!canReorder || siblingIndex === 0 || movePending} onClick={(event) => { event.stopPropagation(); onMove(index, -1); }}><ArrowUp size={11} /></button>
+        <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={!canReorder || siblingIndex === siblingCount - 1 || movePending} onClick={(event) => { event.stopPropagation(); onMove(index, 1); }}><ArrowDown size={11} /></button>
       </span>
       <CommandButton
         type="button"
@@ -297,6 +303,7 @@ export function TaskList({
   selectedTaskId,
   scopeProjectId,
   timeBlocks = [],
+  onMovePending = false,
   onSelect,
   onMove
 }: {
@@ -307,6 +314,7 @@ export function TaskList({
   selectedTaskId: string | null;
   scopeProjectId?: string | null;
   timeBlocks?: TimeBlock[];
+  onMovePending?: boolean;
   onSelect: (id: string) => void;
   onMove?: (taskId: string, beforeTaskId: string | null) => void;
 }): JSX.Element {
@@ -435,6 +443,7 @@ export function TaskList({
             isDragging={draggingId === task.id}
             timeBlocks={timeBlocks}
             scopedToProject={Boolean(scopeProjectId)}
+            movePending={onMovePending}
             onSelect={onSelect}
             onMove={handleMove}
             onDragStartRow={setDraggingId}

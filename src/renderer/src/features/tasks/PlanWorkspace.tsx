@@ -158,8 +158,11 @@ function BlockView({ block, task, windowStartMinutes, windowEndMinutes, day, lan
   };
 
   // Keyboard scheduling (USERPLAN §十二): arrows move by one snap step,
-  // Shift+arrows resize, Delete removes the block.
+  // Shift+arrows resize, Delete removes the block. While an update is in
+  // flight the next keypress would be computed from the stale pre-move
+  // geometry (and either dropped or applied wrongly), so ignore it.
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (update.isPending || remove.isPending) return;
     const step = SNAP_MINUTES;
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       event.preventDefault();

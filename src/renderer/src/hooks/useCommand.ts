@@ -32,27 +32,29 @@ export function useCommand<T, Args extends unknown[]>(
   const [result, setResult] = useState<CommandResult<T> | null>(null);
   // Monotonic guard so a slow first click can't overwrite a newer outcome.
   const generation = useRef(0);
-  // In-flight dedupe: while a mutation is pending, a second `run` joins it
-  // instead of firing a duplicate IPC call. This closes the render-latency
-  // window between a click and the button's disabled-when-pending state, and
-  // covers the keyboard-Enter + click double-submit path. Resolved once the
-  // current flight settles.
-  const inFlight = useRef<Promise<CommandResult<T>> | null>(null);
+  const inFlight = useRef<{ args: unknown[]; promise: Promise<CommandResult<T>> } | null>(null);
   const commandRef = useRef(command);
   commandRef.current = command;
 
   const run = useCallback(
     async (...args: Args): Promise<CommandResult<T>> => {
-      // Join the in-flight request rather than starting a second mutation.
-      if (inFlight.current) {
-        return inFlight.current;
-      }
       const myTurn = ++generation.current;
+      const pending = inFlight.current;
+      // Double-submit protection: a repeat call with IDENTICAL arguments (a
+      // double-click on 删除, a stale Enter+click pair) joins the pending
+      // promise instead of firing a duplicate mutation. A call with DIFFERENT
+      // arguments is a new intent (second arrow press, a different material
+      // selection) and must never be silently dropped — run it concurrently
+      // and let the generation guard make the latest outcome win.
+      if (pending && JSON.stringify(pending.args) === JSON.stringify(args)) {
+        return pending.promise;
+      }
       setState('pending');
       setResult(null);
-      inFlight.current = commandRef.current(...args);
+      const promise = commandRef.current(...args);
+      inFlight.current = { args, promise };
       try {
-        const outcome = await inFlight.current;
+        const outcome = await promise;
         // A newer call started while we were awaiting — drop this stale result.
         if (myTurn !== generation.current) {
           return outcome;
@@ -61,11 +63,11 @@ export function useCommand<T, Args extends unknown[]>(
         setState(outcome.ok ? 'success' : 'error');
         return outcome;
       } finally {
-        // Always clear the in-flight guard so a rejection can't permanently
-        // lock the button in the pending/disabled state. Without this, a
-        // command that rejects would leave inFlight set and every later run()
-        // would join the dead promise forever.
-        inFlight.current = null;
+        // Only clear the guard when this promise is still the current flight;
+        // a concurrent newer call owns the slot.
+        if (inFlight.current?.promise === promise) {
+          inFlight.current = null;
+        }
       }
     },
     []
@@ -77,7 +79,6 @@ export function useCommand<T, Args extends unknown[]>(
     setState('idle');
     setResult(null);
   }, []);
-
   return {
     state,
     result,

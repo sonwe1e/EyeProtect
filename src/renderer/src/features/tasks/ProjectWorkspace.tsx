@@ -323,6 +323,7 @@ export function ProjectWorkspace({
                   selectedTaskId={selectedTaskId}
                   scopeProjectId={project.id}
                   timeBlocks={timeBlocks}
+                  onMovePending={moveTask.isPending}
                   onSelect={onSelectTask}
                   onMove={(taskId, beforeTaskId) => void moveTask.run({ taskId, beforeTaskId, scope: { type: 'project', projectId: project.id } })}
                 />
