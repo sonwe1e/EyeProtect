@@ -2,6 +2,8 @@
 
 EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应用常驻托盘并显示透明桌宠；统一工作台负责今日任务、项目、独立提醒、健康节奏和设置。
 
+[MIT License](LICENSE) · 变更历史见 [CHANGELOG](CHANGELOG.md)
+
 ## 当前功能
 
 - 护眼与走动提醒使用统一调度内核，接近到期时合并展示；支持完成、稍后、跳过、暂停和重新开始周期。
