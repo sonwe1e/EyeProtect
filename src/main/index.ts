@@ -898,9 +898,14 @@ app.whenReady().then(async () => {
   handleIpc('standalone-reminder:list', () => standaloneReminders.list());
   handleIpc('standalone-reminder:create', (input) => {
     const normalized = asStandaloneReminderInput(input);
-    return normalized
-      ? requireWritableTaskDatabase(() => standaloneReminders.create(normalized))
-      : standaloneReminders.list();
+    // A sanitizer rejection here means the renderer sent a schedule outside
+    // the supported bounds (e.g. intervalDays > 365). Fail loudly as a
+    // validation error instead of silently returning the unchanged list,
+    // which looked like the reminder was created when it was not.
+    if (!normalized) {
+      throw new Error('无效的提醒计划输入');
+    }
+    return requireWritableTaskDatabase(() => standaloneReminders.create(normalized));
   });
   handleIpc('standalone-reminder:update', (id, input) => {
     return requireWritableTaskDatabase(() =>

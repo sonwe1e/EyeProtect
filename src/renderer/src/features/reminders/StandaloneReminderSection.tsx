@@ -88,7 +88,7 @@ export function StandaloneReminderSection(): JSX.Element {
           </div>
         ) : null}
         {type === 'custom' ? (
-          <label className="interval-days">每 <input type="number" min={1} max={365} value={intervalDays} onChange={(event) => setIntervalDays(Math.max(1, Number(event.currentTarget.value) || 1))} /> 天</label>
+          <label className="interval-days">每 <input type="number" min={1} max={365} value={intervalDays} onChange={(event) => setIntervalDays(Math.min(365, Math.max(1, Number(event.currentTarget.value) || 1)))} /> 天</label>
         ) : null}
         <CommandButton type="submit" state={create.state} errorReason={create.error?.message} disabled={!schedule}>
           <Plus size={14} />添加提醒
