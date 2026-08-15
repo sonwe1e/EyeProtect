@@ -25,6 +25,7 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 | 系统托盘菜单、单实例锁、退出行为 | `src/main/index.ts` | 托盘菜单在 `createTray()` 中；IPC handler 也在这里注册。 |
 | 桌宠、提醒、设置、气泡和遮罩窗口 | `src/main/windows.ts` | 提醒窗口与桌宠窗口相互独立；设置是工作台内嵌页，没有独立窗口；修改显示器相对布局时同步覆盖窗口生命周期和 bounds 测试。 |
 | 主进程到渲染端的新能力/API | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | 先定义 `EyeProtectApi`，再在 preload 调用 IPC，最后在 main 注册 handler。三处通道名保持一致。 |
+| IPC 入参清洗（任务/项目创建与更新） | `src/main/ipcTaskInput.ts`、`src/main/ipcProjectInput.ts` | 所有 renderer 传入字段在此白名单化；新增任务字段（含并发保护 `baseRevision`）必须在此透传并补 `tests/ipc-task-input.test.ts`。 |
 | 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
 | 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。 |
 | 公仔生成、收藏、材质、配饰和低频动作 | `src/shared/characters.ts`、`src/main/characterService.ts`、`src/renderer/src/features/characters/` | 角色由种子确定性生成；用户改名/材质/配饰不能改变角色指纹。默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
