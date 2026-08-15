@@ -169,6 +169,31 @@ test('a persisted overdue occurrence is reconciled once after restart', () => {
   });
 });
 
+test('a fired but unacknowledged occurrence is not replayed by later re-arms', () => {
+  withService((service, store, kernel, clock) => {
+    let fireCount = 0;
+    service.on('fired', () => {
+      fireCount += 1;
+    });
+    service.create({ label: 'Daily', schedule: { type: 'daily', hour: 9, minute: 0 } });
+    // Advance to the first daily fire (NOW is 2026-07-08 10:00).
+    clock.now = new Date(2026, 6, 9, 9, 0, 0, 0).getTime();
+    kernel.reconcile();
+    assert.equal(fireCount, 1);
+    // Delivery is still unacknowledged (the durable occurrence never advanced).
+    // A later arm() — unlock screen, system resume, any reminder edit — must
+    // advance to the NEXT occurrence instead of re-registering the fired one,
+    // which would re-trigger the delivery loop.
+    service.arm();
+    assert.equal(fireCount, 1, 're-arm must not re-fire the same occurrence');
+    const persisted = store.getScheduledEvents('standalone');
+    assert.equal(persisted.length, 1);
+    assert.equal(persisted[0].fireAt, new Date(2026, 6, 10, 9, 0, 0, 0).getTime());
+    kernel.reconcile();
+    assert.equal(fireCount, 1);
+  });
+});
+
 test('adjacent one-shot reminders both fire and acknowledge independently', () => {
   withService((service, store, kernel, clock) => {
     const fired: Array<{ id: string; fireAt: number }> = [];

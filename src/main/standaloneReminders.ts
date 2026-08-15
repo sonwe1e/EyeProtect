@@ -10,6 +10,15 @@ import type { TaskStore } from './taskStore';
 
 export class StandaloneReminderService extends EventEmitter {
   private revision = 0;
+  /**
+   * Occurrences (`id:fireAt`) already fired in THIS session. The kernel consumes
+   * a fired in-memory event, but the durable occurrence stays unacknowledged
+   * until delivery succeeds — so a later arm() must not re-register an
+   * occurrence that already fired and failed; only the first arm of a session
+   * replays overdue persisted occurrences (crash recovery). Fresh processes
+   * start with an empty set, so the restart replay semantics are unchanged.
+   */
+  private readonly firedInSession = new Set<string>();
   private readonly onWake: (owner: string, events: ScheduledEvent[]) => void;
   private readonly onStoreChanged: () => void;
   private readonly onTimezoneChange: () => void;
@@ -67,9 +76,23 @@ export class StandaloneReminderService extends EventEmitter {
       // Timezone changes alter civil-time schedules (daily/weekdays/weekly and
       // custom calendar recurrence), but an absolute one-shot epoch must stay
       // exactly where the user put it.
-      const reusePersisted = !recomputeCalendar || reminder.schedule.type === 'once';
-      const fireAt = (reusePersisted ? previous?.fireAt : undefined) ??
-        nextStandaloneReminderFireAt(reminder.schedule, now);
+      let fireAt: number | null = null;
+      if (previous) {
+        const fired = this.firedInSession.has(`${reminder.id}:${previous.fireAt}`);
+        const replayable = previous.fireAt > now || !fired;
+        if ((reminder.schedule.type === 'once' || !recomputeCalendar) && replayable) {
+          fireAt = previous.fireAt;
+        } else if (fired || previous.fireAt <= now) {
+          // The stored occurrence already fired this session (and is still
+          // unacknowledged) or is stale. Advance strictly past it so the
+          // recompute cannot resolve to the same instant and re-fire it.
+          fireAt = nextStandaloneReminderFireAt(
+            reminder.schedule,
+            Math.max(now, previous.fireAt + 1)
+          );
+        }
+      }
+      fireAt ??= nextStandaloneReminderFireAt(reminder.schedule, now);
       if (fireAt === null) {
         continue;
       }
@@ -81,6 +104,14 @@ export class StandaloneReminderService extends EventEmitter {
         revision: ++this.revision,
         payloadRef: reminder.id
       });
+    }
+    // Drop fired-markers of reminders that no longer exist; the set would
+    // otherwise grow for the whole session.
+    const liveIds = new Set(this.list().map((reminder) => reminder.id));
+    for (const key of this.firedInSession) {
+      if (!liveIds.has(key.slice(0, key.lastIndexOf(':')))) {
+        this.firedInSession.delete(key);
+      }
     }
     this.store.replaceScheduledEvents('standalone', events);
     this.kernel.set('standalone', events.map(toKernelEvent));
@@ -112,6 +143,9 @@ export class StandaloneReminderService extends EventEmitter {
     const due = this.list().filter((reminder) => dueIds.has(reminder.id));
     for (const reminder of due) {
       const fireAt = fireAtById.get(reminder.id) ?? this.now();
+      // Remember the fired occurrence so a later arm() never replays it (the
+      // durable row stays unacknowledged until delivery succeeds).
+      this.firedInSession.add(`${reminder.id}:${fireAt}`);
       this.emit('fired', reminder, fireAt);
     }
     // Do not consume or advance here. The durable delivery queue acknowledges
