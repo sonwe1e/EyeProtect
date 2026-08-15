@@ -57,6 +57,28 @@ test('standalone schedule sanitizer supports once, daily, weekdays, weekly and c
   assert.equal(sanitizeStandaloneReminderSchedule({ type: 'weekly', weekdays: [], hour: 9, minute: 30 }), null);
 });
 
+test('custom schedule sanitizer rejects out-of-range interval days', () => {
+  // The UI clamps to 1–365; anything beyond must be rejected (not silently
+  // coerced), so an invalid create surfaces as a validation error instead of
+  // pretending a reminder was created.
+  assert.equal(
+    sanitizeStandaloneReminderSchedule({ type: 'custom', anchorAt: NOW, intervalDays: 366 }),
+    null
+  );
+  assert.equal(
+    sanitizeStandaloneReminderSchedule({ type: 'custom', anchorAt: NOW, intervalDays: 0 }),
+    null
+  );
+  assert.equal(
+    sanitizeStandaloneReminderSchedule({ type: 'custom', anchorAt: NOW, intervalDays: 2.5 }),
+    null
+  );
+  assert.deepEqual(
+    sanitizeStandaloneReminderSchedule({ type: 'custom', anchorAt: NOW, intervalDays: 365 }),
+    { type: 'custom', anchorAt: NOW, intervalDays: 365 }
+  );
+});
+
 test('custom recurrence advances by local calendar days and retains its wall-clock time', () => {
   const anchor = new Date(2026, 2, 7, 9, 45, 0, 0).getTime();
   const reference = new Date(2026, 2, 10, 12, 0, 0, 0).getTime();
