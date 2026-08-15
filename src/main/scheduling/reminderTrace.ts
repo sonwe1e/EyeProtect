@@ -15,8 +15,9 @@ import { join } from 'node:path';
 export interface ReminderTraceEntry {
   /** Epoch ms when the entry was written. */
   t: number
-  /** Origin writer: the kernel, the scheduler, or a surface. */
-  src: 'kernel' | 'scheduler' | 'surface' | 'alarm'
+  /** Origin writer: the kernel, the scheduler, a surface, or main-process
+   *  crash handlers ('system'). */
+  src: 'kernel' | 'scheduler' | 'surface' | 'alarm' | 'system'
   /** Coarse lifecycle phase. */
   event: string
   /** Optional structured detail (kind, id, owner, deadline, …). */

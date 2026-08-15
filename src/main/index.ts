@@ -46,7 +46,7 @@ import { ReminderScheduler } from './reminders';
 import { ReminderSurfaceManager } from './reminderSurface';
 import { buildCareStatus, ReminderHistoryStore } from './reminderHistory';
 import { RuntimeStateStore } from './runtimeState';
-import { ReminderTrace, type ReminderTraceSink } from './scheduling/reminderTrace';
+import { ReminderTrace, noopReminderTrace, type ReminderTraceSink } from './scheduling/reminderTrace';
 import { SchedulerKernel } from './scheduling/kernel';
 import { evaluateReminderContext } from './sceneAwareness';
 import { isTrustedRendererUrl } from './security';
@@ -77,6 +77,38 @@ const lock = app.requestSingleInstanceLock();
 if (!lock) {
   app.quit();
 }
+
+// ── Main-process crash diagnostics ─────────────────────────────────────────
+// A last-resort sink that starts as a no-op and is swapped to the real
+// rolling trace once whenReady creates it. Recording an uncaught exception /
+// unhandled rejection means a tray app that hits an unexpected error leaves
+// evidence in reminder-trace.log instead of dying silently. The process keeps
+// running: every persistent write in this app is atomic (tmp+rename) or a
+// SQLite transaction, so a single stray exception cannot corrupt state.
+let crashTraceSink: ReminderTraceSink = noopReminderTrace;
+const recordMainProcessFailure = (source: string, error: unknown): void => {
+  try {
+    const detail =
+      error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+            stack: String(error.stack ?? '').slice(0, 2000)
+          }
+        : { message: String(error) };
+    crashTraceSink.append({ t: Date.now(), src: 'system', event: source, data: detail });
+  } catch {
+    // Diagnostics must never throw into the dying stack.
+  }
+};
+process.on('uncaughtException', (error) => {
+  console.error('[fatal] uncaught exception:', error);
+  recordMainProcessFailure('uncaught-exception', error);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandled rejection:', reason);
+  recordMainProcessFailure('unhandled-rejection', reason);
+});
 
 const getTrayIconPath = (): string =>
   process.env.ELECTRON_RENDERER_URL
@@ -179,7 +211,10 @@ const createTray = (
             { label: '重新开始计时', click: (): void => void scheduler.restartCycle() }
           ]
         : [
-            { label: '立即休息', click: (): void => void scheduler.triggerNow() },
+            // '立即休息' and the test buttons are no-ops while a reminder is
+            // already up (the scheduler refuses to stack), so surface that by
+            // disabling them instead of eating the click.
+            { label: '立即休息', enabled: !status.activeReminder, click: (): void => void scheduler.triggerNow() },
             { label: '快速暂停 10 分钟', click: (): void => void scheduler.pause(10) },
             { label: '会议 30 分钟', click: (): void => void scheduler.pause(30) },
             { label: '暂停到下一整点', click: (): void => void scheduler.pause(minutesUntilNextHour()) },
@@ -201,8 +236,8 @@ const createTray = (
         }
       },
       { type: 'separator' },
-      { label: '测试护眼提醒', click: (): void => void scheduler.triggerTest('eye') },
-      { label: '测试走动提醒', click: (): void => void scheduler.triggerTest('walk') },
+      { label: '测试护眼提醒', enabled: !paused && !status.activeReminder, click: (): void => void scheduler.triggerTest('eye') },
+      { label: '测试走动提醒', enabled: !paused && !status.activeReminder, click: (): void => void scheduler.triggerTest('walk') },
       { type: 'separator' },
       {
         label: '退出',
@@ -345,6 +380,7 @@ app.whenReady().then(async () => {
   // A rolling reminder-trace backs the kernel so a missed reminder can be
   // diagnosed from data instead of guesswork (USERPLAN §四.B).
   const reminderTrace: ReminderTraceSink = new ReminderTrace(settingsStore.getDataDir());
+  crashTraceSink = reminderTrace;
   const kernel = new SchedulerKernel({
     trace: (message, data) =>
       reminderTrace.append({ t: Date.now(), src: 'kernel', event: message, data })

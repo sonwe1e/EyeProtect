@@ -39,9 +39,15 @@ export default function PetView(): JSX.Element {
 
   useEffect(() => {
     return window.eyeProtect.onStandaloneReminderFired((alarm) => {
-      setFiringAlarms((current) =>
-        current.some((entry) => entry.id === alarm.id) ? current : [...current, alarm]
-      );
+      setFiringAlarms((current) => {
+        if (current.some((entry) => entry.id === alarm.id)) {
+          return current;
+        }
+        // Keep only the most recent fired alarms: the badge is dismissed as a
+        // whole, and an unbounded array would grow by one per firing for the
+        // whole window lifetime.
+        return [...current, alarm].slice(-5);
+      });
     });
   }, []);
 
