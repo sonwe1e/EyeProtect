@@ -90,6 +90,15 @@ test('custom recurrence advances by local calendar days and retains its wall-clo
   assert.equal(result.getDate(), 11);
 });
 
+test('weekly next-fire with no weekdays produces nothing (defensive)', () => {
+  // The sanitizer rejects empty weekly weekdays, but the pure helper must not
+  // loop forever or fabricate a deadline when called with such a schedule.
+  assert.equal(
+    nextStandaloneReminderFireAt({ type: 'weekly', weekdays: [], hour: 9, minute: 0 }, NOW),
+    null
+  );
+});
+
 test('a once reminder is deleted only after delivery acknowledgement', () => {
   withService((service, store, kernel, clock) => {
     let fired: StandaloneReminder | null = null;

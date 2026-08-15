@@ -494,6 +494,50 @@ test('pause clears a pending pre-alert', () => {
   assert.equal(paused.preAlert, null);
 });
 
+test('settings changes drop a pending pre-alert and re-arm the new lead time', () => {
+  const { clock, scheduler } = makeScheduler(makeSettings({ preAlertSeconds: 30 }));
+  clock.advance(20 * MINUTE - 20_000);
+  scheduler.tick();
+  assert.ok(scheduler.getStatus().preAlert, 'pre-alert is showing before the deadline');
+
+  const before = scheduler.getStatus();
+  const next = scheduler.updateSettings(makeSettings({ preAlertSeconds: 60 }), before);
+  assert.equal(next.preAlert, null, 'a stale pre-alert is dropped on settings change');
+
+  // The same deadline becomes eligible again under the longer lead time: the
+  // per-deadline marker must not suppress it (regression for the marker
+  // surviving updateSettings).
+  clock.advance(10_000);
+  scheduler.tick();
+  assert.ok(scheduler.getStatus().preAlert, 'pre-alert re-appears under the new lead time');
+});
+
+test('wall-clock drift shifts deadlines and ignores zero/non-finite deltas', () => {
+  const { clock, scheduler } = makeScheduler();
+  // Private on purpose; the test invokes it with an explicit receiver so the
+  // `this` binding survives (drift events arrive via the kernel wiring).
+  const drift = (delta: number): void =>
+    (scheduler as unknown as { handleWallClockDrift: (value: number) => void }).handleWallClockDrift.call(scheduler, delta);
+
+  const before = scheduler.getStatus();
+  drift(5 * MINUTE);
+  const after = scheduler.getStatus();
+  assert.equal(after.nextEyeAt, before.nextEyeAt + 5 * MINUTE);
+  assert.equal(after.nextWalkAt, before.nextWalkAt + 5 * MINUTE);
+
+  scheduler.pause(30);
+  const paused = scheduler.getStatus();
+  drift(10 * MINUTE);
+  const shifted = scheduler.getStatus();
+  assert.equal(shifted.pausedUntil, (paused.pausedUntil ?? 0) + 10 * MINUTE);
+  assert.equal(shifted.nextEyeAt, (paused.nextEyeAt ?? 0) + 10 * MINUTE);
+
+  drift(0);
+  assert.equal(scheduler.getStatus().pausedUntil, shifted.pausedUntil);
+  drift(Number.NaN);
+  assert.equal(scheduler.getStatus().pausedUntil, shifted.pausedUntil);
+});
+
 test('activities are picked per kind and avoid immediate repeats', () => {
   const { clock, scheduler } = makeScheduler();
   clock.advance(20 * MINUTE);

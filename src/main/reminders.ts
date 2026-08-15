@@ -229,8 +229,11 @@ export class ReminderScheduler extends EventEmitter {
     // A cycle is fixed when it starts. Interval edits are preferences for the
     // next complete cycle; restartCycle() is the explicit "apply now" action.
     // Deadlines may have moved (or the lead time changed): any pending
-    // pre-alert refers to an old schedule.
+    // pre-alert refers to an old schedule. The per-deadline marker must be
+    // dropped too, otherwise a longer lead time would never apply to the
+    // current deadline (it stays marked from the old lead window).
     this.activePreAlert = null;
+    this.preAlerted = {};
     this.cancelPendingGate();
 
     this.emitChanged();
