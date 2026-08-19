@@ -55,7 +55,6 @@ export function FocusSurface({ activeTask, candidates, tasks, focus, immersive, 
 }): JSX.Element {
   const start = useCommand((taskId: string) => commands.focus.start(taskId));
   const pause = useCommand(() => commands.focus.pause());
-  const resume = useCommand(() => commands.focus.resume());
   const finish = useCommand((id: string) => completeTaskThenFocus(
     id,
     (taskId) => commands.tasks.setStatus(taskId, 'done'),
@@ -79,7 +78,7 @@ export function FocusSurface({ activeTask, candidates, tasks, focus, immersive, 
   }
 
   const subtasks = tasks.filter((task) => task.parentId === activeTask.id && task.status !== 'archived');
-  const startError = start.error?.message ?? pause.error?.message ?? resume.error?.message
+  const startError = start.error?.message ?? pause.error?.message
     ?? finish.error?.message;
 
   // Active task without a live session (e.g. set from elsewhere): offer to
@@ -128,19 +127,19 @@ export function FocusSurface({ activeTask, candidates, tasks, focus, immersive, 
         <div className="focus-break-hint"><Eye size={17} />下一次护眼 {formatMinutes(eyeRemaining)}</div>
       )}
       {subtasks.length ? <div className="focus-subtasks" aria-label="当前任务的步骤">{subtasks.map((task) => <FocusSubtask key={task.id} task={task} />)}</div> : null}
-      <div className="focus-actions">
-        {session.onBreak ? (
-          <CommandButton variant="primary" state={resume.state} errorReason={resume.error?.message} onClick={() => void resume.run()}><Play size={16} />恢复专注</CommandButton>
-        ) : (
+      {session.onBreak ? (
+        <span className="focus-footer">请在休息提醒中完成或跳过休息</span>
+      ) : (
+        <div className="focus-actions">
           <CommandButton variant="secondary" state={pause.state} errorReason={pause.error?.message} onClick={() => void pause.run()}><Pause size={16} />暂停专注</CommandButton>
-        )}
-        <CommandButton
-          variant="primary"
-          state={finish.state}
-          errorReason={finish.error?.message}
-          onClick={() => void finish.run(activeTask.id)}
-        ><CheckCircle2 size={16} />完成任务</CommandButton>
-      </div>
+          <CommandButton
+            variant="primary"
+            state={finish.state}
+            errorReason={finish.error?.message}
+            onClick={() => void finish.run(activeTask.id)}
+          ><CheckCircle2 size={16} />完成任务</CommandButton>
+        </div>
+      )}
       <span className="focus-footer">EyeProtect · 安静工作中</span>
     </section>
   );

@@ -298,6 +298,7 @@ export interface TaskMoveInput {
 
 export interface TaskWorkSummary {
   taskId: string | null;
+  tracking: boolean;
   taskActiveMs: number;
   currentSessionMs: number;
   continuousActiveMs: number;
@@ -527,6 +528,8 @@ export interface Settings {
   /** Soft bubble this many seconds before each deadline; 0 turns it off. */
   preAlertSeconds: number;
   startWithWindows: boolean;
+  /** Show the passive task preview next to the pet; reminder bubbles ignore it. */
+  todoBubbleEnabled: boolean;
   petScale: number;
   petPosition: PetPosition | null;
   /** One absolute pet position per connected-display topology. */
@@ -900,6 +903,7 @@ export interface EyeProtectApi {
   setCharacterMaterial: (id: string, material: CharacterMaterial) => Promise<CharacterCollectionState>;
   setCharacterAccessory: (id: string, accessory: PetAccessory) => Promise<CharacterCollectionState>;
   onCharacterCollectionChanged: (callback: (state: CharacterCollectionState) => void) => () => void;
+  movePetWindow: (position: PetPosition) => Promise<PetPosition | null>;
   openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection' | 'review') => Promise<void>;
   closeWorkbench: () => Promise<void>;
   getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review'>;
@@ -934,6 +938,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reminderMode: 'guided',
   preAlertSeconds: 30,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -963,7 +968,7 @@ export const SETTINGS_LIMITS = {
   workStartMinutes: { min: 0, max: 23 * 60 + 59 },
   workEndMinutes: { min: 1, max: 24 * 60 },
   preAlertSeconds: PRE_ALERT_LIMIT,
-  petScale: { min: 0.7, max: 1.8 },
+  petScale: { min: 0.5, max: 1.8 },
   minuteOfDay: { min: 0, max: 24 * 60 - 1 }
 } as const;
 

@@ -60,6 +60,7 @@ import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { TaskWorkTracker } from './taskWorkTracker';
 import { FocusSessionService } from './focusSession';
+import { FocusRuntime } from './focusRuntime';
 import { CharacterService } from './characterService';
 import { buildDailyReview } from './dailyReview';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
@@ -76,6 +77,14 @@ let isQuitting = false;
 const lock = app.requestSingleInstanceLock();
 if (!lock) {
   app.quit();
+}
+
+// A startup migration prompt can appear before the windows service exists.
+// Re-launching the portable executable should still bring that native prompt
+// to the foreground instead of looking like the application failed to open.
+let handleSecondInstance = (): void => app.focus({ steal: true });
+if (lock) {
+  app.on('second-instance', () => handleSecondInstance());
 }
 
 // ── Main-process crash diagnostics ─────────────────────────────────────────
@@ -453,13 +462,19 @@ app.whenReady().then(async () => {
   characterService.getState();
   const taskWorkTracker = new TaskWorkTracker(taskStore, (id) => taskService.getTask(id));
   const focusSessionService = new FocusSessionService(taskStore);
+  const focusRuntime = new FocusRuntime(
+    focusSessionService,
+    taskWorkTracker,
+    (taskId) => taskService.setActiveTask(taskId),
+    () => Boolean(scheduler.getStatus().activeReminder)
+  );
   const taskScheduler = new TaskScheduler(kernel, () => taskService.getTasks(), Date.now, {
     persist: (events) => taskStore.replaceScheduledEvents('task', events),
     isConsumed: (task) =>
       task.reminderAt !== null && taskStore.isTaskReminderConsumed(task.id, task.reminderAt)
   });
   const activityMonitor = new ActivityMonitor({
-    getIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+    getIdleSeconds: () => process.env.EYEPROTECT_SMOKE === '1' ? 0 : powerMonitor.getSystemIdleTime(),
     naturalBreakMs: () => settingsStore.get().naturalBreakMinutes * 60_000
   });
   activityMonitor.on('inactive', () => kernel.pauseElapsed());
@@ -468,7 +483,14 @@ app.whenReady().then(async () => {
     kernel.resumeElapsed();
     scheduler.handleActivityResume(inactiveMs);
   });
-  activityMonitor.on('active', ({ naturalBreak }: ActivityResume) => taskWorkTracker.resume(naturalBreak));
+  activityMonitor.on('active', ({ naturalBreak }: ActivityResume) => {
+    if (scheduler.getStatus().activeReminder) {
+      taskWorkTracker.pause();
+      if (naturalBreak) taskWorkTracker.resetContinuous();
+      return;
+    }
+    focusRuntime.endBreak(naturalBreak);
+  });
   // Migration happens before any scheduler is armed so imported task and alarm
   // deadlines are visible during the first startup reconciliation.
   if (!taskStore.getRecoveryStatus().readOnly) {
@@ -652,9 +674,10 @@ app.whenReady().then(async () => {
     standaloneReminders.arm();
   });
 
-  app.on('second-instance', () => {
+  handleSecondInstance = () => {
+    app.focus({ steal: true });
     windows.showWorkbenchWindow('today');
-  });
+  };
 
   // If any renderer (including the alert window) crashes while a reminder is on
   // screen, fall back to the emergency surface instead of leaving the user with
@@ -730,13 +753,11 @@ app.whenReady().then(async () => {
     windows.broadcastReminderStatus(status);
     const active = status.activeReminder;
     if (active) {
-      taskWorkTracker.pause();
       // Health break pauses the live focus session without ending it;
       // the break surface going away resumes the same session (§十五).
-      focusSessionService.beginBreak();
+      focusRuntime.beginBreak();
     } else if (activityMonitor.getState() === 'active') {
-      taskWorkTracker.resume(false);
-      focusSessionService.endBreak();
+      focusRuntime.endBreak();
     }
     if (!active) {
       presentedReminderId = null;
@@ -1403,15 +1424,15 @@ app.whenReady().then(async () => {
   handleIpc('focus:get', () => focusSessionService.getStatus());
   handleIpc('focus:start', (taskId, timeBlockId) =>
     requireWritableTaskDatabase(() =>
-      focusSessionService.start(
+      focusRuntime.start(
         asString(taskId),
         typeof timeBlockId === 'string' && timeBlockId ? timeBlockId : null
       )
     )
   );
-  handleIpc('focus:pause', () => requireWritableTaskDatabase(() => focusSessionService.pause()));
-  handleIpc('focus:resume', () => requireWritableTaskDatabase(() => focusSessionService.resume()));
-  handleIpc('focus:complete', () => requireWritableTaskDatabase(() => focusSessionService.complete()));
+  handleIpc('focus:pause', () => requireWritableTaskDatabase(() => focusRuntime.pause()));
+  handleIpc('focus:resume', () => requireWritableTaskDatabase(() => focusRuntime.resume()));
+  handleIpc('focus:complete', () => requireWritableTaskDatabase(() => focusRuntime.complete()));
   handleIpc(
     'daily:review',
     (localDate) => isLocalDateKey(localDate) ? buildDailyReview(taskStore, historyStore, localDate) : (() => {
@@ -1441,6 +1462,16 @@ app.whenReady().then(async () => {
   });
   handleIpc('window:workbench:close', () => windows.closeWorkbenchWindow());
   handleIpc('window:workbench:section', () => windows.getWorkbenchSection());
+  handleIpc('window:pet:move', (value) => {
+    const position = value && typeof value === 'object'
+      ? value as { x?: unknown; y?: unknown }
+      : {};
+    const x = asNumber(position.x, Number.NaN);
+    const y = asNumber(position.y, Number.NaN);
+    return Number.isFinite(x) && Number.isFinite(y)
+      ? windows.movePetWindow({ x, y })
+      : null;
+  });
 
   // Start the pet renderer as soon as its IPC surface exists so first paint
   // overlaps the control-plane sync below. The load is async and non-fatal:
@@ -1474,6 +1505,7 @@ app.whenReady().then(async () => {
   // later state change woke it. Present it explicitly right away.
   const recoveredActive = scheduler.getStatus().activeReminder;
   if (recoveredActive) {
+    focusRuntime.beginBreak();
     presentedReminderId = recoveredActive.id;
     void reminderSurface.present(recoveredActive);
   }

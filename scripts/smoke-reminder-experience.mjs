@@ -95,8 +95,7 @@ const projectCreated = (await waitForValue('#workbench', `(() => ({
 assert(projectCreated.projectVisible, 'Project create pointer path failed', projectCreated);
 
 await evaluate(projectTarget, `(() => {
-  const inbox = [...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('收件箱'));
-  inbox?.click();
+  document.querySelector('.project-unclassified .project-item-name')?.click();
 })()`);
 await waitForValue('#workbench', `Boolean(document.querySelector('[data-quick-add="true"]'))`, Boolean);
 await evaluate(projectTarget, `(() => {

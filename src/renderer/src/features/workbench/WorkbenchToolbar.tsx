@@ -47,7 +47,7 @@ export function WorkbenchToolbar({
             autoFocus
             value={search}
             onChange={(event) => onSearchChange(event.currentTarget.value)}
-            placeholder="搜索标题、备注或标签"
+            placeholder="搜索任务或项目"
           />
           <IconButton aria-label="关闭搜索" onClick={onCloseSearch}><X size={17} /></IconButton>
         </label>

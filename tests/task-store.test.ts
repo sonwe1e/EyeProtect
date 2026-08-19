@@ -441,16 +441,20 @@ test('legacy status migration requires permission and preserves a pre-reset snap
         status TEXT NOT NULL CHECK(status IN ('inbox','active','done','archived')),
         priority TEXT NOT NULL, project_id TEXT, parent_id TEXT, planned_at INTEGER,
         due_at INTEGER, reminder_at INTEGER, recurrence_json TEXT, context TEXT NOT NULL,
-        remind_on_break INTEGER NOT NULL DEFAULT 0, estimate_minutes INTEGER,
-        sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL,
+        estimate_minutes INTEGER, sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL, completed_at INTEGER
       );
+      INSERT INTO tasks (
+        id, title, status, priority, context, sort_order, created_at, updated_at
+      ) VALUES ('legacy-inbox', 'Legacy inbox task', 'inbox', 'normal', 'desk', 0, 1, 1);
     `);
     legacy.close();
     assert.equal(TaskStore.requiresTaskModelReset(dir), true);
 
     const store = new TaskStore(dir);
     assert.equal(store.getRecoveryStatus().readOnly, false);
+    assert.equal(store.getTask('legacy-inbox')?.status, 'open');
+    assert.equal(store.getTask('legacy-inbox')?.remindOnBreak, false);
     store.close();
     assert.equal(TaskStore.requiresTaskModelReset(dir), false);
     assert.equal(readdirSync(dir).some((name) => name.includes('.pre-model-reset-')), true);

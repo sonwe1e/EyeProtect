@@ -230,6 +230,10 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.startWithWindows === 'boolean'
         ? input.startWithWindows
         : DEFAULT_SETTINGS.startWithWindows,
+    todoBubbleEnabled:
+      typeof input.todoBubbleEnabled === 'boolean'
+        ? input.todoBubbleEnabled
+        : DEFAULT_SETTINGS.todoBubbleEnabled,
     petScale: clampNumber(
       input.petScale,
       DEFAULT_SETTINGS.petScale,

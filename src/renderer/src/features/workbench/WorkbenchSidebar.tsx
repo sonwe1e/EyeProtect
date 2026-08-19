@@ -21,6 +21,10 @@ export interface WorkbenchSidebarProps {
   tasks: Task[];
   selectedProjectId: string | null;
   onSelectProject: (id: string | null) => void;
+  unclassifiedSelected: boolean;
+  onSelectUnclassified: () => void;
+  projectCreateOpen: boolean;
+  onProjectCreateOpenChange: (open: boolean) => void;
 }
 
 // Presentational shell: renders brand + primary nav + project list + utility
@@ -35,7 +39,11 @@ export function WorkbenchSidebar({
   projects,
   tasks,
   selectedProjectId,
-  onSelectProject
+  onSelectProject,
+  unclassifiedSelected,
+  onSelectUnclassified,
+  projectCreateOpen,
+  onProjectCreateOpenChange
 }: WorkbenchSidebarProps): JSX.Element {
   return (
     <aside className="app-sidebar">
@@ -61,6 +69,10 @@ export function WorkbenchSidebar({
         tasks={tasks}
         selectedProjectId={selectedProjectId}
         onSelect={onSelectProject}
+        unclassifiedSelected={unclassifiedSelected}
+        onSelectUnclassified={onSelectUnclassified}
+        createOpen={projectCreateOpen}
+        onCreateOpenChange={onProjectCreateOpenChange}
       />
       <nav className="utility-nav" aria-label="辅助导航">
         {utilityItems.map(({ id, label, description, icon }) => (

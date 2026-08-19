@@ -70,6 +70,54 @@ jobs:
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Verify NEWPLAN runtime acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping NEWPLAN runtime acceptance'; exit 0 }
+
+          function Invoke-IsolatedSmoke {
+            param([string]$Name, [int]$Port, [scriptblock]$Action)
+            $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP "eyeprotect-$Name-data"
+            New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+            $env:EYEPROTECT_SMOKE = '1'
+            $process = Start-Process -FilePath $executable -ArgumentList "--remote-debugging-port=$Port" -PassThru -WindowStyle Hidden
+            try { & $Action }
+            finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+          Invoke-IsolatedSmoke 'focus-runtime' 9338 { npm run smoke:focus-runtime -- 9338 }
+          Invoke-IsolatedSmoke 'project-lifecycle' 9339 { npm run smoke:project-lifecycle -- 9339 }
+
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-bubble-opt-out-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $env:EYEPROTECT_SMOKE = '1'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9344' -PassThru -WindowStyle Hidden
+          try { npm run smoke:bubble-opt-out -- 9344 exercise }
+          finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Milliseconds 1500
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9344' -PassThru -WindowStyle Hidden
+          try { npm run smoke:bubble-opt-out -- 9344 verify }
+          finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-scale-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $petScaleDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-scale'
+          New-Item -ItemType Directory -Path $petScaleDir -Force | Out-Null
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9345' -PassThru -WindowStyle Hidden
+          try { npm run capture:pet-scale -- 9345 $petScaleDir }
+          finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload NEWPLAN pet-scale captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-pet-scale
+          path: ${{ runner.temp }}/eyeprotect-pet-scale/*.png
+          if-no-files-found: warn
+
       - name: Smoke test Workbench interactions and restart persistence
         shell: pwsh
         run: |

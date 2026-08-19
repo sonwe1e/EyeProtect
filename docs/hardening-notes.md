@@ -47,7 +47,8 @@
 
 ## 验证
 
-- `npm run typecheck`（覆盖 `src/` 与 `tests/`）、`npm test`（当前 425 个用例）、`npm run verify:ui-contract`、`npm run build`（含构建契约）全部通过。
+- `npm run typecheck`（覆盖 `src/` 与 `tests/`）、`npm test`（当前 430 个用例）、`npm run verify:ui-contract`、`npm run build`（含构建契约）全部通过。
 - `npm run package` 本地验证通过：NSIS 安装包与 portable exe 均正常生成（`release/`，不入库）。
 - 本地端到端 smoke：`smoke:running` 与 `smoke:experience` 对打包产物全部通过（bridge、拖拽区域、任务/日计划 IPC 往返、主题权威审计）。`smoke:workbench-interactions` 的 CDP 模拟 HTML5 拖放在本机会话不派发 drop 事件（dragstart/dragover 正常、drop 缺失）——经手动派发 drop 事件验证 React 拖放处理完好，属环境差异而非代码回归；CI 的 windows runner 上该脚本正常。
+- NEWPLAN 交互门禁覆盖 Focus/工时协调、待办气泡跨重启 opt-out、gentle/pre-alert 不受 opt-out 影响、项目生命周期与上下文新建，以及桌宠 50/60/69/70/100% 的截图、单击、拖动、双击和右键矩阵；Windows CI 使用独立数据目录逐项执行。
 - UI 快照与打包 smoke 由 GitHub Actions Windows CI 覆盖。

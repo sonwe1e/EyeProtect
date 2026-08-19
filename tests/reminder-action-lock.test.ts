@@ -17,6 +17,7 @@ const baseSettings: Settings = {
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -132,5 +133,4 @@ test('actions with a stale reminder id are ignored', () => {
   const status = scheduler.handleAction('complete', 'some-old-id');
   assert.equal(status.activeReminder?.id, active!.id, 'wrong id leaves the reminder untouched');
 });
-
 

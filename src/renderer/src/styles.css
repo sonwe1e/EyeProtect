@@ -3,7 +3,7 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
 }
 
 /* Reminder alerts render in their own window; same layout variables as the
@@ -94,6 +94,19 @@
   pointer-events: none;
 }
 
+.pet-drag-surface {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+
+.pet-drag-surface.is-dragging {
+  cursor: grabbing;
+}
+
 .pet-character {
   position: absolute;
   inset: 0;
@@ -113,13 +126,21 @@
   border: 1px solid color-mix(in srgb, var(--fg-inverse) 42%, transparent);
   border-radius: 999px;
   opacity: 0;
-  pointer-events: auto;
+  pointer-events: none;
   transform: translateX(-50%);
   transition: opacity 140ms ease;
-  -webkit-app-region: drag;
+  /* The full pet uses the pointer/IPC drag path. Mixing in a native draggable
+     transparent region can make DWM hide the window while dragging. */
+  -webkit-app-region: no-drag;
 }
 
 .pet-shell:hover .pet-drag-handle { opacity: 0.72; }
+
+.pet-compact .pet-drag-handle,
+.pet-compact .pet-care-badge,
+.pet-compact .pet-gift-badge {
+  display: none;
+}
 
 .pet-character .procedural-character {
   display: block;
@@ -1436,6 +1457,27 @@
   background: var(--glass-surface-strong);
   border: 1px solid color-mix(in srgb, var(--fg-primary) 18%, transparent);
   border-radius: 12px;
+}
+
+.bubble-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  color: var(--fg-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.bubble-close:hover {
+  color: var(--fg-primary);
+  background: var(--surface-hover);
 }
 
 .bubble-shell:hover .bubble-card {

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Plus, Trash2 } from 'lucide-react';
-import { PROJECT_NAME_MAX, type Project, type ProjectInput, type Task } from '../../../../shared/types';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, CheckCircle2, CirclePause, FolderOpen, Inbox, MoreHorizontal, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { PROJECT_NAME_MAX, type Project, type ProjectInput, type ProjectStatus, type Task } from '../../../../shared/types';
 import { CommandButton } from '../../components/CommandButton';
 import { Button, Dialog, Field, IconButton, ProjectDot, TextField } from '../../components/primitives';
 import { useCommand } from '../../hooks/useCommand';
@@ -19,7 +19,9 @@ function ProjectItem({ project, count, isActive, onSelect }: {
   const [renameValidation, setRenameValidation] = useState<string | null>(null);
   const cancelRenameRef = useRef(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const rename = useCommand((name: string) => commands.projects.update(project.id, { name }));
+  const lifecycle = useCommand((status: ProjectStatus) => commands.projects.update(project.id, { status }));
   const remove = useCommand(() => commands.projects.remove(project.id));
 
   useEffect(() => {
@@ -54,9 +56,14 @@ function ProjectItem({ project, count, isActive, onSelect }: {
     setConfirmDeleteOpen(false);
     remove.reset();
   }, [remove.isPending, remove.reset]);
+  const changeStatus = (status: ProjectStatus): void => {
+    void lifecycle.run(status).then((result) => {
+      if (result.ok) setMenuOpen(false);
+    });
+  };
 
   return (
-    <li className={`project-item ${isActive ? 'is-active' : ''}`.trim()} onClick={() => onSelect(project.id)}>
+    <li className={`project-item status-${project.status} ${isActive ? 'is-active' : ''}`.trim()} onClick={() => onSelect(project.id)}>
       <ProjectDot color={project.color} className="project-item-dot" />
       {isRenaming ? (
         <input
@@ -86,7 +93,18 @@ function ProjectItem({ project, count, isActive, onSelect }: {
       )}
       {isRenaming && (renameValidation || rename.error) ? <small className="project-rename-error" role="alert">{renameValidation ?? rename.error?.message}</small> : null}
       <span className="project-item-count">{count}</span>
-      <CommandButton className="project-item-remove" state={remove.state} errorReason={remove.error?.message} aria-label={`删除项目「${project.name}」`} onClick={(event) => { event.stopPropagation(); setConfirmDeleteOpen(true); }}><Trash2 size={14} /></CommandButton>
+      <button type="button" className="project-item-menu-trigger" aria-label={`管理项目「${project.name}」`} aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); setMenuOpen((open) => !open); }}><MoreHorizontal size={15} /></button>
+      {menuOpen ? (
+        <div className="project-item-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+          <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setIsRenaming(true); }}><Pencil size={14} />重命名</button>
+          {project.status !== 'active' ? <button type="button" role="menuitem" onClick={() => changeStatus('active')}><RotateCcw size={14} />恢复进行</button> : null}
+          {project.status !== 'onHold' ? <button type="button" role="menuitem" onClick={() => changeStatus('onHold')}><CirclePause size={14} />暂存</button> : null}
+          {project.status !== 'completed' ? <button type="button" role="menuitem" onClick={() => changeStatus('completed')}><CheckCircle2 size={14} />标记完成</button> : null}
+          {project.status !== 'archived' ? <button type="button" role="menuitem" onClick={() => changeStatus('archived')}><Archive size={14} />归档</button> : null}
+          <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenuOpen(false); setConfirmDeleteOpen(true); }}><Trash2 size={14} />删除</button>
+          {lifecycle.error ? <small role="alert">{lifecycle.error.message}</small> : null}
+        </div>
+      ) : null}
       <Dialog
         open={confirmDeleteOpen}
         title={`删除项目「${project.name}」`}
@@ -104,13 +122,16 @@ function ProjectItem({ project, count, isActive, onSelect }: {
   );
 }
 
-export function ProjectList({ projects, tasks, selectedProjectId, onSelect }: {
+export function ProjectList({ projects, tasks, selectedProjectId, onSelect, unclassifiedSelected, onSelectUnclassified, createOpen, onCreateOpenChange }: {
   projects: Project[];
   tasks: Task[];
   selectedProjectId: string | null;
   onSelect: (id: string | null) => void;
+  unclassifiedSelected: boolean;
+  onSelectUnclassified: () => void;
+  createOpen: boolean;
+  onCreateOpenChange: (open: boolean) => void;
 }): JSX.Element {
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [color, setColor] = useState(PROJECT_COLORS[0]);
   const create = useCommand((input: ProjectInput) => commands.projects.create(input));
@@ -124,10 +145,10 @@ export function ProjectList({ projects, tasks, selectedProjectId, onSelect }: {
 
   const closeDialog = useCallback(() => {
     if (create.isPending) return;
-    setDialogOpen(false);
+    onCreateOpenChange(false);
     setNewName('');
     create.reset();
-  }, [create.isPending, create.reset]);
+  }, [create.isPending, create.reset, onCreateOpenChange]);
 
   const commitAdd = useCallback(() => {
     const name = newName.trim();
@@ -135,21 +156,39 @@ export function ProjectList({ projects, tasks, selectedProjectId, onSelect }: {
     void create.run({ name, color }).then((result) => {
       if (!result.ok) return;
       const created = [...result.data].sort((a, b) => b.createdAt - a.createdAt)[0];
-      setDialogOpen(false);
+      onCreateOpenChange(false);
       setNewName('');
       create.reset();
       if (created) onSelect(created.id);
     });
-  }, [newName, color, create.run, create.reset, onSelect]);
+  }, [newName, color, create.run, create.reset, onSelect, onCreateOpenChange]);
+
+  const orderedProjects = useMemo(() => [
+    ...projects.filter((project) => project.status === 'active'),
+    ...projects.filter((project) => project.status === 'onHold'),
+    ...projects.filter((project) => project.status === 'completed'),
+    ...projects.filter((project) => project.status === 'archived')
+  ], [projects]);
+  const unclassifiedCount = tasks.filter((task) => task.status === 'open' && task.projectId === null).length;
 
   return (
     <div className="project-list">
-      <div className="project-list-header"><span className="project-list-title"><FolderOpen size={15} />项目</span><IconButton className="project-add" aria-label="新建项目" title="新建项目" onClick={() => setDialogOpen(true)}><Plus size={16} /></IconButton></div>
+      <div className="project-list-header"><span className="project-list-title"><FolderOpen size={15} />项目</span><IconButton className="project-add" aria-label="新建项目" title="新建项目" onClick={() => onCreateOpenChange(true)}><Plus size={16} /></IconButton></div>
       <ul className="project-list-items">
-        {projects.length === 0 ? <li className="project-empty">还没有项目</li> : projects.map((project) => <ProjectItem key={project.id} project={project} count={taskCountByProject.get(project.id) ?? 0} isActive={selectedProjectId === project.id} onSelect={(id) => onSelect(selectedProjectId === id ? null : id)} />)}
+        <li className={`project-item project-unclassified ${unclassifiedSelected ? 'is-active' : ''}`.trim()}>
+          <Inbox size={14} />
+          <button type="button" className="project-item-name" aria-current={unclassifiedSelected ? 'page' : undefined} onClick={onSelectUnclassified}>未归类</button>
+          <span className="project-item-count">{unclassifiedCount}</span>
+        </li>
+        {projects.length === 0 ? <li className="project-empty">还没有项目</li> : orderedProjects.map((project, index) => {
+          const previous = orderedProjects[index - 1];
+          const showGroup = project.status !== 'active' && (index === 0 || previous?.status !== project.status);
+          const groupLabel = project.status === 'onHold' ? '已暂存' : project.status === 'completed' ? '已完成' : project.status === 'archived' ? '已归档' : '';
+          return <Fragment key={project.id}>{showGroup && groupLabel ? <li className="project-group-label">{groupLabel}</li> : null}<ProjectItem project={project} count={taskCountByProject.get(project.id) ?? 0} isActive={selectedProjectId === project.id} onSelect={onSelect} /></Fragment>;
+        })}
       </ul>
       <Dialog
-        open={dialogOpen}
+        open={createOpen}
         title="新建项目"
         description="用项目聚合一个清晰目标下的任务。"
         onClose={closeDialog}

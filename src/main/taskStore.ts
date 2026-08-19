@@ -1357,6 +1357,14 @@ export class TaskStore extends EventEmitter {
     }
     this.snapshotDatabase('pre-model-reset');
 
+    // The original v1 schema predates break suggestions. Some later legacy
+    // databases already have this column, so migrate both shapes without
+    // requiring users to upgrade through every intermediate release first.
+    const legacyColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
+    const remindOnBreakSource = legacyColumns.some((column) => column.name === 'remind_on_break')
+      ? 'remind_on_break'
+      : '0';
+
     this.db.exec('PRAGMA foreign_keys = OFF');
     try {
       this.transaction(() => {
@@ -1387,7 +1395,7 @@ export class TaskStore extends EventEmitter {
           SELECT id, title, notes,
             CASE WHEN status IN ('inbox','active') THEN 'open' ELSE status END,
             priority, project_id, parent_id, planned_at, due_at, reminder_at,
-            recurrence_json, context, remind_on_break, estimate_minutes,
+            recurrence_json, context, ${remindOnBreakSource}, estimate_minutes,
             NULL, 1, sort_order, created_at, updated_at, completed_at
           FROM tasks;
           DROP TABLE tasks;

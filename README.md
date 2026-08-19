@@ -12,7 +12,7 @@ EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应�
 - 提醒界面由一个 Surface Manager 管理；主提醒渲染器异常时会依次降级到应急窗口和系统通知。
 - 桌宠由本地种子实时生成 SVG 结构，不再把固定姿势图片当作皮肤。每天会有一位随机访客，可收集、改名、收藏、固定出场，并独立切换材质与配饰。
 - 护眼、走动与合并提醒复用当前公仔的程序化动作；gentle 气泡使用精简动作，guided/focused 卡片使用完整舞台，reduced-motion 下停在静态关键姿势。
-- 工作台包含 今天、收件箱、日程、专注、项目 五个主视图，以及 今日复盘、独立提醒、公仔收藏、设置 四个工具视图，支持全库搜索、临时筛选、自动保存、拖放/键盘排序和 10 秒持久撤销。
+- 工作台包含 今天、日程、专注、项目 四个主视图；未归类任务固定在项目区顶部。另有 今日复盘、独立提醒、公仔收藏、设置 四个工具视图，支持任务/项目搜索、临时筛选、自动保存、拖放/键盘排序和 10 秒持久撤销。
 - 当前任务与任务状态分离。Rhythm 条同时显示连续活跃时间和当前任务活跃时间；任务达到预估时长时只轻提示一次。
 - 重复父任务完成后会创建下一周期的完整子任务树；子任务重置为未完成并保留相对日期。
 - 任务、独立提醒和 timebox 共用持久化通知队列。只有系统通知 `show()` 成功后才消费 occurrence，失败按 30 秒、2 分钟、5 分钟重试。
@@ -47,6 +47,12 @@ npm run build
 npm run smoke:experience -- 9333
 npm run smoke:emergency -- 9333
 npm run smoke:running -- 9333
+npm run smoke:bubble-opt-out -- 9333 exercise
+# 重启同一数据目录的应用后：
+npm run smoke:bubble-opt-out -- 9333 verify
+npm run smoke:focus-runtime -- 9333
+npm run smoke:project-lifecycle -- 9333
+npm run capture:pet-scale -- 9333 artifacts/pet-scale
 ```
 
 工作台交互 smoke（`smoke:workbench-interactions`、`smoke:plan-interactions`）以 `exercise` 阶段写入数据、`verify` 阶段重启后校验持久化，见 `.github/workflows/windows.yml`。所有 smoke/capture 脚本共用 `scripts/lib/cdp.mjs` 的 DevTools 连接工具，改动 CDP 交互只需改一处。

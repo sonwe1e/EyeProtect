@@ -618,7 +618,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           }}
         >
           {active ? <Square size={13} /> : <Play size={13} />}
-          <span>{active ? '停止任务' : '开始任务'}</span>
+          <span>{active ? '清除当前任务' : '设为当前任务'}</span>
         </CommandButton>
         <CommandButton
           type="button"

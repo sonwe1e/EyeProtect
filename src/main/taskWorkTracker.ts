@@ -44,6 +44,11 @@ export class TaskWorkTracker extends EventEmitter {
     this.timer = null;
   }
 
+  /** Persist the current tail before another runtime state machine changes. */
+  flush(): void {
+    this.checkpoint();
+  }
+
   setActiveTask(taskId: string | null): void {
     this.checkpoint();
     this.taskId = taskId && this.getTask(taskId)?.status === 'open' ? taskId : null;
@@ -69,12 +74,20 @@ export class TaskWorkTracker extends EventEmitter {
     this.emitSummary();
   }
 
+  resetContinuous(): void {
+    if (this.continuousMs === 0) return;
+    this.continuousMs = 0;
+    this.store.setContinuousActiveMs(0);
+    this.emitSummary();
+  }
+
   getSummary(): TaskWorkSummary {
     const live = this.active && this.segmentMonoAt !== null
       ? Math.max(0, this.monotonic() - this.segmentMonoAt)
       : 0;
     return {
       taskId: this.taskId,
+      tracking: this.active && this.taskId !== null,
       taskActiveMs: this.taskId ? this.store.getTaskWorkMs(this.taskId) + live : 0,
       currentSessionMs: this.taskId ? live : 0,
       continuousActiveMs: this.continuousMs + live,

@@ -42,6 +42,7 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -388,6 +389,5 @@ test('ReminderScheduler with a kernel fires a due reminder on reconcile', () => 
 
   assert.equal(scheduler.getStatus().activeReminder?.kind, 'eye', 'eye reminder fired through kernel');
 });
-
 
 

@@ -15,6 +15,7 @@ import type {
   FocusStatus,
   HotkeyStatus,
   PetAccessory,
+  PetPosition,
   PreAlertAction,
   Project,
   ProjectInput,
@@ -173,6 +174,8 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('character:accessory', id, accessory) as Promise<CharacterCollectionState>,
   onCharacterCollectionChanged: (callback) =>
     on<CharacterCollectionState>('character:changed', callback),
+  movePetWindow: (position) =>
+    ipcRenderer.invoke('window:pet:move', position) as Promise<PetPosition | null>,
   openWorkbench: (section = 'today') =>
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,

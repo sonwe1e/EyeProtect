@@ -19,7 +19,7 @@ import { TaskList } from './TaskList';
 import styles from './ProjectWorkspace.module.css';
 
 function BoardCard({ task, active, onOpen }: { task: Task; active: boolean; onOpen: () => void }): JSX.Element {
-  const setActive = useCommand((id: string | null) => commands.tasks.setActive(id));
+  const focus = useCommand(() => commands.focus.start(task.id));
   const complete = useCommand((status: Task['status']) => commands.tasks.setStatus(task.id, status));
 
   return (
@@ -33,12 +33,12 @@ function BoardCard({ task, active, onOpen }: { task: Task; active: boolean; onOp
     >
       <button type="button" className="project-board-card__title" onClick={onOpen}>{task.title}</button>
       <div className="project-board-card__meta">
-        {active ? <StatusChip tone="brand">● 正在专注</StatusChip> : null}
+        {active ? <StatusChip tone="brand">● 当前任务</StatusChip> : null}
         {task.estimateMinutes ? <span>{task.estimateMinutes}m</span> : <span>未估时</span>}
         {task.priority !== 'normal' ? <StatusChip tone={task.priority === 'urgent' ? 'danger' : 'warning'}>{task.priority === 'urgent' ? '紧急' : '重要'}</StatusChip> : null}
       </div>
       <div className="project-board-card__actions">
-        <CommandButton variant="ghost" state={setActive.state} errorReason={setActive.error?.message} onClick={() => void setActive.run(active ? null : task.id)}><Play size={14} />{active ? '暂停' : '专注'}</CommandButton>
+        <CommandButton variant="ghost" state={focus.state} errorReason={focus.error?.message} onClick={() => void focus.run()}><Play size={14} />开始专注</CommandButton>
         <CommandButton variant="ghost" state={complete.state} errorReason={complete.error?.message} onClick={() => void complete.run('done')}><CheckCircle2 size={14} />完成</CommandButton>
       </div>
     </article>

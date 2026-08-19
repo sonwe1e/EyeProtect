@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ALERT_LAYOUT, getAlertBounds, type WindowRectangle } from '../src/main/windowBounds';
+import { ALERT_LAYOUT, getAlertBounds, getPetMoveBounds, type WindowRectangle } from '../src/main/windowBounds';
 
 const assertInsideWorkArea = (bounds: WindowRectangle, workArea: WindowRectangle): void => {
   assert.ok(bounds.width > 0);
@@ -63,4 +63,25 @@ test('alert bounds shrink for small displays instead of relying on desktop minim
   assertInsideWorkArea(bounds, workArea);
   assert.ok(bounds.width < 640);
   assert.ok(bounds.height < 480);
+});
+
+test('pet move bounds restore the configured size after native DPI drift', () => {
+  const workArea = { x: -1920, y: 0, width: 1920, height: 1080 };
+  const bounds = getPetMoveBounds(
+    { x: -1200, y: 240 },
+    workArea,
+    { width: 160, height: 160 }
+  );
+
+  assert.deepEqual(bounds, { x: -1200, y: 240, width: 160, height: 160 });
+  assert.equal(getPetMoveBounds({ x: 400, y: 900 }, workArea, { width: 160, height: 160 }).width, 160);
+  assert.equal(getPetMoveBounds({ x: 400, y: 900 }, workArea, { width: 160, height: 160 }).height, 160);
+});
+
+test('pet move bounds clamp against the work area using the fixed configured size', () => {
+  const workArea = { x: 0, y: 0, width: 1280, height: 720 };
+  assert.deepEqual(
+    getPetMoveBounds({ x: -200, y: 900 }, workArea, { width: 288, height: 288 }),
+    { x: 0, y: 432, width: 288, height: 288 }
+  );
 });

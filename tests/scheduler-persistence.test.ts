@@ -21,6 +21,7 @@ const baseSettings: Settings = {
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -387,4 +388,3 @@ test('a paused schedule never restores an active session', () => {
   assert.equal(scheduler.getStatus().activeReminder, null, 'paused + active is impossible: no session');
   assert.ok(scheduler.getStatus().pausedUntil, 'pause still applies');
 });
-

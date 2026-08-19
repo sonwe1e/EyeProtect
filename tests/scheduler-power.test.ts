@@ -17,6 +17,7 @@ const baseSettings: Settings = {
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -113,4 +114,3 @@ test('suspend persists state via the onPersist hook', () => {
   assert.equal(saves.length, 1, 'suspend triggers exactly one persist');
   scheduler.stop();
 });
-

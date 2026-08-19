@@ -168,7 +168,7 @@ const assertPageLayout = (label, metrics) => {
   if (metrics.pageScrollWidth > metrics.pageClientWidth) {
     throw new Error(`${label}: page has horizontal overflow: ${JSON.stringify(metrics)}`);
   }
-  if (metrics.primaryNavCount !== 5 || metrics.activePrimaryNavCount !== 1) {
+  if (metrics.primaryNavCount !== 4 || metrics.activePrimaryNavCount !== 1) {
     throw new Error(`${label}: primary navigation contract failed: ${JSON.stringify(metrics)}`);
   }
 };
@@ -671,7 +671,7 @@ await evaluate(pet, `(async () => {
 await waitFor(workbench, `document.querySelectorAll('.task-row').length === 0`);
 await capture(workbench, 'today-empty-dark.png');
 await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('项目')))?.click()`);
-await waitFor(workbench, `Boolean(document.querySelector('.projects-overview')) && document.querySelectorAll('.project-item').length === 0`);
+await waitFor(workbench, `Boolean(document.querySelector('.projects-overview')) && document.querySelectorAll('.project-item:not(.project-unclassified)').length === 0`);
 await capture(workbench, 'projects-empty-dark.png');
 
 console.log(`Captured UI snapshots in ${outputDir}`);

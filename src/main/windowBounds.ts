@@ -18,6 +18,21 @@ export const ALERT_LAYOUT = {
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
+export const getPetMoveBounds = (
+  position: { x: number; y: number },
+  workArea: WindowRectangle,
+  size: { width: number; height: number }
+): WindowRectangle => {
+  const maxX = Math.max(workArea.x, workArea.x + workArea.width - size.width);
+  const maxY = Math.max(workArea.y, workArea.y + workArea.height - size.height);
+  return {
+    x: Math.round(clamp(position.x, workArea.x, maxX)),
+    y: Math.round(clamp(position.y, workArea.y, maxY)),
+    width: size.width,
+    height: size.height
+  };
+};
+
 const getAdaptiveMargin = (workArea: WindowRectangle): number => {
   const byScreen = Math.round(Math.min(workArea.width, workArea.height) * ALERT_LAYOUT.edgeGapRatio);
   const maxForWorkArea = Math.max(0, Math.floor((Math.min(workArea.width, workArea.height) - 1) / 2));

@@ -17,6 +17,7 @@ const baseSettings: Settings = {
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -716,4 +717,3 @@ test('scene-aware gate defers at most three times, explains each delay, then sho
   assert.equal(shown.contextDeferral, null);
   assert.equal(shown.activeReminder?.kind, 'eye');
 });
-

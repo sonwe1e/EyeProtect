@@ -6,6 +6,7 @@ import test from 'node:test';
 import { sanitizeSettings, SettingsStore } from '../src/main/settings';
 import {
   ALARM_LABEL_MAX,
+  SETTINGS_LIMITS,
   TODO_TEXT_MAX,
   sanitizeAlarm,
   sanitizeTodo,
@@ -187,6 +188,19 @@ test('history preferences use privacy-safe defaults and only accept supported re
     sanitizeSettings({ historyRetentionDays: 365 as 30 }).historyRetentionDays,
     30
   );
+});
+
+test('todo bubble is enabled by default and persists an explicit opt-out', () => {
+  assert.equal(sanitizeSettings({}).todoBubbleEnabled, true);
+  assert.equal(sanitizeSettings({ todoBubbleEnabled: false }).todoBubbleEnabled, false);
+  assert.equal(sanitizeSettings({ todoBubbleEnabled: 'no' as unknown as boolean }).todoBubbleEnabled, true);
+});
+
+test('pet scale accepts compact mode down to the verified 50 percent bound', () => {
+  assert.equal(SETTINGS_LIMITS.petScale.min, 0.5);
+  assert.equal(sanitizeSettings({ petScale: 0.2 }).petScale, 0.5);
+  assert.equal(sanitizeSettings({ petScale: 0.69 }).petScale, 0.69);
+  assert.equal(sanitizeSettings({ petScale: 2 }).petScale, 1.8);
 });
 
 test('activity threshold, theme and density use bounded supported values', () => {

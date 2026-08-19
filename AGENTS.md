@@ -9,7 +9,7 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 - `src/main/`：Electron 主进程代码，负责应用生命周期、托盘、窗口、IPC、提醒调度、设置读写和开机自启。
 - `src/preload/`：预加载脚本，通过 `contextBridge` 把安全 API 暴露给 React 渲染端。
 - `src/shared/`：主进程、preload、renderer 共用的类型、默认设置和设置范围。
-- `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放任务、提醒、桌宠、计划、复盘等组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌（`styles.css` 为遗留窗口样式：桌宠/提醒/气泡 + 工作台内嵌设置页）。
+- `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放任务、提醒、桌宠、计划、复盘等组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌（`styles.css` 为遗留窗口样式：桌宠/提醒/气泡 + 工作台内嵌设置页与独立提醒页）。
 - `tests/`：Node 内置 test runner 测试，覆盖提醒调度、调度内核、运行状态恢复、系统生命周期、任务/项目/计划/专注、备份、设置事件、提醒追踪日志和 IPC 页面白名单。`tests/electron-loader.mjs` + `tests/electron-stub.mjs` 为 reminder surface 测试在纯 Node 下打桩 Electron。
 - `public/assets/`：静态资源。只包含 `tray-icon.png`（托盘）和 `app-icon.ico`（打包图标）；桌宠与提醒主体由程序化内联 SVG 渲染。`app-icon.png` 源文件在 `scripts/assets/`（仅 `npm run build:icon` 生成 .ico 时使用），不会被打包。
 - `out/`、`release/`、`node_modules/`：构建产物、发行产物和依赖目录，通常不要手动修改。

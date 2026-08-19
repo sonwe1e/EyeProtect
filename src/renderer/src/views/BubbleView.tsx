@@ -30,6 +30,10 @@ export default function BubbleView(): JSX.Element {
   const openTodos = useCallback(() => {
     void window.eyeProtect.openWorkbench('today');
   }, []);
+  const closeTodoBubble = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void commands.settings.save({ todoBubbleEnabled: false });
+  }, []);
   const handleBubbleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -160,6 +164,7 @@ export default function BubbleView(): JSX.Element {
         onKeyDown={handleBubbleKeyDown}
       >
         <div className="bubble-card bubble-all-done">
+          <button type="button" className="bubble-close" aria-label="关闭待办气泡" title="关闭待办气泡" onClick={closeTodoBubble}><X size={13} /></button>
           <div className="bubble-title">
             <Check size={13} />
             <span>待办都完成啦</span>
@@ -182,6 +187,7 @@ export default function BubbleView(): JSX.Element {
       onKeyDown={handleBubbleKeyDown}
     >
       <div className="bubble-card">
+        <button type="button" className="bubble-close" aria-label="关闭待办气泡" title="关闭待办气泡" onClick={closeTodoBubble}><X size={13} /></button>
         <div className="bubble-title">
           <ListChecks size={13} />
           <span>待办</span>

@@ -59,7 +59,7 @@ export function TaskComposer({ projects, tasks, placement, onCreated }: {
       return {
         ok: false as const,
         code: 'unknown' as const,
-        message: '任务已创建，但无法将它加入今天。请在收件箱中确认任务后重试。',
+        message: '任务已创建，但无法将它加入今天。请在“未归类”中确认任务后重试。',
         recoverable: true
       };
     }
@@ -194,7 +194,7 @@ export function TaskComposer({ projects, tasks, placement, onCreated }: {
           {placement.type === 'today' ? (
             <Field className="task-compose-field" label="项目">
               <Select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
-                <option value="">无（同时保留在收件箱）</option>
+                <option value="">无（保留在“未归类”）</option>
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}

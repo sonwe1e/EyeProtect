@@ -16,6 +16,10 @@
 - [ ] Plan 交互与重启持久化：分别运行 `npm run smoke:plan-interactions -- <port> exercise` 和 `verify`
 - [ ] emergency fallback：`npm run smoke:emergency -- <port>`
 - [ ] pet renderer isolation：`npm run smoke:pet-failure -- <port>`
+- [ ] 待办气泡 opt-out：运行 `exercise`，重启同一数据目录的应用，再运行 `verify`
+- [ ] Focus runtime 协调：`npm run smoke:focus-runtime -- <port>`
+- [ ] 项目生命周期、上下文新建与项目搜索：`npm run smoke:project-lifecycle -- <port>`
+- [ ] 桌宠 50/60/69/70/100%：`npm run capture:pet-scale -- <port> <output-dir>`
 - [ ] `npm run capture:ui -- <port> <output-dir> --repeat 3` 生成三轮一致的布局指标
 
 GitHub Actions 中的 Windows CI 会执行上述自动门禁，并额外生成 100%、125%、150% 和 200% scale-factor 截图。

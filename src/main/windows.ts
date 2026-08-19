@@ -23,7 +23,7 @@ import type {
 import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
-import { getAlertBounds } from './windowBounds';
+import { getAlertBounds, getPetMoveBounds } from './windowBounds';
 import { getWorkbenchBackgroundColor } from './workbenchTheme';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -35,8 +35,6 @@ const GENTLE_BUBBLE_SIZE = { width: 300, height: 224 } as const;
 const GENTLE_COMBINED_BUBBLE_SIZE = { width: 320, height: 292 } as const;
 /** How long the bubble stays up showing "all done" after the last pending todo is completed. */
 const ALL_DONE_DISPLAY_MS = 2_500;
-/** A hidden bubble is destroyed after this cooldown instead of lingering as an idle WebContents. */
-const BUBBLE_DESTROY_DELAY_MS = 30_000;
 /** Coalesce bursts of display-added/removed/metrics events into one relayout. */
 const DISPLAY_CHANGE_DEBOUNCE_MS = 250;
 /**
@@ -99,8 +97,7 @@ export const getRuntimeInfo = (settingsStore: SettingsStore): RuntimeInfo => ({
  * - AlertWindow: created when a reminder fires (own renderer, own image
  *   cache), destroyed the moment the reminder ends — reminder artwork memory
  *   does not accumulate in the long-lived pet process.
- * - BubbleWindow: created on demand, destroyed after a hide cooldown or
- *   immediately once there are no pending todos.
+ * - BubbleWindow: created on demand and destroyed whenever its surface ends.
  * - WorkbenchWindow: the only management surface for tasks, reminders and settings.
  * - Dim overlays: exist only while an alert is on screen.
  */
@@ -110,7 +107,6 @@ export class AppWindows {
   private bubbleWindow: BrowserWindow | null = null;
   private bubbleLoading: Promise<void> | null = null;
   private bubbleShouldShow = false;
-  private bubbleDestroyTimer: NodeJS.Timeout | null = null;
   private allDoneTimer: NodeJS.Timeout | null = null;
   private alertWindow: BrowserWindow | null = null;
   private alertLoading: Promise<boolean> | null = null;
@@ -196,6 +192,18 @@ export class AppWindows {
     this.refreshBubble();
   }
 
+  movePetWindow(position: { x: number; y: number }): { x: number; y: number } | null {
+    if (!this.petWindow || this.petWindow.isDestroyed()) return null;
+    const size = this.getIdlePetSize(this.settingsStore.get());
+    const display = screen.getDisplayNearestPoint(position);
+    const nextBounds = getPetMoveBounds(position, display.workArea, size);
+    // Keep width/height anchored to the setting. On fractional Windows DPI,
+    // reading native bounds after each move can feed rounding drift back into
+    // the next setBounds call and make the transparent pet grow over time.
+    this.petWindow.setBounds(nextBounds, false);
+    return { x: nextBounds.x, y: nextBounds.y };
+  }
+
   /**
    * Best-effort pet-window creation with bounded retries. A failure here must
    * never crash startup: the scheduler, tray and delivery queue are independent
@@ -247,8 +255,8 @@ export class AppWindows {
 
   /**
    * The Workbench is the v1.1 task-management surface (USERPLAN §三): a normal,
-   * resizable, taskbar-visible MainWindow (~1080×720) hosting the Today/Inbox/
-   * Plan/Focus/Projects views. Unlike the pet it is not a floating overlay —
+   * resizable, taskbar-visible MainWindow (~1080×720) hosting the Today/Plan/
+   * Focus/Projects views. Unlike the pet it is not a floating overlay —
    * it is a real workspace the user switches to.
    */
   showWorkbenchWindow(
@@ -442,13 +450,10 @@ export class AppWindows {
   }
 
   private hideBubble(): void {
-    this.bubbleShouldShow = false;
-    this.cancelBubbleTimers();
-    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
-      this.bubbleWindow.hide();
-    }
-    // A hidden bubble should not keep a WebContents alive indefinitely.
-    this.scheduleBubbleDestroy(BUBBLE_DESTROY_DELAY_MS);
+    // Re-showing a recently hidden transparent, focusable:false window can
+    // leave its renderer in Page Visibility's hidden state on Windows. The
+    // bubble is cheap and infrequent, so recreate a fresh surface next time.
+    this.destroyBubble();
   }
 
   private destroyBubble(): void {
@@ -460,26 +465,10 @@ export class AppWindows {
     this.bubbleWindow = null;
   }
 
-  private scheduleBubbleDestroy(delayMs: number): void {
-    if (this.bubbleDestroyTimer) {
-      return;
-    }
-    this.bubbleDestroyTimer = setTimeout(() => {
-      this.bubbleDestroyTimer = null;
-      if (!this.bubbleShouldShow) {
-        this.destroyBubble();
-      }
-    }, delayMs);
-  }
-
   private cancelBubbleTimers(): void {
     if (this.allDoneTimer) {
       clearTimeout(this.allDoneTimer);
       this.allDoneTimer = null;
-    }
-    if (this.bubbleDestroyTimer) {
-      clearTimeout(this.bubbleDestroyTimer);
-      this.bubbleDestroyTimer = null;
     }
   }
 
@@ -505,6 +494,11 @@ export class AppWindows {
     }
 
     if (active || !petAlive) {
+      this.hideBubble();
+      return;
+    }
+
+    if (!this.settingsStore.get().todoBubbleEnabled) {
       this.hideBubble();
       return;
     }
@@ -537,6 +531,7 @@ export class AppWindows {
   /** Every live renderer owns theme tokens and must track preference changes. */
   broadcastSettings(settings: Settings): void {
     this.refreshWorkbenchTheme(settings);
+    this.refreshBubble();
     this.sendTo(
       [this.workbenchWindow, this.petWindow, this.bubbleWindow, this.alertWindow],
       'settings:changed',

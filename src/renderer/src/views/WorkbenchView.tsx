@@ -8,6 +8,7 @@ import {
   Gift,
   Inbox,
   Play,
+  Plus,
   Settings2,
   Sun,
   Target,
@@ -104,6 +105,7 @@ export default function WorkbenchView(): JSX.Element {
   const [section, setSection] = useState<WorkbenchSection>('today');
   const [planningOpen, setPlanningOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -174,8 +176,11 @@ export default function WorkbenchView(): JSX.Element {
     && focusStatus.session.taskId === focusTask?.id;
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const query = search.trim().toLocaleLowerCase();
-  const searchResults = query
+  const taskSearchResults = query
     ? tasks.filter((task) => `${task.title}\n${task.notes ?? ''}\n${task.tags.join('\n')}`.toLocaleLowerCase().includes(query))
+    : [];
+  const projectSearchResults = query
+    ? projects.filter((project) => `${project.name}\n${project.goal ?? ''}`.toLocaleLowerCase().includes(query))
     : [];
   const eyeRemaining = Math.max(0, reminderStatus.nextEyeAt - now);
   const walkRemaining = Math.max(0, reminderStatus.nextWalkAt - now);
@@ -196,6 +201,13 @@ export default function WorkbenchView(): JSX.Element {
     setSearch('');
   }, []);
 
+  const startNewTask = useCallback(() => {
+    if (section !== 'projects' || !selectedProjectId) {
+      selectSection('inbox');
+    }
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-quick-add="true"]')?.focus());
+  }, [section, selectedProjectId, selectSection]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null;
@@ -211,8 +223,7 @@ export default function WorkbenchView(): JSX.Element {
       } else if (!isEditing && !event.ctrlKey && !event.metaKey && !event.altKey) {
         if (key === shortcuts.newTask) {
           event.preventDefault();
-          selectSection('inbox');
-          requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-quick-add="true"]')?.focus());
+          startNewTask();
         } else if (key === shortcuts.plan) {
           event.preventDefault();
           selectSection('plan');
@@ -224,7 +235,7 @@ export default function WorkbenchView(): JSX.Element {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isFocusMode, selectSection]);
+  }, [isFocusMode, selectSection, startNewTask]);
 
   // Primary navigation is derived from the single-source-of-truth config
   // (features/workbench/workbenchNavigation.ts). Review intentionally moved to
@@ -251,7 +262,7 @@ export default function WorkbenchView(): JSX.Element {
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     { id: 'today', label: '前往：今天', keywords: 'today', run: () => selectSection('today') },
     { id: 'plan-today', label: '每日规划：规划今天', keywords: 'daily planning', run: () => { selectSection('today'); setPlanningOpen(true); } },
-    { id: 'inbox', label: '前往：收件箱', keywords: 'inbox', run: () => selectSection('inbox') },
+    { id: 'inbox', label: '前往：未归类', keywords: 'inbox unclassified', run: () => selectSection('inbox') },
     { id: 'plan', label: '前往：日程', hint: 'P', keywords: 'plan schedule', run: () => selectSection('plan') },
     { id: 'focus', label: '前往：专注', hint: 'F', keywords: 'focus', run: () => selectSection('focus') },
     { id: 'projects', label: '前往：项目', keywords: 'projects', run: () => selectSection('projects') },
@@ -259,12 +270,9 @@ export default function WorkbenchView(): JSX.Element {
     { id: 'reminders', label: '前往：独立提醒', run: () => selectSection('reminders') },
     { id: 'collection', label: '前往：公仔收藏', run: () => selectSection('collection') },
     { id: 'settings', label: '前往：设置', run: () => selectSection('settings') },
-    { id: 'search-tasks', label: '搜索任务', keywords: 'find', run: () => setSearchOpen(true) },
-    { id: 'new-task', label: '新建任务', hint: 'N', keywords: 'create add', run: () => {
-      selectSection('inbox');
-      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-quick-add="true"]')?.focus());
-    } }
-  ], [selectSection]);
+    { id: 'search-tasks', label: '搜索任务或项目', keywords: 'find', run: () => setSearchOpen(true) },
+    { id: 'new-task', label: '新建任务', hint: 'N', keywords: 'create add', run: startNewTask }
+  ], [selectSection, startNewTask]);
 
   const taskList = (items: Task[], view: 'today' | 'inbox', scopeProjectId: string | null = null): JSX.Element => (
     <TaskList
@@ -312,14 +320,15 @@ export default function WorkbenchView(): JSX.Element {
         // the affordance does not silently fall through to the Today page.
         return (
           <div className="workspace-page">
-            <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>搜索任务</h1><p className="page-description">输入关键词，查找标题、备注或标签。</p></div></header>
+            <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>搜索任务或项目</h1><p className="page-description">输入关键词，查找项目名称、任务标题、备注或标签。</p></div></header>
           </div>
         );
       }
       return (
         <div className="workspace-page">
-          <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>“{search.trim()}”</h1></div><span>{searchResults.length} 项结果</span></header>
-          {taskList(searchResults, 'today')}
+          <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>“{search.trim()}”</h1></div><span>{projectSearchResults.length + taskSearchResults.length} 项结果</span></header>
+          {projectSearchResults.length ? <section className="task-section"><h2>项目</h2><div className="project-search-results">{projectSearchResults.map((project) => <button key={project.id} type="button" className="project-overview-card" onClick={() => selectProject(project.id)}><ProjectDot color={project.color} /><span><strong>{project.name}</strong><small>{project.goal || '还没有项目目标'}</small></span></button>)}</div></section> : null}
+          {taskSearchResults.length ? <section className="task-section"><h2>任务</h2>{taskList(taskSearchResults, 'today')}</section> : null}
         </div>
       );
     }
@@ -345,7 +354,7 @@ export default function WorkbenchView(): JSX.Element {
       if (!selectedProject) {
         return (
           <div className="workspace-page projects-overview">
-          <header className="page-header"><div><span className="page-eyebrow">组织工作</span><h1>项目</h1><p className="page-description">把需要多步推进、持续数天或更久的目标放进项目。</p></div><StatusChip>{projects.length} 个项目</StatusChip></header>
+          <header className="page-header"><div><span className="page-eyebrow">组织工作</span><h1>项目</h1><p className="page-description">把需要多步推进、持续数天或更久的目标放进项目。</p></div><div className="page-header-actions"><Button variant="primary" onClick={() => setProjectCreateOpen(true)}><Plus size={15} />新建项目</Button><StatusChip>{projects.length} 个项目</StatusChip></div></header>
             {projects.length ? (
               <div className="project-overview-list">
                 {projects.map((project) => {
@@ -366,7 +375,7 @@ export default function WorkbenchView(): JSX.Element {
             ) : (
               <div className="project-overview-empty">
                 <p>项目适合：完成论文、上线一个产品、准备一次旅行，或进行长期学习计划。</p>
-                <p>“买牛奶”这样的单次任务不需要项目，直接放在收件箱即可。</p>
+                <p>“买牛奶”这样的单次任务不需要项目，直接放在“未归类”即可。</p>
               </div>
             )}
           </div>
@@ -377,7 +386,7 @@ export default function WorkbenchView(): JSX.Element {
     if (section === 'inbox') {
       return (
         <div className="workspace-page">
-          <header className="page-header"><div><span className="page-eyebrow">快速收集</span><h1>收件箱</h1><p className="page-description">尚未归入项目的任务；它仍然可以同时属于今天或日程。</p></div><span>{inboxTasks.length} 项任务</span></header>
+          <header className="page-header"><div><span className="page-eyebrow">快速收集</span><h1>未归类</h1><p className="page-description">尚未归入项目的任务；它仍然可以同时属于今天或日程。</p></div><span>{inboxTasks.length} 项任务</span></header>
           <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'inbox' }} />
           <section className="task-section">{taskList(inboxTasks, 'inbox')}</section>
         </div>
@@ -448,6 +457,10 @@ export default function WorkbenchView(): JSX.Element {
         tasks={tasks}
         selectedProjectId={selectedProjectId}
         onSelectProject={selectProject}
+        unclassifiedSelected={section === 'inbox'}
+        onSelectUnclassified={() => selectSection('inbox')}
+        projectCreateOpen={projectCreateOpen}
+        onProjectCreateOpenChange={setProjectCreateOpen}
       />
       <section className="app-workspace">
         <WorkbenchToolbar

@@ -12,6 +12,7 @@ artifacts/
 
 # Runtime user data (per-machine settings)
 data/
+/.runtime-verify-*/
 
 # Logs
 *.log

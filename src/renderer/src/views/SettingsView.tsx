@@ -640,6 +640,17 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
         />
         <label className="switch-row">
           <span>
+            <strong>显示待办气泡</strong>
+            <small>在桌宠旁显示未完成任务预览；护眼、走动和预提醒不受影响。</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={settings.todoBubbleEnabled}
+            onChange={(event) => void update({ todoBubbleEnabled: event.currentTarget.checked })}
+          />
+        </label>
+        <label className="switch-row">
+          <span>
             <strong>提醒时置黑桌面</strong>
             <small>仅专注模式生效：暗化其他界面，只保留提醒卡片。</small>
           </span>

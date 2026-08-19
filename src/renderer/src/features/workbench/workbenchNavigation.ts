@@ -7,7 +7,6 @@
 
 export const PRIMARY_WORKBENCH_SECTIONS = [
   'today',
-  'inbox',
   'plan',
   'focus',
   'projects'
@@ -20,11 +19,14 @@ export const UTILITY_WORKBENCH_SECTIONS = [
   'settings'
 ] as const;
 
+export const CONTEXTUAL_WORKBENCH_SECTIONS = ['inbox'] as const;
+
 export type WorkbenchSectionId =
   | (typeof PRIMARY_WORKBENCH_SECTIONS)[number]
-  | (typeof UTILITY_WORKBENCH_SECTIONS)[number];
+  | (typeof UTILITY_WORKBENCH_SECTIONS)[number]
+  | (typeof CONTEXTUAL_WORKBENCH_SECTIONS)[number];
 
-export type WorkbenchSectionTier = 'primary' | 'utility';
+export type WorkbenchSectionTier = 'primary' | 'utility' | 'contextual';
 
 export interface WorkbenchSectionMeta {
   id: WorkbenchSectionId;
@@ -39,7 +41,7 @@ export interface WorkbenchSectionMeta {
 // WorkbenchSidebar.tsx.
 export const WORKBENCH_SECTIONS: Record<WorkbenchSectionId, WorkbenchSectionMeta> = {
   today: { id: 'today', label: '今天', description: '今天承诺要做的事', iconKey: 'sun', tier: 'primary' },
-  inbox: { id: 'inbox', label: '收件箱', description: '尚未归入项目的任务', iconKey: 'inbox', tier: 'primary' },
+  inbox: { id: 'inbox', label: '未归类', description: '尚未归入项目的任务', iconKey: 'inbox', tier: 'contextual' },
   plan: { id: 'plan', label: '日程', description: '把任务安排到具体时间段', iconKey: 'calendarDays', tier: 'primary' },
   focus: { id: 'focus', label: '专注', description: '只处理当前这一件事', iconKey: 'target', tier: 'primary' },
   projects: { id: 'projects', label: '项目', description: '按长期目标和阶段组织任务', iconKey: 'folderKanban', tier: 'primary' },
