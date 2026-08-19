@@ -8,6 +8,7 @@ import {
   type TaskInput,
   type TodoPriority
 } from '../../../../shared/types';
+import { isProjectAssignable } from '../../../../shared/projectPolicy';
 import { CommandButton } from '../../components/CommandButton';
 import { DateTimeField, Field, Select } from '../../components/primitives';
 import { useCommand } from '../../hooks/useCommand';
@@ -82,6 +83,8 @@ export function TaskComposer({ projects, tasks, placement, onCreated }: {
     setExpanded(false);
     inputRef.current?.focus();
   }, [initialProjectId]);
+
+  const assignableProjects = projects.filter(isProjectAssignable);
 
   const submit = useCallback(
     (event: FormEvent) => {
@@ -195,7 +198,7 @@ export function TaskComposer({ projects, tasks, placement, onCreated }: {
             <Field className="task-compose-field" label="项目">
               <Select value={projectId ?? ''} onChange={(event) => setProjectId(event.currentTarget.value || null)}>
                 <option value="">无（保留在“未归类”）</option>
-                {projects.map((project) => (
+                {assignableProjects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
                   </option>

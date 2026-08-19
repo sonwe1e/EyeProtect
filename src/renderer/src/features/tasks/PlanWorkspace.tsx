@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { CalendarDays, CalendarX2, ChevronLeft, ChevronRight, Eye, Footprints, GripVertical } from 'lucide-react';
-import type { Task, TimeBlock } from '../../../../shared/types';
+import type { Project, Task, TimeBlock } from '../../../../shared/types';
+import { isTaskAvailableForPlanning } from '../../../../shared/projectPolicy';
 import {
   addLocalDays,
   endOfLocalDate,
@@ -213,8 +214,9 @@ function BlockView({ block, task, windowStartMinutes, windowEndMinutes, day, lan
   );
 }
 
-export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
+export function PlanWorkspace({ tasks, projects, now, nextEyeAt, nextWalkAt, onOpen }: {
   tasks: Task[];
+  projects: readonly Project[];
   now: number;
   nextEyeAt: number;
   nextWalkAt: number;
@@ -228,6 +230,7 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
   const { plans } = useDailyPlans(localDateKey(day));
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const dayKey = localDateKey(day);
   const plannedByTask = useMemo(() => new Map(plans.map((plan) => [plan.taskId, plan])), [plans]);
 
@@ -263,17 +266,17 @@ export function PlanWorkspace({ tasks, now, nextEyeAt, nextWalkAt, onOpen }: {
         .slice()
         .sort((left, right) => (left.dailyRank ?? 99) - (right.dailyRank ?? 99) || left.sortOrder - right.sortOrder)
         .map((plan) => taskById.get(plan.taskId))
-        .filter((task): task is Task => Boolean(task && task.status === 'open')),
-    [plans, taskById]
+        .filter((task): task is Task => Boolean(task && task.status === 'open' && isTaskAvailableForPlanning(task, task.projectId ? projectById.get(task.projectId) : undefined))),
+    [plans, taskById, projectById]
   );
   const backlog = useMemo(
     () => {
       const committedIds = new Set(committed.map((task) => task.id));
       return tasks
-        .filter((task) => task.status === 'open' && !committedIds.has(task.id))
+        .filter((task) => task.status === 'open' && !committedIds.has(task.id) && isTaskAvailableForPlanning(task, task.projectId ? projectById.get(task.projectId) : undefined))
         .slice(0, 30);
     },
-    [tasks, committed]
+    [tasks, committed, projectById]
   );
 
   // Timeline window: the configured working hours, extended (hour-aligned)

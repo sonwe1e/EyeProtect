@@ -160,8 +160,8 @@ export default function WorkbenchView(): JSX.Element {
   const { plans: todayPlans } = useDailyPlans(todayKey);
   const planByTask = useMemo(() => new Map(todayPlans.map((plan) => [plan.taskId, plan])), [todayPlans]);
   const todayModel = useMemo(
-    () => deriveTodayExecutionModel(tasks, todayPlans, scheduledTodayIds),
-    [tasks, todayPlans, scheduledTodayIds]
+    () => deriveTodayExecutionModel(tasks, todayPlans, scheduledTodayIds, projects),
+    [tasks, todayPlans, scheduledTodayIds, projects]
   );
   const todaysThree = todayModel.todaysThree;
   const scheduledToday = todayModel.scheduled;
@@ -348,7 +348,7 @@ export default function WorkbenchView(): JSX.Element {
       );
     }
     if (section === 'plan') {
-      return <PlanWorkspace tasks={tasks} now={now} nextEyeAt={reminderStatus.nextEyeAt} nextWalkAt={reminderStatus.nextWalkAt} onOpen={setSelectedTaskId} />;
+      return <PlanWorkspace tasks={tasks} projects={projects} now={now} nextEyeAt={reminderStatus.nextEyeAt} nextWalkAt={reminderStatus.nextWalkAt} onOpen={setSelectedTaskId} />;
     }
     if (section === 'projects') {
       if (!selectedProject) {

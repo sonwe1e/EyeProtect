@@ -8,6 +8,33 @@ EyeProtect — a local-first Windows eye-care and work-rhythm assistant. It runs
 
 **Stack:** Electron 43 + electron-vite 2.3 + React 18 + Vite 5, strict TypeScript and ESM application code. Sandboxed preload bundles are emitted as CommonJS `.cjs` files for Electron compatibility.
 
+## Default Engineering Rules
+
+All coding work must follow the engineering craft rules in `RULES.md`. Those 20 rules are the default coding standard — covering understanding before changing, choosing the simplest good solution, preserving scope, evidence before architecture, explicitness over cleverness, and verification. This file (CLAUDE.md) provides project-specific architecture and conventions; `RULES.md` provides the universal engineering philosophy. When they conflict, `RULES.md` wins.
+
+## Documentation Map
+
+When starting any task, use this table to find the relevant docs and source files quickly:
+
+| Work Area | Primary Docs | Key Source Files | Tests |
+| --- | --- | --- | --- |
+| Architecture & process split | [CLAUDE.md](CLAUDE.md) §Architecture, [docs/architecture.md](docs/architecture.md) | `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/App.tsx` | — |
+| Engineering craft rules | [RULES.md](RULES.md) | — | — |
+| Task/Project/Plan/Focus data model | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/types.ts` | `tests/task-store.test.ts`, `tests/schema-v4.test.ts` |
+| IPC capability extension | [CLAUDE.md](CLAUDE.md) §IPC convention, [docs/ipc-guide.md](docs/ipc-guide.md) | `src/shared/types.ts`, `src/preload/index.ts`, `src/main/index.ts` | `tests/ipc-task-input.test.ts`, `tests/ipc-project-input.test.ts` |
+| Reminder scheduling & rest rhythm | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/reminders.ts`, `src/main/scheduling/kernel.ts` | `tests/reminders.test.ts`, `tests/scheduler-kernel.test.ts` |
+| Settings & sanitization | [CLAUDE.md](CLAUDE.md) §Default settings | `src/shared/types.ts`, `src/main/settings.ts` | `tests/settings-write.test.ts` |
+| Renderer command layer | [CLAUDE.md](CLAUDE.md) §Command Layer, [docs/coding-guide.md](docs/coding-guide.md) | `src/renderer/src/lib/commands.ts`, `src/renderer/src/hooks/useCommand.ts` | `tests/command-layer.test.ts` |
+| Window management & surfaces | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/windows.ts`, `src/main/reminderSurface.ts` | `tests/reminder-surface.test.ts` |
+| Color system & design tokens | [docs/color-system.md](docs/color-system.md) | `src/renderer/src/styles/tokens.css`, `src/renderer/src/styles/theme.css` | `tests/design-system-contract.test.ts`, `tests/theme-authority.test.ts` |
+| Security hardening | [docs/hardening-notes.md](docs/hardening-notes.md) | `src/main/security.ts`, `src/main/scheduling/emergencyTemplate.ts` | `tests/security.test.ts` |
+| Release & acceptance | [docs/release-checklist.md](docs/release-checklist.md) | `package.json`, `.github/workflows/windows.yml` | — |
+| Backup & recovery | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/backup.ts`, `src/main/taskStore.ts` | `tests/backup.test.ts` |
+| Characters & collection | [CLAUDE.md](CLAUDE.md) §Generated / runtime directories | `src/shared/characters.ts`, `src/main/characterService.ts` | `tests/characters.test.ts`, `tests/character-service.test.ts` |
+| Today view & planning | [CLAUDE.md](CLAUDE.md) §Architecture | `src/renderer/src/features/tasks/todaySections.ts`, `src/renderer/src/features/tasks/todayViewModel.ts` | `tests/today-sections.test.ts`, `tests/today-view-model.test.ts` |
+| Project lifecycle | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/projectPolicy.ts`, `src/renderer/src/features/tasks/ProjectWorkspace.tsx` | `tests/project-policy.test.ts` |
+| Coding patterns & practical guide | [docs/coding-guide.md](docs/coding-guide.md) | — | — |
+
 ## Commands
 
 ```bash

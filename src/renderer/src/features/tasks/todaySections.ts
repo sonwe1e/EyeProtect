@@ -1,4 +1,5 @@
-import type { DailyTaskPlan, Task } from '../../../../shared/types';
+import type { DailyTaskPlan, Project, Task } from '../../../../shared/types';
+import { isTaskAvailableForPlanning } from '../../../../shared/projectPolicy';
 
 export interface TodaySections {
   todaysThree: Task[];
@@ -11,13 +12,21 @@ export interface TodaySections {
  * TimeBlock ownership is the only source for Scheduled; legacy `plannedAt`
  * must not silently promote a task into that section. Flexible contains only
  * Daily Plan commitments without a TimeBlock and excludes Today's 3.
+ *
+ * Tasks belonging to completed or archived projects are excluded from Today
+ * even if their own status is still 'open' — the project lifecycle gates
+ * planning participation (USERPLAN 1.2 PR7).
  */
 export function deriveTodaySections(
   tasks: Task[],
   todayPlans: DailyTaskPlan[],
-  scheduledTaskIds: ReadonlySet<string>
+  scheduledTaskIds: ReadonlySet<string>,
+  projects: readonly Project[] = []
 ): TodaySections {
-  const activeTasks = tasks.filter((task) => task.status === 'open');
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const activeTasks = tasks.filter(
+    (task) => task.status === 'open' && isTaskAvailableForPlanning(task, task.projectId ? projectById.get(task.projectId) : undefined)
+  );
   const taskById = new Map(activeTasks.map((task) => [task.id, task]));
   const todaysThree = todayPlans
     .filter((plan) => plan.dailyRank !== null)

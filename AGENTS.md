@@ -1,5 +1,31 @@
 # Repository Guidelines
 
+## 默认编码准则
+
+**所有编码工作必须遵循 [RULES.md](RULES.md) 中的工程准则。** 这 20 条规则是默认的编码标准，涵盖理解问题、选择最简单方案、保持范围、显式优于巧妙、验证重要行为等。CLAUDE.md 提供项目特定的架构和约定；RULES.md 提供通用的工程哲学。两者冲突时，RULES.md 优先。
+
+## 文档地图
+
+阅读或修改代码前，先按工作领域找到对应的文档和源代码。
+
+| 工作领域 | 主要文档 | 关键源码 | 相关测试 |
+| --- | --- | --- | --- |
+| 项目架构与进程拆分 | [CLAUDE.md](CLAUDE.md)、[docs/architecture.md](docs/architecture.md) | `src/main/index.ts`、`src/preload/index.ts`、`src/renderer/src/App.tsx` | — |
+| 编码准则与工程哲学 | [RULES.md](RULES.md) | — | — |
+| 任务/项目/计划/专注数据模型 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/types.ts` | `tests/task-store.test.ts`、`tests/schema-v4.test.ts` |
+| IPC 能力扩展 | [CLAUDE.md](CLAUDE.md) §IPC convention、[docs/ipc-guide.md](docs/ipc-guide.md) | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | `tests/ipc-task-input.test.ts`、`tests/ipc-project-input.test.ts` |
+| 提醒调度与休息节奏 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/reminders.ts`、`src/main/scheduling/kernel.ts` | `tests/reminders.test.ts`、`tests/scheduler-kernel.test.ts` |
+| 设置项与清洗 | [CLAUDE.md](CLAUDE.md) §Default settings | `src/shared/types.ts`、`src/main/settings.ts` | `tests/settings-write.test.ts` |
+| 渲染端命令层 | [CLAUDE.md](CLAUDE.md) §Command Layer、[docs/coding-guide.md](docs/coding-guide.md) | `src/renderer/src/lib/commands.ts`、`src/renderer/src/hooks/useCommand.ts` | `tests/command-layer.test.ts` |
+| 窗口管理与 Surface | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/windows.ts`、`src/main/reminderSurface.ts` | `tests/reminder-surface.test.ts` |
+| 配色与设计令牌 | [docs/color-system.md](docs/color-system.md) | `src/renderer/src/styles/tokens.css`、`src/renderer/src/styles/theme.css` | `tests/design-system-contract.test.ts`、`tests/theme-authority.test.ts` |
+| 安全加固记录 | [docs/hardening-notes.md](docs/hardening-notes.md) | `src/main/security.ts`、`src/main/scheduling/emergencyTemplate.ts` | `tests/security.test.ts` |
+| 发布与验收 | [docs/release-checklist.md](docs/release-checklist.md) | `package.json`、`.github/workflows/windows.yml` | — |
+| 备份与恢复 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/backup.ts`、`src/main/taskStore.ts` | `tests/backup.test.ts` |
+| 角色与收藏 | [CLAUDE.md](CLAUDE.md) §Generated / runtime directories | `src/shared/characters.ts`、`src/main/characterService.ts` | `tests/characters.test.ts`、`tests/character-service.test.ts` |
+| 今日视图与规划 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/renderer/src/features/tasks/todaySections.ts`、`src/renderer/src/features/tasks/todayViewModel.ts` | `tests/today-sections.test.ts`、`tests/today-view-model.test.ts` |
+| 项目生命周期 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/projectPolicy.ts`、`src/renderer/src/features/tasks/ProjectWorkspace.tsx` | `tests/project-policy.test.ts` |
+
 ## 项目整体功能
 
 EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈是 Electron、electron-vite、React 和 TypeScript。应用启动后常驻系统托盘，并显示一个可拖动的透明桌宠窗口。它会按设置触发护眼提醒、走动提醒，两个提醒接近时会合并为一次提醒；提醒出现后支持完成、稍后、跳过和暂停。统一工作台还提供任务、项目、每日计划、TimeBlock、专注会话和每日回顾。配置和运行数据保存在本地，打包后生成 Windows x64 NSIS 安装包与 portable exe。
@@ -24,14 +50,17 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 | 开机自启 | `src/main/settings.ts` | 修改 `syncStartupShortcut()`；它只在 packaged 模式下写入 Windows Startup 快捷方式。 |
 | 系统托盘菜单、单实例锁、退出行为 | `src/main/index.ts` | 托盘菜单在 `createTray()` 中；IPC handler 也在这里注册。 |
 | 桌宠、提醒、设置、气泡和遮罩窗口 | `src/main/windows.ts` | 提醒窗口与桌宠窗口相互独立；设置是工作台内嵌页，没有独立窗口；修改显示器相对布局时同步覆盖窗口生命周期和 bounds 测试。 |
-| 主进程到渲染端的新能力/API | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | 先定义 `EyeProtectApi`，再在 preload 调用 IPC，最后在 main 注册 handler。三处通道名保持一致。 |
+| 主进程到渲染端的新能力/API | `src/shared/types.ts`、`src/preload/index.ts`、`src/main/index.ts` | 先定义 `EyeProtectApi`，再在 preload 调用 IPC，最后在 main 注册 handler。三处通道名保持一致。详见 [docs/ipc-guide.md](docs/ipc-guide.md)。 |
 | IPC 入参清洗（任务/项目创建与更新） | `src/main/ipcTaskInput.ts`、`src/main/ipcProjectInput.ts` | 所有 renderer 传入字段在此白名单化；新增任务字段（含并发保护 `baseRevision`）必须在此透传并补 `tests/ipc-task-input.test.ts`。 |
 | 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
-| 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。 |
+| 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。详见 [docs/color-system.md](docs/color-system.md)。 |
 | 公仔生成、收藏、材质、配饰和低频动作 | `src/shared/characters.ts`、`src/main/characterService.ts`、`src/renderer/src/features/characters/` | 角色由种子确定性生成；用户改名/材质/配饰不能改变角色指纹。默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
 | 托盘图标或程序化提醒视觉 | `public/assets/tray-icon.png`、`src/renderer/src/features/reminders/ReminderArtwork.tsx` | 托盘图标必须继续包含在两个发行包中；公仔与提醒为内联 SVG，不依赖旧固定 PNG。修改后运行 `npm run package`。 |
 | 打包配置、产物名称、Windows NSIS/portable 目标 | `package.json` | 修改 `build` 字段；默认输出目录是 `release/`。 |
 | electron-vite 入口、renderer public 目录 | `electron.vite.config.ts` | main、preload、renderer 的入口都在这里声明。 |
+| 今日视图、每日规划、专注候选 | `src/renderer/src/features/tasks/todaySections.ts`、`src/renderer/src/features/tasks/todayViewModel.ts`、`src/renderer/src/features/tasks/FocusSurface.tsx` | 任务必须经过 `isTaskAvailableForPlanning` 过滤；项目完成/归档后其任务不再进入 Today/Focus。详见 [docs/architecture.md](docs/architecture.md) §Today & Focus。 |
+| 项目生命周期（active/onHold/completed/archived） | `src/shared/projectPolicy.ts`、`src/renderer/src/features/tasks/ProjectWorkspace.tsx` | 策略函数决定哪些状态可新增/可编辑/可规划；Workspace 根据状态切换只读模式。详见 [docs/architecture.md](docs/architecture.md) §Project Lifecycle。 |
+| 备份导入/导出 | `src/main/backup.ts` | 导入前创建回滚快照；失败时原数据库不被覆盖。 |
 
 ## 构建、测试与运行命令
 
@@ -48,6 +77,8 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 ## 代码风格与约定
 
 使用严格 TypeScript。保持两空格缩进、单引号、分号、`camelCase` 变量/函数、`PascalCase` 类型和 React 组件。新增跨进程数据结构时，优先放在 `src/shared/types.ts`，不要在 main、preload、renderer 三端重复定义。Renderer 不直接访问 Node/Electron 能力，必须通过 `window.eyeProtect` 调用 preload 暴露的 API。
+
+详细的工程准则见 [RULES.md](RULES.md)，实用的项目编码模式见 [docs/coding-guide.md](docs/coding-guide.md)。
 
 ## 测试要求
 

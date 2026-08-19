@@ -10,6 +10,7 @@ import {
   type TaskUpdateInput,
   type TodoPriority
 } from '../../../../shared/types';
+import { isProjectAssignable } from '../../../../shared/projectPolicy';
 import { CommandButton } from '../../components/CommandButton';
 import { useCommand } from '../../hooks/useCommand';
 import { useProjectSections } from '../../hooks/useProjectSections';
@@ -185,6 +186,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const activeCommand = useCommand((id: string | null) => commands.tasks.setActive(id));
   const deleteCommand = useCommand(() => commands.tasks.delete(task.id));
   const { sections: taskSections } = useProjectSections(projectId ?? '');
+  const assignableProjects = projects.filter(isProjectAssignable);
   const recurrenceCommand = useCommand(
     (rule: RecurrenceRule | null) => commands.tasks.update(task.id, { recurrence: rule })
   );
@@ -417,7 +419,7 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           setSectionId(null);
         }}>
           <option value="">无</option>
-          {projects.map((project) => (
+          {assignableProjects.map((project) => (
             <option key={project.id} value={project.id}>
               {project.name}
             </option>

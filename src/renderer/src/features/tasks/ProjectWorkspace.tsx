@@ -8,6 +8,7 @@ import {
   type Task,
   type TimeBlock
 } from '../../../../shared/types';
+import { isProjectAssignable, isProjectWritable } from '../../../../shared/projectPolicy';
 import { groupTasksBySection } from '../../../../shared/projectSections';
 import { CommandButton } from '../../components/CommandButton';
 import { Button, Dialog, ProjectDot, StatusChip } from '../../components/primitives';
@@ -18,15 +19,16 @@ import { TaskComposer } from './TaskComposer';
 import { TaskList } from './TaskList';
 import styles from './ProjectWorkspace.module.css';
 
-function BoardCard({ task, active, onOpen }: { task: Task; active: boolean; onOpen: () => void }): JSX.Element {
+function BoardCard({ task, active, writable, onOpen }: { task: Task; active: boolean; writable: boolean; onOpen: () => void }): JSX.Element {
   const focus = useCommand(() => commands.focus.start(task.id));
   const complete = useCommand((status: Task['status']) => commands.tasks.setStatus(task.id, status));
 
   return (
     <article
       className="project-board-card"
-      draggable
+      draggable={writable}
       onDragStart={(event) => {
+        if (!writable) return;
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('application/x-eyeprotect-task', task.id);
       }}
@@ -37,10 +39,12 @@ function BoardCard({ task, active, onOpen }: { task: Task; active: boolean; onOp
         {task.estimateMinutes ? <span>{task.estimateMinutes}m</span> : <span>未估时</span>}
         {task.priority !== 'normal' ? <StatusChip tone={task.priority === 'urgent' ? 'danger' : 'warning'}>{task.priority === 'urgent' ? '紧急' : '重要'}</StatusChip> : null}
       </div>
-      <div className="project-board-card__actions">
-        <CommandButton variant="ghost" state={focus.state} errorReason={focus.error?.message} onClick={() => void focus.run()}><Play size={14} />开始专注</CommandButton>
-        <CommandButton variant="ghost" state={complete.state} errorReason={complete.error?.message} onClick={() => void complete.run('done')}><CheckCircle2 size={14} />完成</CommandButton>
-      </div>
+      {writable ? (
+        <div className="project-board-card__actions">
+          <CommandButton variant="ghost" state={focus.state} errorReason={focus.error?.message} onClick={() => void focus.run()}><Play size={14} />开始专注</CommandButton>
+          <CommandButton variant="ghost" state={complete.state} errorReason={complete.error?.message} onClick={() => void complete.run('done')}><CheckCircle2 size={14} />完成</CommandButton>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -179,6 +183,8 @@ export function ProjectWorkspace({
     setGoalEditing(false);
   }, [project.id]);
 
+  const writable = isProjectWritable(project);
+  const assignable = isProjectAssignable(project);
   const projectTasks = useMemo(
     () => tasks.filter((task) => task.projectId === project.id && task.status !== 'archived'),
     [tasks, project.id]
@@ -222,7 +228,7 @@ export function ProjectWorkspace({
           <ProjectDot color={project.color} />
           <div>
             <span className="page-eyebrow">项目</span><h1>{project.name}</h1>
-            {goalEditing ? (
+            {goalEditing && writable ? (
               <input
                 className="project-goal-input"
                 autoFocus
@@ -249,7 +255,7 @@ export function ProjectWorkspace({
                 }}
               />
             ) : (
-              <button type="button" className="project-goal-text" onClick={() => setGoalEditing(true)}>
+              <button type="button" className="project-goal-text" onClick={() => writable && setGoalEditing(true)} disabled={!writable}>
                 {project.goal || '添加项目目标'}
               </button>
             )}
@@ -259,55 +265,66 @@ export function ProjectWorkspace({
           <Button
             variant="ghost"
             className={project.viewMode === 'list' ? 'is-active' : ''}
-            disabled={updateProject.isPending}
+            disabled={updateProject.isPending || !writable}
             aria-pressed={project.viewMode === 'list'}
             onClick={() => void updateProject.run({ viewMode: 'list' })}
           ><List size={16} />列表</Button>
           <Button
             variant="ghost"
             className={project.viewMode === 'board' ? 'is-active' : ''}
-            disabled={updateProject.isPending}
+            disabled={updateProject.isPending || !writable}
             aria-pressed={project.viewMode === 'board'}
             onClick={() => void updateProject.run({ viewMode: 'board' })}
           ><Columns3 size={16} />看板</Button>
         </div>
       </header>
       {updateProject.error ? <p className="project-page-error" role="alert">{updateProject.error.message}</p> : null}
+      {!writable ? (
+        <p className="project-lifecycle-banner" role="note">
+          {project.status === 'completed' ? '此项目已标记完成，进入只读历史状态。' : '此项目已归档，进入只读历史状态。'}
+        </p>
+      ) : !assignable ? (
+        <p className="project-lifecycle-banner" role="note">此项目已暂存，保留原有任务和日程，但不再接受新任务或新的规划。</p>
+      ) : null}
       <div className="project-progress-summary"><StatusChip tone="brand">{openTasks.length} 进行中 · {done.length} 已完成</StatusChip></div>
-      <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'project', projectId: project.id }} />
+      {assignable ? (
+        <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'project', projectId: project.id }} />
+      ) : null}
 
-      <div className="project-section-bar">
-        {sectionCreatorOpen ? (
-          <>
-            <input
-              className="project-section-input"
-              autoFocus
-              value={newSectionName}
-              placeholder="新分组名称…"
-              onChange={(event) => setNewSectionName(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  addSection(newSectionName);
-                } else if (event.key === 'Escape') {
-                  setNewSectionName('');
-                  setSectionCreatorOpen(false);
-                }
-              }}
-            />
-            <Button disabled={createSection.isPending || !newSectionName.trim()} onClick={() => addSection(newSectionName)}><Plus size={14} />添加分组</Button>
-            <Button variant="ghost" disabled={createSection.isPending} onClick={() => { setNewSectionName(''); setSectionCreatorOpen(false); }}>取消</Button>
-            {sections.length === 0 ? (
-              <Button variant="ghost" disabled={createSection.isPending} onClick={() => void addTemplate()}>
-                使用模板（{SECTION_TEMPLATE.join(' / ')}）
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <Button variant="ghost" onClick={() => setSectionCreatorOpen(true)}><Plus size={14} />分组</Button>
-        )}
-        {createSection.error ? <span className="project-page-error" role="alert">{createSection.error.message}</span> : null}
-      </div>
+      {writable ? (
+        <div className="project-section-bar">
+          {sectionCreatorOpen ? (
+            <>
+              <input
+                className="project-section-input"
+                autoFocus
+                value={newSectionName}
+                placeholder="新分组名称…"
+                onChange={(event) => setNewSectionName(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addSection(newSectionName);
+                  } else if (event.key === 'Escape') {
+                    setNewSectionName('');
+                    setSectionCreatorOpen(false);
+                  }
+                }}
+              />
+              <Button disabled={createSection.isPending || !newSectionName.trim()} onClick={() => addSection(newSectionName)}><Plus size={14} />添加分组</Button>
+              <Button variant="ghost" disabled={createSection.isPending} onClick={() => { setNewSectionName(''); setSectionCreatorOpen(false); }}>取消</Button>
+              {sections.length === 0 ? (
+                <Button variant="ghost" disabled={createSection.isPending} onClick={() => void addTemplate()}>
+                  使用模板（{SECTION_TEMPLATE.join(' / ')}）
+                </Button>
+              ) : null}
+            </>
+          ) : (
+            <Button variant="ghost" onClick={() => setSectionCreatorOpen(true)}><Plus size={14} />分组</Button>
+          )}
+          {createSection.error ? <span className="project-page-error" role="alert">{createSection.error.message}</span> : null}
+        </div>
+      ) : null}
 
       {project.viewMode === 'list' ? (
         <>
@@ -355,15 +372,15 @@ export function ProjectWorkspace({
               <section
                 key={group.sectionId ?? 'none'}
                 className="project-board-column"
-                onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
-                onDrop={(event) => {
+                onDragOver={writable ? (event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; } : undefined}
+                onDrop={writable ? (event) => {
                   event.preventDefault();
                   const taskId = event.dataTransfer.getData('application/x-eyeprotect-task');
                   if (!taskId) return;
                   const target = tasks.find((entry) => entry.id === taskId);
                   if (!target || target.sectionId === group.sectionId) return;
                   void setTaskSection.run(taskId, group.sectionId);
-                }}
+                } : undefined}
               >
                 {section ? (
                   <SectionHeader
@@ -379,7 +396,7 @@ export function ProjectWorkspace({
                 ) : (
                   <header className="project-section-header"><h2>{group.title}</h2><span className="project-section-tools"><span className="project-section-count">{group.tasks.length}</span></span></header>
                 )}
-                <div>{group.tasks.map((task) => <BoardCard key={task.id} task={task} active={task.id === activeTaskId} onOpen={() => onSelectTask(task.id)} />)}</div>
+                <div>{group.tasks.map((task) => <BoardCard key={task.id} task={task} active={task.id === activeTaskId} writable={writable} onOpen={() => onSelectTask(task.id)} />)}</div>
                 {group.tasks.length === 0 ? <p className="project-empty-hint">拖拽任务到这里</p> : null}
               </section>
             );

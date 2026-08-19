@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { DailyTaskPlan, Task } from '../src/shared/types';
+import type { DailyTaskPlan, Project, Task } from '../src/shared/types';
 import { deriveTodaySections } from '../src/renderer/src/features/tasks/todaySections';
 
-const task = (id: string, plannedAt: number | null = null): Task => ({
+const task = (id: string, plannedAt: number | null = null, projectId: string | null = null): Task => ({
   id,
   title: id,
   notes: '',
   status: 'open',
   priority: 'normal',
   tags: [],
-  projectId: null,
+  projectId,
   parentId: null,
   sectionId: null,
   createdAt: 1,
@@ -25,6 +25,19 @@ const task = (id: string, plannedAt: number | null = null): Task => ({
   context: 'desk',
   remindOnBreak: false,
   revision: 1
+});
+
+const project = (id: string, status: Project['status']): Project => ({
+  id,
+  name: id,
+  goal: null,
+  viewMode: 'list',
+  color: null,
+  parentId: null,
+  status,
+  sortOrder: 0,
+  createdAt: 1,
+  updatedAt: 1
 });
 
 const plan = (taskId: string, dailyRank: DailyTaskPlan['dailyRank']): DailyTaskPlan => ({
@@ -80,6 +93,71 @@ test('Today sections are mutually exclusive when a ranked task also has a TimeBl
     new Set(['ranked-and-scheduled'])
   );
   assert.deepEqual(result.todaysThree.map((entry) => entry.id), ['ranked-and-scheduled']);
+  assert.deepEqual(result.scheduled, []);
+  assert.deepEqual(result.flexible, []);
+});
+
+test('tasks from completed projects are excluded from Today sections', () => {
+  const activeTask = task('active-task', null, 'active-project');
+  const completedTask = task('completed-task', null, 'completed-project');
+  const projects = [
+    project('active-project', 'active'),
+    project('completed-project', 'completed')
+  ];
+  const result = deriveTodaySections(
+    [activeTask, completedTask],
+    [plan('active-task', null), plan('completed-task', null)],
+    new Set(),
+    projects
+  );
+  assert.deepEqual(result.flexible.map((entry) => entry.id), ['active-task']);
+});
+
+test('tasks from archived projects are excluded from Today sections', () => {
+  const archivedTask = task('archived-task', null, 'archived-project');
+  const projects = [project('archived-project', 'archived')];
+  const result = deriveTodaySections(
+    [archivedTask],
+    [plan('archived-task', null)],
+    new Set(),
+    projects
+  );
+  assert.deepEqual(result.flexible, []);
+  assert.deepEqual(result.todaysThree, []);
+});
+
+test('tasks from onHold projects are preserved in Today sections (existing schedule)', () => {
+  const onHoldTask = task('onhold-task', null, 'onhold-project');
+  const projects = [project('onhold-project', 'onHold')];
+  const result = deriveTodaySections(
+    [onHoldTask],
+    [plan('onhold-task', null)],
+    new Set(),
+    projects
+  );
+  assert.deepEqual(result.flexible.map((entry) => entry.id), ['onhold-task']);
+});
+
+test('inbox tasks (no project) are always included in Today sections', () => {
+  const inboxTask = task('inbox-task', null, null);
+  const result = deriveTodaySections(
+    [inboxTask],
+    [plan('inbox-task', null)],
+    new Set(),
+    []
+  );
+  assert.deepEqual(result.flexible.map((entry) => entry.id), ['inbox-task']);
+});
+
+test('tasks from completed projects with existing TimeBlocks are excluded from Today', () => {
+  const completedTask = task('completed-task', null, 'completed-project');
+  const projects = [project('completed-project', 'completed')];
+  const result = deriveTodaySections(
+    [completedTask],
+    [],
+    new Set(['completed-task']),
+    projects
+  );
   assert.deepEqual(result.scheduled, []);
   assert.deepEqual(result.flexible, []);
 });
