@@ -1,7 +1,7 @@
 {
   "name": "eye-protect-pet",
-  "version": "1.0.0",
-  "description": "Portable Windows desktop pet reminders for eye rest and walking breaks.",
+  "version": "1.2.0",
+  "description": "Local-first Windows task and healthy work-rhythm assistant.",
   "main": "out/main/index.js",
   "author": "EyeProtect",
   "license": "MIT",
@@ -11,12 +11,26 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && npm run verify:build",
     "verify:build": "node scripts/verify-build-contract.mjs",
+    "verify:ui-contract": "node scripts/verify-ui-contract.mjs",
     "smoke:running": "node scripts/smoke-running-app.mjs",
     "smoke:experience": "node scripts/smoke-reminder-experience.mjs",
+    "smoke:emergency": "node scripts/smoke-emergency-reminder.mjs",
+    "smoke:pet-failure": "node scripts/smoke-pet-failure.mjs",
+    "smoke:bubble-opt-out": "node scripts/smoke-bubble-opt-out.mjs",
+    "smoke:focus-runtime": "node scripts/smoke-focus-runtime.mjs",
+    "smoke:project-lifecycle": "node scripts/smoke-project-lifecycle.mjs",
+    "smoke:workbench-interactions": "node scripts/smoke-workbench-interactions.mjs",
+    "smoke:plan-interactions": "node scripts/smoke-plan-interactions.mjs",
+    "capture:ui": "node scripts/capture-ui-snapshots.mjs",
+    "capture:ui-scale": "node scripts/capture-ui-scale.mjs",
+    "capture:pet-scale": "node scripts/capture-pet-scale.mjs",
+    "build:icon": "electron scripts/build-app-icon.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "start": "electron-vite preview",
-    "package": "npm run build && electron-builder --win portable --x64"
+    "package": "npm run build && electron-builder --win nsis portable --x64 --publish never",
+    "package:nsis": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:portable": "npm run build && electron-builder --win portable --x64 --publish never"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -24,11 +38,11 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^24.13.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.1",
+    "electron": "^43.3.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "tsx": "^4.19.2",
@@ -48,8 +62,15 @@
     ],
     "asar": true,
     "win": {
+      "icon": "public/assets/app-icon.ico",
       "signAndEditExecutable": false,
       "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "portable",
           "arch": [
@@ -59,7 +80,16 @@
       ]
     },
     "portable": {
-      "artifactName": "EyeProtect-${version}-win-x64.exe"
+      "artifactName": "EyeProtect-${version}-win-x64-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "EyeProtect-Setup-${version}-win-x64.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

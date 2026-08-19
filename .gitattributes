@@ -1,0 +1,12 @@
+# Normalize text files to LF in the repository (checkout stays platform-local
+# unless eol is forced below). Mixed CRLF/LF files previously produced
+# "LF will be replaced by CRLF" warnings on every commit.
+* text=auto eol=lf
+
+# Binary assets must never be normalized or diffed as text.
+*.png binary
+*.ico binary
+*.exe binary
+*.lnk binary
+*.db binary
+*.sqlite binary

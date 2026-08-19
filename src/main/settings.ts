@@ -13,7 +13,6 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 import {
   DEFAULT_SETTINGS,
-  PET_SKINS,
   REMINDER_MODES,
   SETTINGS_LIMITS,
   TODO_PRIORITIES,
@@ -22,7 +21,6 @@ import {
   sanitizeTodos,
   type Alarm,
   type PetPosition,
-  type PetSkin,
   type ReminderMode,
   type Settings,
   type TodoItem,
@@ -79,11 +77,10 @@ export const resolveLaunchExecutable = ({
 };
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.min(max, Math.max(min, parsed));
+  return Math.min(max, Math.max(min, value));
 };
 
 const normalizePosition = (value: unknown): PetPosition | null => {
@@ -176,6 +173,48 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.snoozeMinutes.max
       )
     ),
+    naturalBreakMinutes: Math.round(
+      clampNumber(
+        input.naturalBreakMinutes,
+        DEFAULT_SETTINGS.naturalBreakMinutes,
+        SETTINGS_LIMITS.naturalBreakMinutes.min,
+        SETTINGS_LIMITS.naturalBreakMinutes.max
+      )
+    ),
+    dailyCapacityMinutes: Math.round(
+      clampNumber(
+        input.dailyCapacityMinutes,
+        DEFAULT_SETTINGS.dailyCapacityMinutes,
+        SETTINGS_LIMITS.dailyCapacityMinutes.min,
+        SETTINGS_LIMITS.dailyCapacityMinutes.max
+      )
+    ),
+    // Working window (Plan timeline). An inverted/empty window is invalid as a
+    // whole, so both sides fall back to the defaults together.
+    ...(() => {
+      const start = Math.round(
+        clampNumber(
+          input.workStartMinutes,
+          DEFAULT_SETTINGS.workStartMinutes,
+          SETTINGS_LIMITS.workStartMinutes.min,
+          SETTINGS_LIMITS.workStartMinutes.max
+        )
+      );
+      const end = Math.round(
+        clampNumber(
+          input.workEndMinutes,
+          DEFAULT_SETTINGS.workEndMinutes,
+          SETTINGS_LIMITS.workEndMinutes.min,
+          SETTINGS_LIMITS.workEndMinutes.max
+        )
+      );
+      return start < end
+        ? { workStartMinutes: start, workEndMinutes: end }
+        : {
+            workStartMinutes: DEFAULT_SETTINGS.workStartMinutes,
+            workEndMinutes: DEFAULT_SETTINGS.workEndMinutes
+          };
+    })(),
     reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
       ? (input.reminderMode as ReminderMode)
       : DEFAULT_SETTINGS.reminderMode,
@@ -191,6 +230,10 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.startWithWindows === 'boolean'
         ? input.startWithWindows
         : DEFAULT_SETTINGS.startWithWindows,
+    todoBubbleEnabled:
+      typeof input.todoBubbleEnabled === 'boolean'
+        ? input.todoBubbleEnabled
+        : DEFAULT_SETTINGS.todoBubbleEnabled,
     petScale: clampNumber(
       input.petScale,
       DEFAULT_SETTINGS.petScale,
@@ -199,9 +242,6 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
     ),
     petPosition: normalizePosition(input.petPosition),
     petPositionsByLayout: sanitizePetPositionsByLayout(input.petPositionsByLayout),
-    petSkin: PET_SKINS.includes(input.petSkin as PetSkin)
-      ? (input.petSkin as PetSkin)
-      : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
     historyEnabled:
@@ -235,8 +275,20 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.hotkeysEnabled === 'boolean'
         ? input.hotkeysEnabled
         : DEFAULT_SETTINGS.hotkeysEnabled,
+    theme:
+      input.theme === 'light' || input.theme === 'dark' || input.theme === 'system'
+        ? input.theme
+        : DEFAULT_SETTINGS.theme,
+    density:
+      input.density === 'compact' || input.density === 'comfortable'
+        ? input.density
+        : DEFAULT_SETTINGS.density,
     alarms: sanitizeAlarms(input.alarms),
-    todos: sanitizeTodos(input.todos)
+    todos: sanitizeTodos(input.todos),
+    activeTaskId:
+      typeof input.activeTaskId === 'string' && input.activeTaskId
+        ? input.activeTaskId
+        : null
   };
 };
 
@@ -267,9 +319,10 @@ export const getDataDir = (): string => {
  *                      shortcut, pet window). Todo/alarm mutations no longer
  *                      fire this, so checking a todo can never re-sync the
  *                      startup shortcut or resize the pet window.
- * - 'todos-changed'  — todo list changed; only pet/bubble/panel care.
- * Alarm persistence (persistAlarms) and pet-position saves are silent: the
- * AlarmClock owns alarm notifications, and nobody needs position echoes.
+ * - 'todos-changed'  — todo list changed; only pet/bubble care.
+ * Alarm persistence (persistAlarms) and pet-position saves are silent:
+ * nobody needs position echoes (legacy AlarmClock was removed; the alarms
+ * field survives only as migration input to the Task Core).
  */
 export class SettingsStore extends EventEmitter {
   private readonly dataDir: string;
@@ -425,13 +478,19 @@ export class SettingsStore extends EventEmitter {
   }
 
   /**
-   * AlarmClock is the source of truth and announces changes itself; this only
-   * mirrors its list to disk — no 'changed' cascade.
+   * Persist legacy alarm fields for the one-time Task Core migration; emits
+   * no 'changed' cascade (the migration is the only consumer).
    */
   persistAlarms(alarms: Alarm[]): void {
     const next = sanitizeSettings({ ...this.get(), alarms });
     this.settings = next;
     this.write(next);
+  }
+
+  /** Remove v1.0 collections after their verified SQLite migration. */
+  clearLegacyTaskData(): void {
+    this.settings = sanitizeSettings({ ...this.get(), todos: [], alarms: [], activeTaskId: null });
+    this.write(this.settings);
   }
 
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {
@@ -473,7 +532,10 @@ export class SettingsStore extends EventEmitter {
   private write(settings: Settings): void {
     mkdirSync(this.dataDir, { recursive: true });
     const tempPath = `${this.filePath}.tmp`;
-    const payload = { version: SETTINGS_SCHEMA_VERSION, ...settings };
+    // These fields are accepted by read() solely for one-time v1.0 migration;
+    // v1.1 never writes them back to settings.json.
+    const { todos: _todos, alarms: _alarms, activeTaskId: _activeTaskId, ...preferences } = settings;
+    const payload = { version: SETTINGS_SCHEMA_VERSION, ...preferences };
     writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     renameSync(tempPath, this.filePath);
   }

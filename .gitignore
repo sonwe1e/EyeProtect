@@ -7,8 +7,12 @@ out/
 # Packaging output (portable exe + unpacked assets)
 release/
 
+# Local visual-regression captures (CI uploads its own artifact copy)
+artifacts/
+
 # Runtime user data (per-machine settings)
 data/
+/.runtime-verify-*/
 
 # Logs
 *.log

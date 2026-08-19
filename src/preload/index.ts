@@ -1,31 +1,45 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
-  Alarm,
-  AlarmRepeat,
   CareStatus,
+  CharacterAppearanceMode,
+  CharacterCollectionState,
+  CharacterMaterial,
+  DailyReviewSummary,
+  DailyTaskPlan,
+  DailyTaskPlanInput,
   DataActionResult,
   DataRecoveryInfo,
+  AppHealth,
   EyeProtectApi,
+  FailedDeliveryNotice,
+  FocusStatus,
   HotkeyStatus,
-  PanelTab,
+  PetAccessory,
+  PetPosition,
   PreAlertAction,
+  Project,
+  ProjectInput,
+  ProjectSection,
+  ProjectSectionInput,
+  ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
   ReminderStatus,
   RuntimeInfo,
   Settings,
-  TodoItem,
-  TodoPriority,
+  StandaloneReminder,
+  StandaloneReminderInput,
+  Task,
+  TaskInput,
+  TaskMoveInput,
+  TaskStatus,
+  TaskWorkSummary,
+  TimeBlock,
+  TimeBlockInput,
+  UndoState,
+  TaskUpdateInput,
   WeeklyReport
 } from '../shared/types';
-
-interface AlarmInput {
-  hour: number;
-  minute: number;
-  label?: string;
-  repeat: AlarmRepeat;
-  enabled: boolean;
-}
 
 const on = <T>(channel: string, callback: (payload: T) => void): (() => void) => {
   const listener = (_event: Electron.IpcRendererEvent, payload: T): void => callback(payload);
@@ -37,6 +51,10 @@ const api: EyeProtectApi = {
   getSettings: () => ipcRenderer.invoke('settings:get') as Promise<Settings>,
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings) as Promise<Settings>,
   getRuntimeInfo: () => ipcRenderer.invoke('runtime:get') as Promise<RuntimeInfo>,
+  // --- AppHealth (USERPLAN §二十八) ---
+  getAppHealth: () => ipcRenderer.invoke('app:health:get') as Promise<AppHealth>,
+  onAppHealthChanged: (callback) => on<AppHealth>('app:health:changed', callback),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch') as Promise<void>,
   getReminderStatus: () => ipcRenderer.invoke('reminder:status') as Promise<ReminderStatus>,
   reminderAction: (action: ReminderAction, reminderId: string) =>
     ipcRenderer.invoke('reminder:action', action, reminderId) as Promise<ReminderStatus>,
@@ -47,36 +65,124 @@ const api: EyeProtectApi = {
   pause: (minutes: number) => ipcRenderer.invoke('reminder:pause', minutes) as Promise<ReminderStatus>,
   resume: () => ipcRenderer.invoke('reminder:resume') as Promise<ReminderStatus>,
   restartCycle: () => ipcRenderer.invoke('reminder:restart') as Promise<ReminderStatus>,
-  openSettings: () => ipcRenderer.invoke('window:settings:open') as Promise<void>,
-  closeSettings: () => ipcRenderer.invoke('window:settings:close') as Promise<void>,
-  openPanel: (tab: PanelTab) => ipcRenderer.invoke('window:panel:open', tab) as Promise<void>,
-  openQuickTodo: () => ipcRenderer.invoke('window:panel:quick-add') as Promise<void>,
-  closePanel: () => ipcRenderer.invoke('window:panel:close') as Promise<void>,
-  getPanelTab: () => ipcRenderer.invoke('window:panel:tab') as Promise<PanelTab>,
-  consumeQuickAddTodo: () =>
-    ipcRenderer.invoke('window:panel:consume-quick-add') as Promise<boolean>,
-  onPanelTab: (callback) => on<PanelTab>('panel:tab', callback),
-  onPanelBlur: (callback) => on<void>('panel:blur', callback),
-  onQuickAddTodo: (callback) => on<void>('panel:quick-add', callback),
   onSettingsChanged: (callback) => on<Settings>('settings:changed', callback),
   onReminderChanged: (callback) => on<ReminderStatus>('reminder:changed', callback),
-  getAlarms: () => ipcRenderer.invoke('alarm:list') as Promise<Alarm[]>,
-  setAlarm: (input: AlarmInput) => ipcRenderer.invoke('alarm:set', input) as Promise<Alarm[]>,
-  cancelAlarm: (id: string) => ipcRenderer.invoke('alarm:cancel', id) as Promise<Alarm[]>,
-  onAlarmFired: (callback) => on<Alarm>('alarm:fired', callback),
-  onAlarmsChanged: (callback) => on<Alarm[]>('alarm:changed', callback),
-  getTodos: () => ipcRenderer.invoke('todo:list') as Promise<TodoItem[]>,
-  addTodo: (text: string) => ipcRenderer.invoke('todo:add', text) as Promise<TodoItem[]>,
-  toggleTodo: (id: string) => ipcRenderer.invoke('todo:toggle', id) as Promise<TodoItem[]>,
-  updateTodo: (id: string, text: string) =>
-    ipcRenderer.invoke('todo:update', id, text) as Promise<TodoItem[]>,
-  removeTodo: (id: string) => ipcRenderer.invoke('todo:remove', id) as Promise<TodoItem[]>,
-  setTodoPriority: (id: string, priority: TodoPriority) =>
-    ipcRenderer.invoke('todo:priority', id, priority) as Promise<TodoItem[]>,
-  setTodoBreakReminder: (id: string, enabled: boolean) =>
-    ipcRenderer.invoke('todo:break-reminder', id, enabled) as Promise<TodoItem[]>,
-  clearCompletedTodos: () => ipcRenderer.invoke('todo:clear-completed') as Promise<TodoItem[]>,
-  onTodosChanged: (callback) => on<TodoItem[]>('todo:changed', callback),
+  getTasks: () => ipcRenderer.invoke('task:list') as Promise<Task[]>,
+  getTask: (id: string) => ipcRenderer.invoke('task:get', id) as Promise<Task | null>,
+  createTask: (input: TaskInput) => ipcRenderer.invoke('task:create', input) as Promise<Task[]>,
+  updateTask: (id: string, input: TaskUpdateInput) =>
+    ipcRenderer.invoke('task:update', id, input) as Promise<Task[]>,
+  moveTask: (input: TaskMoveInput) => ipcRenderer.invoke('task:move', input) as Promise<Task[]>,
+  setTaskStatus: (id: string, status: TaskStatus) =>
+    ipcRenderer.invoke('task:set-status', id, status) as Promise<Task[]>,
+  deleteTask: (id: string) => ipcRenderer.invoke('task:delete', id) as Promise<Task[]>,
+  getUndoState: () => ipcRenderer.invoke('task:undo:get') as Promise<UndoState | null>,
+  undoTaskOperation: (operationId: string) => ipcRenderer.invoke('task:undo', operationId) as Promise<Task[]>,
+  onUndoChanged: (callback) => on<UndoState | null>('task:undo-changed', callback),
+  onTasksChanged: (callback) => on<Task[]>('task:changed', callback),
+  onTaskUpserted: (callback) => on<Task>('task:upserted', callback),
+  onTaskRemoved: (callback) => on<string>('task:removed', callback),
+  getPendingTaskCount: () => ipcRenderer.invoke('task:pending-count') as Promise<number>,
+  onPendingTaskCountChanged: (callback) => on<number>('task:pending-count:changed', callback),
+  getProjects: () => ipcRenderer.invoke('project:list') as Promise<Project[]>,
+  getProject: (id: string) => ipcRenderer.invoke('project:get', id) as Promise<Project | null>,
+  createProject: (input: ProjectInput) => ipcRenderer.invoke('project:create', input) as Promise<Project[]>,
+  updateProject: (id: string, input: ProjectUpdateInput) =>
+    ipcRenderer.invoke('project:update', id, input) as Promise<Project[]>,
+  deleteProject: (id: string) => ipcRenderer.invoke('project:delete', id) as Promise<Project[]>,
+  onProjectsChanged: (callback) => on<Project[]>('project:changed', callback),
+  onProjectUpserted: (callback) => on<Project>('project:upserted', callback),
+  onProjectRemoved: (callback) => on<string>('project:removed', callback),
+  getDailyPlans: (localDate: string) =>
+    ipcRenderer.invoke('plan:day:list', localDate) as Promise<DailyTaskPlan[]>,
+  getDailyReview: (localDate: string) =>
+    ipcRenderer.invoke('daily:review', localDate) as Promise<DailyReviewSummary>,
+  upsertDailyPlan: (input: DailyTaskPlanInput) =>
+    ipcRenderer.invoke('plan:upsert', input) as Promise<DailyTaskPlan[]>,
+  removeDailyPlan: (taskId: string, localDate: string) =>
+    ipcRenderer.invoke('plan:remove', taskId, localDate) as Promise<DailyTaskPlan[]>,
+  getTimeBlocks: () => ipcRenderer.invoke('timeblock:list') as Promise<TimeBlock[]>,
+  createTimeBlock: (input: TimeBlockInput) =>
+    ipcRenderer.invoke('timeblock:create', input) as Promise<TimeBlock>,
+  updateTimeBlock: (id: string, input: Partial<TimeBlockInput>) =>
+    ipcRenderer.invoke('timeblock:update', id, input) as Promise<TimeBlock>,
+  deleteTimeBlock: (id: string) => ipcRenderer.invoke('timeblock:delete', id) as Promise<boolean>,
+  onTimeBlocksChanged: (callback) => on<null>('timeblock:changed', callback),
+  onDailyPlansChanged: (callback) => on<{ localDate: string | null }>('plan:changed', callback),
+  getProjectSections: (projectId: string) =>
+    ipcRenderer.invoke('section:list', projectId) as Promise<ProjectSection[]>,
+  createProjectSection: (input: ProjectSectionInput) =>
+    ipcRenderer.invoke('section:create', input) as Promise<ProjectSection>,
+  updateProjectSection: (id: string, input: { name: string }) =>
+    ipcRenderer.invoke('section:update', id, input) as Promise<ProjectSection>,
+  moveProjectSection: (id: string, beforeSectionId: string | null) =>
+    ipcRenderer.invoke('section:move', id, beforeSectionId) as Promise<ProjectSection[]>,
+  deleteProjectSection: (id: string) =>
+    ipcRenderer.invoke('section:delete', id) as Promise<boolean>,
+  onProjectSectionsChanged: (callback) => on<{ projectId: string | null }>('section:changed', callback),
+  setTaskSection: (taskId: string, sectionId: string | null) =>
+    ipcRenderer.invoke('task:set-section', taskId, sectionId) as Promise<Task>,
+  getFocusStatus: () => ipcRenderer.invoke('focus:get') as Promise<FocusStatus>,
+  startFocus: (taskId: string, timeBlockId?: string | null) =>
+    ipcRenderer.invoke('focus:start', taskId, timeBlockId ?? null) as Promise<FocusStatus>,
+  pauseFocus: () => ipcRenderer.invoke('focus:pause') as Promise<FocusStatus>,
+  resumeFocus: () => ipcRenderer.invoke('focus:resume') as Promise<FocusStatus>,
+  completeFocus: () => ipcRenderer.invoke('focus:complete') as Promise<FocusStatus>,
+  onFocusStatusChanged: (callback) => on<FocusStatus>('focus:session-changed', callback),
+  getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
+  setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
+  onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),
+  getTaskWorkSummary: () => ipcRenderer.invoke('task:work-summary') as Promise<TaskWorkSummary>,
+  onTaskWorkChanged: (callback) => on<TaskWorkSummary>('task:work-changed', callback),
+  getStandaloneReminders: () =>
+    ipcRenderer.invoke('standalone-reminder:list') as Promise<StandaloneReminder[]>,
+  createStandaloneReminder: (input: StandaloneReminderInput) =>
+    ipcRenderer.invoke('standalone-reminder:create', input) as Promise<StandaloneReminder[]>,
+  updateStandaloneReminder: (id: string, input: Partial<StandaloneReminderInput>) =>
+    ipcRenderer.invoke('standalone-reminder:update', id, input) as Promise<StandaloneReminder[]>,
+  deleteStandaloneReminder: (id: string) =>
+    ipcRenderer.invoke('standalone-reminder:delete', id) as Promise<StandaloneReminder[]>,
+  onStandaloneRemindersChanged: (callback) =>
+    on<StandaloneReminder[]>('standalone-reminder:changed', callback),
+  onStandaloneReminderFired: (callback) =>
+    on<StandaloneReminder>('standalone-reminder:fired', callback),
+  getFailedDeliveries: () =>
+    ipcRenderer.invoke('delivery:failed:list') as Promise<FailedDeliveryNotice[]>,
+  retryFailedDelivery: (id: string) =>
+    ipcRenderer.invoke('delivery:failed:retry', id) as Promise<FailedDeliveryNotice[]>,
+  dismissFailedDelivery: (id: string) =>
+    ipcRenderer.invoke('delivery:failed:dismiss', id) as Promise<FailedDeliveryNotice[]>,
+  onFailedDeliveriesChanged: (callback) =>
+    on<FailedDeliveryNotice[]>('delivery:failed-changed', callback),
+  getCharacterCollection: () =>
+    ipcRenderer.invoke('character:get') as Promise<CharacterCollectionState>,
+  collectDailyCharacter: () =>
+    ipcRenderer.invoke('character:collect') as Promise<CharacterCollectionState>,
+  discardDailyCharacter: () =>
+    ipcRenderer.invoke('character:discard') as Promise<CharacterCollectionState>,
+  renameCharacter: (id: string, name: string) =>
+    ipcRenderer.invoke('character:rename', id, name) as Promise<CharacterCollectionState>,
+  deleteCharacter: (id: string) =>
+    ipcRenderer.invoke('character:delete', id) as Promise<CharacterCollectionState>,
+  setCharacterFavorite: (id: string, favorite: boolean) =>
+    ipcRenderer.invoke('character:favorite', id, favorite) as Promise<CharacterCollectionState>,
+  setCharacterAppearance: (mode: CharacterAppearanceMode, id: string | null = null) =>
+    ipcRenderer.invoke('character:appearance', mode, id) as Promise<CharacterCollectionState>,
+  setCharacterMaterial: (id: string, material: CharacterMaterial) =>
+    ipcRenderer.invoke('character:material', id, material) as Promise<CharacterCollectionState>,
+  setCharacterAccessory: (id: string, accessory: PetAccessory) =>
+    ipcRenderer.invoke('character:accessory', id, accessory) as Promise<CharacterCollectionState>,
+  onCharacterCollectionChanged: (callback) =>
+    on<CharacterCollectionState>('character:changed', callback),
+  movePetWindow: (position) =>
+    ipcRenderer.invoke('window:pet:move', position) as Promise<PetPosition | null>,
+  openWorkbench: (section = 'today') =>
+    ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
+  closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
+  getWorkbenchSection: () =>
+    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review'>,
+  onWorkbenchNavigate: (callback) =>
+    on<'today' | 'settings' | 'reminders' | 'collection' | 'review'>('workbench:navigate', callback),
   getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
   getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
   clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,

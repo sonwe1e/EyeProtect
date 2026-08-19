@@ -1,0 +1,141 @@
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-app: #f7f7f8;
+  --bg-sidebar: #f1f2f4;
+  --surface: #ffffff;
+  --surface-raised: #fafafb;
+  --surface-hover: #f0f1f2;
+  --surface-active: #e8ebed;
+  --surface-selected: #e8ebed;
+  --border-subtle: #e4e6e8;
+  --border-strong: #cdd1d5;
+  --fg-primary: #181a1b;
+  --fg-secondary: #555c64;
+  --fg-tertiary: #6a7178;
+  --fg-disabled: #8c939a;
+  --fg-inverse: #ffffff;
+  --brand: #2b6b61;
+  --brand-strong: #22564e;
+  --brand-contrast: #ffffff;
+  --brand-subtle: #eaf2f0;
+  --danger: #a43f36;
+  --danger-strong: #87332d;
+  --danger-contrast: #ffffff;
+  --danger-subtle: #f8e9e7;
+  --warning: #7a5715;
+  --warning-contrast: #181a1b;
+  --warning-subtle: #f7edcf;
+  --success: #347553;
+  --success-subtle: #e8f2ec;
+  --focus-ring: #2b6b61;
+  --overlay: rgb(17 19 21 / 42%);
+  --shadow-overlay: 0 18px 48px rgb(17 19 21 / 18%);
+  --shadow-soft: 0 8px 24px rgb(17 19 21 / 8%);
+  --glass-surface: rgb(255 255 255 / 90%);
+  --glass-surface-strong: rgb(255 255 255 / 98%);
+  --glass-border: rgb(24 26 27 / 16%);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-app: #111315;
+  --bg-sidebar: #0d0f10;
+  --surface: #181b1d;
+  --surface-raised: #1d2124;
+  --surface-hover: #22272b;
+  --surface-active: #293034;
+  --surface-selected: #293034;
+  --border-subtle: #2a2f33;
+  --border-strong: #3a4248;
+  --fg-primary: #f2f4f5;
+  --fg-secondary: #b8bec3;
+  --fg-tertiary: #8c959c;
+  --fg-disabled: #707980;
+  --fg-inverse: #ffffff;
+  --brand: #7cc0af;
+  --brand-strong: #9bd2c4;
+  --brand-contrast: #10201c;
+  --brand-subtle: #19302b;
+  --danger: #ed938b;
+  --danger-strong: #f0aaa4;
+  --danger-contrast: #24100f;
+  --danger-subtle: #3a2423;
+  --warning: #e0b45f;
+  --warning-contrast: #201804;
+  --warning-subtle: #382f20;
+  --success: #7fc69a;
+  --success-subtle: #1d3326;
+  --focus-ring: #7cc0af;
+  --overlay: rgb(0 0 0 / 62%);
+  --shadow-overlay: 0 18px 52px rgb(0 0 0 / 42%);
+  --shadow-soft: 0 8px 24px rgb(0 0 0 / 24%);
+  --glass-surface: rgb(24 27 29 / 92%);
+  --glass-surface-strong: rgb(24 27 29 / 98%);
+  --glass-border: rgb(242 244 245 / 16%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    color-scheme: dark;
+    --bg-app: #111315;
+    --bg-sidebar: #0d0f10;
+    --surface: #181b1d;
+    --surface-raised: #1d2124;
+    --surface-hover: #22272b;
+    --surface-active: #293034;
+    --surface-selected: #293034;
+    --border-subtle: #2a2f33;
+    --border-strong: #3a4248;
+    --fg-primary: #f2f4f5;
+    --fg-secondary: #b8bec3;
+    --fg-tertiary: #8c959c;
+    --fg-disabled: #707980;
+    --fg-inverse: #ffffff;
+    --brand: #7cc0af;
+    --brand-strong: #9bd2c4;
+    --brand-contrast: #10201c;
+    --brand-subtle: #19302b;
+    --danger: #ed938b;
+    --danger-strong: #f0aaa4;
+    --danger-contrast: #24100f;
+    --danger-subtle: #3a2423;
+    --warning: #e0b45f;
+    --warning-contrast: #201804;
+    --warning-subtle: #382f20;
+    --success: #7fc69a;
+    --success-subtle: #1d3326;
+    --focus-ring: #7cc0af;
+    --overlay: rgb(0 0 0 / 62%);
+    --shadow-overlay: 0 18px 52px rgb(0 0 0 / 42%);
+    --shadow-soft: 0 8px 24px rgb(0 0 0 / 24%);
+    --glass-surface: rgb(24 27 29 / 92%);
+    --glass-surface-strong: rgb(24 27 29 / 98%);
+    --glass-border: rgb(242 244 245 / 16%);
+  }
+}
+
+/* Content colors remain deliberately independent from the application chrome. */
+:root {
+  --color-text: var(--fg-primary);
+  --color-text-muted: var(--fg-secondary);
+  --color-accent: var(--brand);
+  --color-priority-normal: var(--fg-tertiary);
+  --color-priority-important: var(--warning);
+  --color-priority-urgent: var(--danger);
+  --surface-base: var(--bg-app);
+  --shadow-floating: var(--shadow-overlay);
+  --artwork-stage-center: #244f4b;
+  --artwork-stage-mid: #142b2b;
+  --artwork-stage-edge: #101819;
+  --artwork-caption-fg: rgb(255 255 255 / 78%);
+  --artwork-caption-bg: rgb(3 12 12 / 34%);
+  --artwork-caption-border: rgb(255 255 255 / 10%);
+  --artwork-eye-accent: #65c7b4;
+  --artwork-walk-accent: #f7cd63;
+  --artwork-combined-accent: #ffa69e;
+  --gift-fg: #70461d;
+  --gift-bg: #ffd477;
+  --gift-border: rgb(112 70 29 / 20%);
+  --character-shadow: rgb(0 0 0 / 16%);
+}

@@ -1,43 +1,58 @@
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, nativeTheme, screen } from 'electron';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
-  Alarm,
+  ActiveReminder,
+  AppHealth,
   CareStatus,
+  CharacterCollectionState,
+  FocusStatus,
   HotkeyStatus,
-  PanelTab,
+  Project,
   ReminderStatus,
   RuntimeInfo,
   Settings,
-  TodoItem,
+  StandaloneReminder,
+  FailedDeliveryNotice,
+  Task,
+  TaskWorkSummary,
+  UndoState,
   WeeklyReport
 } from '../shared/types';
 import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
-import { getAlertBounds } from './windowBounds';
+import { getAlertBounds, getPetMoveBounds } from './windowBounds';
+import { getWorkbenchBackgroundColor } from './workbenchTheme';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(moduleDir, '../preload/index.cjs');
 const IDLE_SIZE = 160;
-const PANEL_SIZE = { width: 344, height: 496 } as const;
 const TODO_BUBBLE_SIZE = { width: 220, height: 150 } as const;
 const PRE_ALERT_BUBBLE_SIZE = { width: 300, height: 172 } as const;
 const GENTLE_BUBBLE_SIZE = { width: 300, height: 224 } as const;
 const GENTLE_COMBINED_BUBBLE_SIZE = { width: 320, height: 292 } as const;
 /** How long the bubble stays up showing "all done" after the last pending todo is completed. */
 const ALL_DONE_DISPLAY_MS = 2_500;
-/** A hidden bubble is destroyed after this cooldown instead of lingering as an idle WebContents. */
-const BUBBLE_DESTROY_DELAY_MS = 30_000;
 /** Coalesce bursts of display-added/removed/metrics events into one relayout. */
 const DISPLAY_CHANGE_DEBOUNCE_MS = 250;
+/**
+ * Window-level alpha of the focused-mode dim mask. 0.55 keeps the desktop
+ * visible but clearly dimmed (55 % black); the mask is an opaque black window
+ * so it avoids transparent-window paint quirks on Windows.
+ */
+const DIM_MASK_OPACITY = 0.55;
+const forceEmergencySmoke =
+  process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-emergency');
+const forcePetLoadFailure =
+  process.env.EYEPROTECT_SMOKE === '1' && process.argv.includes('--eyeprotect-smoke-pet-failure');
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
 const loadRenderer = async (
   window: BrowserWindow,
-  view: 'pet' | 'settings' | 'panel' | 'bubble' | 'alert'
+  view: 'pet' | 'bubble' | 'alert' | 'workbench'
 ): Promise<void> => {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
@@ -82,33 +97,36 @@ export const getRuntimeInfo = (settingsStore: SettingsStore): RuntimeInfo => ({
  * - AlertWindow: created when a reminder fires (own renderer, own image
  *   cache), destroyed the moment the reminder ends — reminder artwork memory
  *   does not accumulate in the long-lived pet process.
- * - BubbleWindow: created on demand, destroyed after a hide cooldown or
- *   immediately once there are no pending todos.
- * - PanelWindow / SettingsWindow: on demand, closed → destroyed as before.
+ * - BubbleWindow: created on demand and destroyed whenever its surface ends.
+ * - WorkbenchWindow: the only management surface for tasks, reminders and settings.
  * - Dim overlays: exist only while an alert is on screen.
  */
 export class AppWindows {
   private petWindow: BrowserWindow | null = null;
   private petTemporarilyHidden = false;
-  private settingsWindow: BrowserWindow | null = null;
-  private panelWindow: BrowserWindow | null = null;
-  private panelTab: PanelTab = 'todos';
-  private quickAddPending = false;
   private bubbleWindow: BrowserWindow | null = null;
   private bubbleLoading: Promise<void> | null = null;
   private bubbleShouldShow = false;
-  private bubbleDestroyTimer: NodeJS.Timeout | null = null;
   private allDoneTimer: NodeJS.Timeout | null = null;
   private alertWindow: BrowserWindow | null = null;
-  private alertLoading: Promise<void> | null = null;
+  private alertLoading: Promise<boolean> | null = null;
   private dimWindows: BrowserWindow[] = [];
+  private workbenchWindow: BrowserWindow | null = null;
+  private workbenchLoading: Promise<void> | null = null;
+  private workbenchSection:
+    | 'today'
+    | 'settings'
+    | 'reminders'
+    | 'collection'
+    | 'review' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
   private applyingBounds = false;
 
   constructor(
     private readonly settingsStore: SettingsStore,
-    private readonly scheduler: ReminderScheduler
+    private readonly scheduler: ReminderScheduler,
+    private readonly getTasks: () => Task[] = () => []
   ) {
     const onDisplaysChanged = (): void => this.handleDisplaysChangedSoon();
     screen.on('display-added', onDisplaysChanged);
@@ -117,6 +135,9 @@ export class AppWindows {
   }
 
   async createPetWindow(): Promise<void> {
+    if (forcePetLoadFailure) {
+      throw new Error('fault injection: pet renderer load failure');
+    }
     if (this.petWindow && !this.petWindow.isDestroyed()) {
       return;
     }
@@ -171,6 +192,54 @@ export class AppWindows {
     this.refreshBubble();
   }
 
+  movePetWindow(position: { x: number; y: number }): { x: number; y: number } | null {
+    if (!this.petWindow || this.petWindow.isDestroyed()) return null;
+    const size = this.getIdlePetSize(this.settingsStore.get());
+    const display = screen.getDisplayNearestPoint(position);
+    const nextBounds = getPetMoveBounds(position, display.workArea, size);
+    // Keep width/height anchored to the setting. On fractional Windows DPI,
+    // reading native bounds after each move can feed rounding drift back into
+    // the next setBounds call and make the transparent pet grow over time.
+    this.petWindow.setBounds(nextBounds, false);
+    return { x: nextBounds.x, y: nextBounds.y };
+  }
+
+  /**
+   * Best-effort pet-window creation with bounded retries. A failure here must
+   * never crash startup: the scheduler, tray and delivery queue are independent
+   * of the pet renderer, so we catch, log and retry a few times, then move on.
+   * On any failure we drop a half-created window so the next attempt (or a later
+   * "Reload pet" call) starts clean instead of reusing a broken WebContents.
+   */
+  async loadPetWindowBestEffort(maxAttempts = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.createPetWindow();
+        return;
+      } catch (error) {
+        console.error(`[windows] pet window creation failed (attempt ${attempt}/${maxAttempts}):`, error);
+        this.resetBrokenPetWindow();
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+        }
+      }
+    }
+    console.error('[windows] giving up on pet window after startup retries; the app keeps running without it');
+  }
+
+  /** Destroy and clear a half-created/broken pet window so a retry starts clean. */
+  private resetBrokenPetWindow(): void {
+    if (this.petWindow && !this.petWindow.isDestroyed()) {
+      this.petWindow.destroy();
+    }
+    this.petWindow = null;
+  }
+
+  /** True when the pet window is present and live (used to guard pet-only UI). */
+  isPetWindowAlive(): boolean {
+    return Boolean(this.petWindow) && !this.petWindow!.isDestroyed();
+  }
+
   togglePetVisibility(): boolean {
     this.petTemporarilyHidden = !this.petTemporarilyHidden;
     if (this.petTemporarilyHidden) {
@@ -184,22 +253,55 @@ export class AppWindows {
     return this.petTemporarilyHidden;
   }
 
-  async showSettingsWindow(): Promise<void> {
-    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
-      this.settingsWindow.show();
-      this.settingsWindow.focus();
+  /**
+   * The Workbench is the v1.1 task-management surface (USERPLAN §三): a normal,
+   * resizable, taskbar-visible MainWindow (~1080×720) hosting the Today/Plan/
+   * Focus/Projects views. Unlike the pet it is not a floating overlay —
+   * it is a real workspace the user switches to.
+   */
+  showWorkbenchWindow(
+    section:
+      | 'today'
+      | 'settings'
+      | 'reminders'
+      | 'collection'
+      | 'review' = 'today'
+  ): void {
+    this.workbenchSection = section;
+    if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      // A window already exists: if its renderer is mid-load, let that load
+      // finish instead of creating a second window for the same surface.
+      if (this.workbenchLoading) {
+        void this.workbenchLoading.then(() => {
+          if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+            this.workbenchWindow.show();
+            this.workbenchWindow.focus();
+            this.workbenchWindow.webContents.send('workbench:navigate', this.workbenchSection);
+          }
+        });
+        return;
+      }
+      this.workbenchWindow.show();
+      this.workbenchWindow.focus();
+      this.workbenchWindow.webContents.send('workbench:navigate', section);
       return;
     }
 
-    this.settingsWindow = new BrowserWindow({
-      width: 560,
-      height: 680,
-      minWidth: 520,
-      minHeight: 620,
-      title: 'EyeProtect 设置',
+    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+    const initialWidth = Math.max(960, Math.min(1280, Math.round(width * 0.7)));
+    const initialHeight = Math.max(600, Math.min(800, Math.round(height * 0.75)));
+
+    const window = new BrowserWindow({
+      width: initialWidth,
+      height: initialHeight,
+      minWidth: 880,
+      minHeight: 560,
+      title: 'EyeProtect · 工作台',
       autoHideMenuBar: true,
-      skipTaskbar: true,
-      backgroundColor: '#f7f2e8',
+      backgroundColor: getWorkbenchBackgroundColor(
+        this.settingsStore.get().theme,
+        nativeTheme.shouldUseDarkColors
+      ),
       show: false,
       webPreferences: {
         preload: preloadPath,
@@ -208,111 +310,56 @@ export class AppWindows {
         sandbox: true
       }
     });
+    this.workbenchWindow = window;
 
-    this.settingsWindow.on('closed', () => {
-      this.settingsWindow = null;
-    });
-
-    await loadRenderer(this.settingsWindow, 'settings');
-    this.settingsWindow.show();
-  }
-
-  closeSettingsWindow(): void {
-    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
-      this.settingsWindow.close();
-    }
-  }
-
-  getPanelTab(): PanelTab {
-    return this.panelTab;
-  }
-
-  async openPanel(tab: PanelTab): Promise<void> {
-    this.panelTab = tab;
-    // The panel supersedes the bubble while open; it returns when the panel closes.
-    this.hideBubble();
-    if (this.panelWindow && !this.panelWindow.isDestroyed()) {
-      this.positionPanelWindow();
-      this.panelWindow.show();
-      this.panelWindow.focus();
-      this.panelWindow.webContents.send('panel:tab', tab);
-      return;
-    }
-
-    this.panelWindow = new BrowserWindow({
-      ...this.getPanelBounds(),
-      frame: false,
-      transparent: true,
-      resizable: false,
-      movable: true,
-      minimizable: false,
-      maximizable: false,
-      skipTaskbar: true,
-      hasShadow: false,
-      alwaysOnTop: true,
-      show: false,
-      backgroundColor: '#00000000',
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
+    window.on('closed', () => {
+      if (this.workbenchWindow === window) {
+        this.workbenchWindow = null;
       }
     });
 
-    this.panelWindow.setAlwaysOnTop(true, 'floating');
-    // Smart close: the renderer decides whether blur may close the panel (it
-    // stays open while a draft is being composed). Defer so the incoming
-    // focus has settled, and skip entirely when focus only moved to another
-    // app window (pet, settings) — the user is still inside the app.
-    this.panelWindow.on('blur', () => {
-      setTimeout(() => {
-        if (!this.panelWindow || this.panelWindow.isDestroyed()) {
-          return;
-        }
-        const appFocused = BrowserWindow.getAllWindows().some(
-          (window) => !window.isDestroyed() && window.isFocused()
-        );
-        if (appFocused) {
-          return;
-        }
-        this.panelWindow.webContents.send('panel:blur');
-      }, 0);
+    window.webContents.once('did-finish-load', () => {
+      if (this.workbenchWindow !== window || window.isDestroyed()) return;
+      window.webContents.send('workbench:navigate', this.workbenchSection);
+      window.show();
+      window.focus();
     });
-    this.panelWindow.on('closed', () => {
-      this.panelWindow = null;
-      this.refreshBubble();
+    // A failed load would otherwise leave a blank window that every later
+    // showWorkbenchWindow() re-surfaces; destroy + null it so the next call
+    // recreates a healthy window.
+    window.webContents.once('did-fail-load', () => {
+      console.error('[windows] workbench renderer failed to load; resetting window');
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+      if (this.workbenchWindow === window) {
+        this.workbenchWindow = null;
+      }
     });
-
-    await loadRenderer(this.panelWindow, 'panel');
-    this.panelWindow.webContents.send('panel:tab', tab);
-    this.panelWindow.show();
-    this.panelWindow.focus();
+    const loading = loadRenderer(window, 'workbench')
+      .catch((error) => {
+        console.error('[windows] workbench load rejected:', error);
+        if (!window.isDestroyed()) window.destroy();
+        if (this.workbenchWindow === window) this.workbenchWindow = null;
+      });
+    this.workbenchLoading = loading;
+    void loading.finally(() => {
+      // A failed/closed window can be replaced before this promise settles.
+      // Never let the stale load clear the replacement window's load guard.
+      if (this.workbenchLoading === loading) {
+        this.workbenchLoading = null;
+      }
+    });
   }
 
-  async openQuickTodo(): Promise<void> {
-    const panelAlreadyOpen = Boolean(
-      this.panelWindow && !this.panelWindow.isDestroyed()
-    );
-    this.quickAddPending = true;
-    await this.openPanel('todos');
-    if (panelAlreadyOpen && this.panelWindow && !this.panelWindow.isDestroyed()) {
-      this.quickAddPending = false;
-      this.panelWindow.webContents.send('panel:quick-add');
-      this.panelWindow.focus();
+  closeWorkbenchWindow(): void {
+    if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      this.workbenchWindow.close();
     }
   }
 
-  consumeQuickAddRequest(): boolean {
-    const pending = this.quickAddPending;
-    this.quickAddPending = false;
-    return pending;
-  }
-
-  closePanel(): void {
-    if (this.panelWindow && !this.panelWindow.isDestroyed()) {
-      this.panelWindow.close();
-    }
+  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'collection' | 'review' {
+    return this.workbenchSection;
   }
 
   // The pet window is only 160px with overflow:hidden, so the todo bubble lives
@@ -403,13 +450,10 @@ export class AppWindows {
   }
 
   private hideBubble(): void {
-    this.bubbleShouldShow = false;
-    this.cancelBubbleTimers();
-    if (this.bubbleWindow && !this.bubbleWindow.isDestroyed()) {
-      this.bubbleWindow.hide();
-    }
-    // A hidden bubble should not keep a WebContents alive indefinitely.
-    this.scheduleBubbleDestroy(BUBBLE_DESTROY_DELAY_MS);
+    // Re-showing a recently hidden transparent, focusable:false window can
+    // leave its renderer in Page Visibility's hidden state on Windows. The
+    // bubble is cheap and infrequent, so recreate a fresh surface next time.
+    this.destroyBubble();
   }
 
   private destroyBubble(): void {
@@ -421,44 +465,27 @@ export class AppWindows {
     this.bubbleWindow = null;
   }
 
-  private scheduleBubbleDestroy(delayMs: number): void {
-    if (this.bubbleDestroyTimer) {
-      return;
-    }
-    this.bubbleDestroyTimer = setTimeout(() => {
-      this.bubbleDestroyTimer = null;
-      if (!this.bubbleShouldShow) {
-        this.destroyBubble();
-      }
-    }, delayMs);
-  }
-
   private cancelBubbleTimers(): void {
     if (this.allDoneTimer) {
       clearTimeout(this.allDoneTimer);
       this.allDoneTimer = null;
-    }
-    if (this.bubbleDestroyTimer) {
-      clearTimeout(this.bubbleDestroyTimer);
-      this.bubbleDestroyTimer = null;
     }
   }
 
   refreshBubble(): void {
     const status = this.scheduler.getStatus();
     const active = status.activeReminder;
-    const todos = this.settingsStore.get().todos;
-    const pending = todos.filter((todo) => !todo.completed).length;
-    const panelOpen = Boolean(
-      this.panelWindow && !this.panelWindow.isDestroyed() && this.panelWindow.isVisible()
-    );
+    const tasks = this.getTasks();
+    const pending = tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length;
+    // The always-resident pet window subscribes to the count channel only.
+    this.sendTo([this.petWindow], 'task:pending-count:changed', pending);
     const petAlive = Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
 
     // Gentle reminders and soft pre-alerts use the bubble as their surface
     // and take precedence over the todo preview.
     const reminderBubble = Boolean(active && active.mode === 'gentle') || Boolean(status.preAlert);
     if (reminderBubble) {
-      if (!petAlive || panelOpen) {
+      if (!petAlive) {
         this.hideBubble();
         return;
       }
@@ -466,7 +493,12 @@ export class AppWindows {
       return;
     }
 
-    if (active || panelOpen || !petAlive) {
+    if (active || !petAlive) {
+      this.hideBubble();
+      return;
+    }
+
+    if (!this.settingsStore.get().todoBubbleEnabled) {
       this.hideBubble();
       return;
     }
@@ -476,7 +508,7 @@ export class AppWindows {
       return;
     }
 
-    if (todos.length === 0) {
+    if (tasks.length === 0) {
       // Nothing left at all: no reason to keep the window around.
       this.destroyBubble();
       return;
@@ -496,43 +528,87 @@ export class AppWindows {
     this.destroyBubble();
   }
 
-  /** Preferences matter to the settings window and the pet's skin/size. */
+  /** Every live renderer owns theme tokens and must track preference changes. */
   broadcastSettings(settings: Settings): void {
-    this.sendTo([this.settingsWindow, this.petWindow], 'settings:changed', settings);
+    this.refreshWorkbenchTheme(settings);
+    this.refreshBubble();
+    this.sendTo(
+      [this.workbenchWindow, this.petWindow, this.bubbleWindow, this.alertWindow],
+      'settings:changed',
+      settings
+    );
+  }
+
+  /** Keep the native window fill in lockstep with CSS when the OS theme changes. */
+  refreshWorkbenchTheme(settings = this.settingsStore.get()): void {
+    if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      const backgroundColor = getWorkbenchBackgroundColor(settings.theme, nativeTheme.shouldUseDarkColors);
+      this.workbenchWindow.setBackgroundColor(backgroundColor);
+      if (process.env.EYEPROTECT_SMOKE === '1') {
+        // Main-process side of the theme authority audit (USERPLAN 1.2 PR0).
+        // The packaged smoke script logs the renderer side; together they
+        // expose every authority at once instead of guessing which one lied.
+        console.log(
+          `[theme-audit] main ${JSON.stringify({
+            settingsTheme: settings.theme,
+            nativeShouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+            workbenchBackgroundColor: backgroundColor
+          })}`
+        );
+      }
+    }
+  }
+
+  /**
+   * AppHealth (USERPLAN §二十八) — the workbench renders a banner when the
+   * database or notification subsystem is degraded, so the user always knows
+   * why a mutation failed instead of seeing a silently broken button.
+   */
+  broadcastAppHealth(health: AppHealth): void {
+    this.sendTo([this.workbenchWindow, this.petWindow], 'app:health:changed', health);
   }
 
   broadcastReminderStatus(status: ReminderStatus): void {
     // The pet only needs reminder status for its first-class double-click
     // shortcut in gentle mode; alert/settings/bubble render the visible state.
     this.sendTo(
-      [this.petWindow, this.alertWindow, this.settingsWindow, this.bubbleWindow],
+      [this.petWindow, this.alertWindow, this.workbenchWindow, this.bubbleWindow],
       'reminder:changed',
       status
     );
     this.applyReminderStatus(status);
   }
 
-  /** Only the panel lists alarms; pet merely reacts to alarm:fired. */
-  broadcastAlarms(alarms: Alarm[]): void {
-    this.sendTo([this.panelWindow], 'alarm:changed', alarms);
+  broadcastStandaloneReminders(reminders: StandaloneReminder[]): void {
+    this.sendTo([this.workbenchWindow], 'standalone-reminder:changed', reminders);
   }
 
-  broadcastAlarmFired(alarm: Alarm): void {
-    this.sendTo([this.petWindow], 'alarm:fired', alarm);
+  broadcastStandaloneReminderFired(reminder: StandaloneReminder): void {
+    // The pet is the only renderer that renders the dismiss badge for a fired
+    // standalone reminder (PetView.onStandaloneReminderFired); the workbench
+    // shows the persisted list instead.
+    this.sendTo([this.petWindow], 'standalone-reminder:fired', reminder);
   }
 
-  broadcastTodos(todos: TodoItem[]): void {
-    this.sendTo([this.petWindow, this.bubbleWindow, this.panelWindow], 'todo:changed', todos);
-    this.refreshBubble();
+  broadcastFailedDeliveries(notices: FailedDeliveryNotice[]): void {
+    this.sendTo([this.workbenchWindow], 'delivery:failed-changed', notices);
+  }
+
+  broadcastCharacterCollection(state: CharacterCollectionState): void {
+    this.sendTo(
+      [this.petWindow, this.alertWindow, this.bubbleWindow, this.workbenchWindow],
+      'character:changed',
+      state
+    );
   }
 
   broadcastHistory(report: WeeklyReport, care: CareStatus): void {
-    this.sendTo([this.settingsWindow], 'history:changed', report);
-    this.sendTo([this.petWindow, this.settingsWindow], 'care:changed', care);
+    this.sendTo([this.workbenchWindow], 'history:changed', report);
+    this.sendTo([this.petWindow, this.workbenchWindow], 'care:changed', care);
   }
 
   broadcastHotkeyStatus(status: HotkeyStatus): void {
-    this.sendTo([this.settingsWindow], 'hotkeys:changed', status);
+    this.sendTo([this.workbenchWindow], 'hotkeys:changed', status);
   }
 
   /** Pet scale/skin/dim changes: recompute pet bounds, nothing else. */
@@ -552,7 +628,6 @@ export class AppWindows {
   private applyReminderStatus(status: ReminderStatus, settings = this.settingsStore.get()): void {
     const active = status.activeReminder;
     if (active) {
-      this.closePanel();
       if (active.mode === 'gentle') {
         if (this.petWindow && !this.petWindow.isDestroyed()) {
           this.petWindow.showInactive();
@@ -567,7 +642,6 @@ export class AppWindows {
       }
       this.destroyBubble();
       this.updateDimWindows(active.mode === 'focused', settings);
-      void this.ensureAlertWindow();
       return;
     }
 
@@ -598,10 +672,10 @@ export class AppWindows {
     }
   }
 
-  private ensureAlertWindow(): Promise<void> {
+  private ensureAlertWindow(): Promise<boolean> {
     if (this.alertWindow && !this.alertWindow.isDestroyed()) {
       this.positionAlertWindow();
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
     if (this.alertLoading) {
       return this.alertLoading;
@@ -644,7 +718,7 @@ export class AppWindows {
         if (!window.isDestroyed()) {
           window.destroy();
         }
-        return;
+        return false;
       }
 
       if (!this.scheduler.getStatus().activeReminder) {
@@ -652,12 +726,13 @@ export class AppWindows {
         if (!window.isDestroyed()) {
           window.destroy();
         }
-        return;
+        return false;
       }
 
       this.alertWindow = window;
       window.show();
       window.flashFrame(true);
+      return window.isVisible();
     })().finally(() => {
       this.alertLoading = null;
     });
@@ -724,6 +799,10 @@ export class AppWindows {
         }
       });
 
+      // "Dim the desktop", not black it out: the opaque black mask stays
+      // cheap (no transparent-window paint issues), and setOpacity() dims the
+      // whole window uniformly. DWM applies it per window on Windows.
+      mask.setOpacity(DIM_MASK_OPACITY);
       // Mask sits on the 'floating' band while the alert card runs on
       // 'screen-saver', so the card is always above regardless of show order.
       mask.setAlwaysOnTop(true, 'floating');
@@ -744,6 +823,15 @@ export class AppWindows {
     this.dimWindows = [];
   }
 
+  /**
+   * Tear down the dim overlays on demand (no-op when none exist). Used by the
+   * reminder surface's fail-open path: when no actionable surface can be shown,
+   * the dim masks must not be left up alone. Best-effort; never throws.
+   */
+  destroyDimMasks(): void {
+    this.destroyDimWindows();
+  }
+
   private getIdlePetSize(settings: Settings): { width: number; height: number } {
     const size = Math.round(IDLE_SIZE * settings.petScale);
     return { width: size, height: size };
@@ -762,36 +850,6 @@ export class AppWindows {
       width,
       height
     };
-  }
-
-  private getPanelBounds(): Electron.Rectangle {
-    const width = PANEL_SIZE.width;
-    const height = PANEL_SIZE.height;
-    const anchor =
-      this.petWindow && !this.petWindow.isDestroyed()
-        ? this.petWindow.getBounds()
-        : { x: 0, y: 0, width: 0, height: 0 };
-    const display = screen.getDisplayMatching(anchor);
-    const workArea = display.workArea;
-
-    // Prefer placing the panel to the left of the pet; fall back to the right
-    // if there is not enough room, then clamp fully inside the work area.
-    const gap = 12;
-    let x = anchor.x - width - gap;
-    if (x < workArea.x) {
-      x = anchor.x + anchor.width + gap;
-    }
-    x = clamp(x, workArea.x, workArea.x + workArea.width - width);
-    const y = clamp(anchor.y, workArea.y, workArea.y + workArea.height - height);
-
-    return { x, y, width, height };
-  }
-
-  private positionPanelWindow(): void {
-    if (!this.panelWindow || this.panelWindow.isDestroyed()) {
-      return;
-    }
-    this.panelWindow.setBounds(this.getPanelBounds());
   }
 
   private getBubbleBounds(): Electron.Rectangle {
@@ -826,7 +884,7 @@ export class AppWindows {
     }
     const active = status.activeReminder;
     if (active?.mode === 'gentle') {
-      return active.kind === 'combined' || Boolean(active.breakTodo)
+      return active.kind === 'combined' || Boolean(active.breakTask)
         ? GENTLE_COMBINED_BUBBLE_SIZE
         : GENTLE_BUBBLE_SIZE;
     }
@@ -897,7 +955,6 @@ export class AppWindows {
     }
 
     this.positionBubbleWindow();
-    this.positionPanelWindow();
   }
 
   private persistPetPositionSoon(): void {
@@ -936,11 +993,117 @@ export class AppWindows {
     );
   }
 
+  /**
+   * Present a reminder on the primary (full) alert surface. Returns true if the
+   * primary surface is showing or became showing; false if it could not (e.g. the
+   * reminder ended mid-flight), in which case the caller falls back to the
+   * emergency surface. Used by ReminderSurfaceManager's fallback chain.
+   */
+  async showReminderOnPrimary(active: ActiveReminder): Promise<boolean> {
+    if (forceEmergencySmoke) {
+      return false;
+    }
+    if (active.mode === 'gentle') {
+      // Gentle reminders surface through the bubble, not the alert window.
+      this.refreshBubble();
+      if (this.bubbleLoading) {
+        try {
+          await this.bubbleLoading;
+        } catch {
+          return false;
+        }
+      }
+      return this.bubbleWindow !== null && !this.bubbleWindow.isDestroyed() && this.bubbleWindow.isVisible();
+    }
+    if (this.scheduler.getStatus().activeReminder?.id !== active.id) {
+      return false;
+    }
+    const loaded = await this.ensureAlertWindow();
+    const showing =
+      this.alertWindow !== null &&
+      !this.alertWindow.isDestroyed() &&
+      this.alertWindow.isVisible();
+    return loaded && showing;
+  }
+
+  getReminderSurfaceWebContentsId(): number | null {
+    const active = this.scheduler.getStatus().activeReminder;
+    const window = active?.mode === 'gentle' ? this.bubbleWindow : this.alertWindow;
+    return window && !window.isDestroyed() ? window.webContents.id : null;
+  }
+
+  isReminderSurfaceHealthy(): boolean {
+    const active = this.scheduler.getStatus().activeReminder;
+    const window = active?.mode === 'gentle' ? this.bubbleWindow : this.alertWindow;
+    return Boolean(window && !window.isDestroyed() && !window.webContents.isCrashed() && window.isVisible());
+  }
+
   private sendTo(targets: Array<BrowserWindow | null>, channel: string, payload: unknown): void {
     for (const window of targets) {
       if (window && !window.isDestroyed()) {
         window.webContents.send(channel, payload);
       }
     }
+  }
+
+  // Push the full task list to every live window so hooks subscribed to
+  // onTasksChanged re-render. The workbench is the primary consumer; the pet
+  // receives only the pending count via refreshBubble (separate-subscriptions
+  // rule: the always-resident pet window does not rebuild the task list).
+  broadcastTasks(tasks: Task[]): void {
+    this.sendTo(
+      [this.bubbleWindow, this.workbenchWindow],
+      'task:changed',
+      tasks
+    );
+    this.refreshBubble();
+  }
+
+  broadcastProjects(projects: Project[]): void {
+    this.sendTo([this.workbenchWindow], 'project:changed', projects);
+  }
+
+  // Delta stream (USERPLAN 1.2 PR2): single-entity mutations no longer
+  // broadcast the entire Task[] — typing one character updates one row.
+  // The pet window is deliberately excluded: it only needs the pending badge
+  // count, which refreshBubble pushes on the dedicated count channel.
+  broadcastTaskUpserted(task: Task): void {
+    this.sendTo([this.bubbleWindow, this.workbenchWindow], 'task:upserted', task);
+    this.refreshBubble();
+  }
+
+  broadcastTaskRemoved(taskId: string): void {
+    this.sendTo([this.bubbleWindow, this.workbenchWindow], 'task:removed', taskId);
+    this.refreshBubble();
+  }
+
+  broadcastProjectUpserted(project: Project): void {
+    this.sendTo([this.workbenchWindow], 'project:upserted', project);
+  }
+
+  broadcastProjectRemoved(projectId: string): void {
+    this.sendTo([this.workbenchWindow], 'project:removed', projectId);
+  }
+
+  /** Focus session state push (USERPLAN 1.2 PR6). */
+  broadcastFocusStatus(status: FocusStatus): void {
+    this.sendTo([this.workbenchWindow], 'focus:session-changed', status);
+  }
+
+  /** Generic workbench-only push for planning-domain change signals. */
+  broadcastToWorkbench(channel: string, payload: unknown): void {
+    this.sendTo([this.workbenchWindow], channel, payload);
+  }
+
+  broadcastActiveTask(id: string | null): void {
+    this.sendTo([this.workbenchWindow, this.bubbleWindow], 'task:active-changed', id);
+  }
+
+  broadcastTaskWork(summary: TaskWorkSummary): void {
+    this.sendTo([this.workbenchWindow], 'task:work-changed', summary);
+  }
+
+  broadcastUndo(state: UndoState | null): void {
+    this.sendTo([this.workbenchWindow], 'task:undo-changed', state);
   }
 }

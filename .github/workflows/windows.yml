@@ -1,0 +1,252 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan new commits for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-and-package:
+    needs: secret-scan
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Verify UI contract
+        run: npm run verify:ui-contract
+
+      # npm run package starts with npm run build (incl. verify:build),
+      # so a separate Build step would build twice.
+      - name: Build Windows distributions
+        run: npm run package
+
+      - name: Smoke test packaged application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $smokeData = Join-Path $env:RUNNER_TEMP 'eyeprotect-smoke-data'
+          New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
+          $env:EYEPROTECT_DATA_DIR = $smokeData
+          $env:EYEPROTECT_SMOKE = '1'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9333' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:running -- 9333
+            npm run smoke:experience -- 9333
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify NEWPLAN runtime acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping NEWPLAN runtime acceptance'; exit 0 }
+
+          function Invoke-IsolatedSmoke {
+            param([string]$Name, [int]$Port, [scriptblock]$Action)
+            $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP "eyeprotect-$Name-data"
+            New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+            $env:EYEPROTECT_SMOKE = '1'
+            $process = Start-Process -FilePath $executable -ArgumentList "--remote-debugging-port=$Port" -PassThru -WindowStyle Hidden
+            try { & $Action }
+            finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+          Invoke-IsolatedSmoke 'focus-runtime' 9338 { npm run smoke:focus-runtime -- 9338 }
+          Invoke-IsolatedSmoke 'project-lifecycle' 9339 { npm run smoke:project-lifecycle -- 9339 }
+
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-bubble-opt-out-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $env:EYEPROTECT_SMOKE = '1'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9344' -PassThru -WindowStyle Hidden
+          try { npm run smoke:bubble-opt-out -- 9344 exercise }
+          finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Milliseconds 1500
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9344' -PassThru -WindowStyle Hidden
+          try { npm run smoke:bubble-opt-out -- 9344 verify }
+          finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-scale-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $petScaleDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-scale'
+          New-Item -ItemType Directory -Path $petScaleDir -Force | Out-Null
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9345' -PassThru -WindowStyle Hidden
+          try { npm run capture:pet-scale -- 9345 $petScaleDir }
+          finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload NEWPLAN pet-scale captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-pet-scale
+          path: ${{ runner.temp }}/eyeprotect-pet-scale/*.png
+          if-no-files-found: warn
+
+      - name: Smoke test Workbench interactions and restart persistence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-workbench-interaction-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $env:EYEPROTECT_SMOKE = '1'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9336' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:workbench-interactions -- 9336 exercise
+            npm run smoke:plan-interactions -- 9336 exercise
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9336' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:workbench-interactions -- 9336 verify
+            npm run smoke:plan-interactions -- 9336 verify
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Capture deterministic UI snapshots
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP 'eyeprotect-capture-data'
+          New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+          $env:EYEPROTECT_SMOKE = '1'
+          $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping capture'; exit 0 }
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9337' -PassThru -WindowStyle Hidden
+          try {
+            npm run capture:ui -- 9337 $snapshotDir --repeat 3
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload UI snapshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-UI-snapshots
+          path: ${{ runner.temp }}/eyeprotect-ui-snapshots/*.png
+          if-no-files-found: warn
+
+      - name: Capture Windows scale-factor matrix
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $snapshotDir = Join-Path $env:RUNNER_TEMP 'eyeprotect-ui-snapshots'
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping scale matrix'; exit 0 }
+          $matrix = @(
+            @{ Label = '100'; Scale = 1.0; Port = 9340 },
+            @{ Label = '125'; Scale = 1.25; Port = 9341 },
+            @{ Label = '150'; Scale = 1.5; Port = 9342 },
+            @{ Label = '200'; Scale = 2.0; Port = 9343 }
+          )
+          foreach ($entry in $matrix) {
+            $env:EYEPROTECT_DATA_DIR = Join-Path $env:RUNNER_TEMP "eyeprotect-scale-$($entry.Label)"
+            New-Item -ItemType Directory -Path $env:EYEPROTECT_DATA_DIR -Force | Out-Null
+            $process = Start-Process -FilePath $executable -ArgumentList "--remote-debugging-port=$($entry.Port)", "--force-device-scale-factor=$($entry.Scale)" -PassThru -WindowStyle Hidden
+            try {
+              node scripts/capture-ui-scale.mjs $entry.Port $snapshotDir $entry.Label $entry.Scale
+            } finally {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Upload scale-factor snapshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-UI-scale-snapshots
+          path: ${{ runner.temp }}/eyeprotect-ui-snapshots/*scale-*.png
+          if-no-files-found: warn
+
+      - name: Smoke test emergency reminder fallback
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping emergency smoke'; exit 0 }
+          $smokeData = Join-Path $env:RUNNER_TEMP 'eyeprotect-emergency-smoke-data'
+          New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
+          $env:EYEPROTECT_DATA_DIR = $smokeData
+          $env:EYEPROTECT_SMOKE = '1'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9334', '--eyeprotect-smoke-emergency' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:emergency -- 9334
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Smoke test pet renderer startup isolation
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $executable = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\EyeProtect.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { Write-Warning 'Packaged executable is unavailable; skipping pet-failure smoke'; exit 0 }
+          $smokeData = Join-Path $env:RUNNER_TEMP 'eyeprotect-pet-failure-smoke-data'
+          New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
+          $env:EYEPROTECT_DATA_DIR = $smokeData
+          $env:EYEPROTECT_SMOKE = '1'
+          $process = Start-Process -FilePath $executable -ArgumentList '--remote-debugging-port=9335', '--eyeprotect-smoke-pet-failure' -PassThru -WindowStyle Hidden
+          try {
+            npm run smoke:pet-failure -- 9335
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload installer
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-Windows-x64
+          path: |
+            release/EyeProtect-Setup-*-win-x64.exe
+            release/EyeProtect-*-win-x64-portable.exe
+          if-no-files-found: warn

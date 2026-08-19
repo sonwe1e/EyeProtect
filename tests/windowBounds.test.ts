@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ALERT_LAYOUT, getAlertBounds, type WindowRectangle } from '../src/main/windowBounds';
+import { ALERT_LAYOUT, getAlertBounds, getPetMoveBounds, type WindowRectangle } from '../src/main/windowBounds';
 
 const assertInsideWorkArea = (bounds: WindowRectangle, workArea: WindowRectangle): void => {
   assert.ok(bounds.width > 0);
@@ -38,7 +38,7 @@ test('alert bounds adapt to common work areas without overflowing', () => {
   }
 });
 
-test('alert bounds preserve the reminder artwork aspect when space allows', () => {
+test('alert bounds use a compact maximum instead of inheriting legacy artwork dimensions', () => {
   const workAreas: WindowRectangle[] = [
     { x: 0, y: 0, width: 1280, height: 720 },
     { x: 0, y: 0, width: 1920, height: 1040 },
@@ -48,12 +48,11 @@ test('alert bounds preserve the reminder artwork aspect when space allows', () =
 
   for (const workArea of workAreas) {
     const bounds = getAlertBounds(workArea);
-    const artworkWidth = bounds.width - ALERT_LAYOUT.horizontalPadding;
-    const artworkHeight = bounds.height - ALERT_LAYOUT.topPadding - ALERT_LAYOUT.panelReservedSpace;
-
-    assert.ok(artworkWidth > 0);
-    assert.ok(artworkHeight > 0);
-    assert.ok(Math.abs(artworkWidth / artworkHeight - ALERT_LAYOUT.artworkAspect) < 0.02);
+    assert.ok(bounds.width <= ALERT_LAYOUT.targetWidth);
+    assert.ok(bounds.height <= ALERT_LAYOUT.targetHeight);
+    if (workArea.width >= ALERT_LAYOUT.targetWidth + ALERT_LAYOUT.edgeGapMax * 2) {
+      assert.equal(bounds.width, ALERT_LAYOUT.targetWidth);
+    }
   }
 });
 
@@ -64,4 +63,25 @@ test('alert bounds shrink for small displays instead of relying on desktop minim
   assertInsideWorkArea(bounds, workArea);
   assert.ok(bounds.width < 640);
   assert.ok(bounds.height < 480);
+});
+
+test('pet move bounds restore the configured size after native DPI drift', () => {
+  const workArea = { x: -1920, y: 0, width: 1920, height: 1080 };
+  const bounds = getPetMoveBounds(
+    { x: -1200, y: 240 },
+    workArea,
+    { width: 160, height: 160 }
+  );
+
+  assert.deepEqual(bounds, { x: -1200, y: 240, width: 160, height: 160 });
+  assert.equal(getPetMoveBounds({ x: 400, y: 900 }, workArea, { width: 160, height: 160 }).width, 160);
+  assert.equal(getPetMoveBounds({ x: 400, y: 900 }, workArea, { width: 160, height: 160 }).height, 160);
+});
+
+test('pet move bounds clamp against the work area using the fixed configured size', () => {
+  const workArea = { x: 0, y: 0, width: 1280, height: 720 };
+  assert.deepEqual(
+    getPetMoveBounds({ x: -200, y: 900 }, workArea, { width: 288, height: 288 }),
+    { x: 0, y: 432, width: 288, height: 288 }
+  );
 });

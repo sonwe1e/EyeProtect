@@ -1,0 +1,82 @@
+.root .page-sub-header h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.card span {
+  display: block;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+
+.card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 20px;
+  color: var(--fg-primary);
+}
+
+.card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--fg-tertiary);
+}
+
+.taskList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.taskList li {
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.taskList li div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.taskList li strong {
+  color: var(--fg-primary);
+}
+
+.taskList li span {
+  color: var(--fg-tertiary);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-loading {
+  color: var(--fg-tertiary);
+}

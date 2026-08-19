@@ -8,7 +8,6 @@ import {
   TODO_TEXT_MAX,
   nextTodoPriority,
   sanitizeTodos,
-  sortTodosForDisplay,
   type TodoItem
 } from '../src/shared/types';
 
@@ -116,31 +115,6 @@ test('sanitizeTodos preserves valid priority values', () => {
 
   assert.equal(result[0].priority, 'urgent');
   assert.equal(result[1].priority, 'important');
-});
-
-test('sortTodosForDisplay keeps equal-priority pending in insertion order and sinks completed by completedAt', () => {
-  const todos: TodoItem[] = [
-    { id: '1', text: '早完成的', createdAt: 1, completed: true, completedAt: 100, priority: 'normal' },
-    { id: '2', text: '未完成甲', createdAt: 2, completed: false, priority: 'normal' },
-    { id: '3', text: '晚完成的', createdAt: 3, completed: true, completedAt: 300, priority: 'normal' },
-    { id: '4', text: '未完成乙', createdAt: 4, completed: false, priority: 'normal' },
-    { id: '5', text: '无时间戳', createdAt: 5, completed: true, priority: 'normal' }
-  ];
-
-  const sorted = sortTodosForDisplay(todos);
-  assert.deepEqual(sorted.map((todo) => todo.id), ['2', '4', '5', '1', '3']);
-});
-
-test('sortTodosForDisplay sorts pending by priority (urgent first), then createdAt', () => {
-  const todos: TodoItem[] = [
-    { id: '1', text: '普通-旧', createdAt: 1, completed: false, priority: 'normal' },
-    { id: '2', text: '紧急-新', createdAt: 10, completed: false, priority: 'urgent' },
-    { id: '3', text: '重要', createdAt: 5, completed: false, priority: 'important' },
-    { id: '4', text: '紧急-旧', createdAt: 3, completed: false, priority: 'urgent' }
-  ];
-
-  const sorted = sortTodosForDisplay(todos);
-  assert.deepEqual(sorted.map((todo) => todo.id), ['4', '2', '3', '1']);
 });
 
 test('nextTodoPriority cycles normal → important → urgent → normal', () => {
