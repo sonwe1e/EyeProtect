@@ -160,13 +160,13 @@ try {
       window.eyeProtect.getRuntimeInfo()
     ]);
     return {
-      appVersion: runtime.appVersion,
+      isPackaged: runtime.isPackaged,
       dataDir: runtime.dataDir,
       forceRest: settings.forceRest,
       snoozeMinutes: settings.snoozeMinutes
     };
   `);
-  assert.equal(initial.appVersion, '0.3.0');
+  assert.equal(initial.isPackaged, true);
   assert.match(initial.dataDir, /data-legacy-v0\.3$/i);
 
   if (phase === 'verify') {
@@ -271,13 +271,13 @@ try {
         window.eyeProtect.getRuntimeInfo()
       ]);
       return {
-        appVersion: info.appVersion,
+        isPackaged: info.isPackaged,
         forceRest: settings.forceRest,
         snoozeMinutes: settings.snoozeMinutes,
         dataDir: info.dataDir
       };
     `);
-    assert.equal(runtime.appVersion, '0.3.0');
+    assert.equal(runtime.isPackaged, true);
     assert.equal(runtime.forceRest, true);
     assert.equal(runtime.snoozeMinutes, 7);
     assert.match(runtime.dataDir, /data-legacy-v0\.3$/i);
