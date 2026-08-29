@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 import {
   DEFAULT_SETTINGS,
@@ -30,7 +30,45 @@ type SettingsChangedPayload = {
 };
 
 const SETTINGS_FILE = 'settings.json';
-const STARTUP_SHORTCUT = 'EyeProtect.lnk';
+
+export const LEGACY_DATA_DIR_NAME = 'data-legacy-v0.3';
+export const LEGACY_PROFILE_DIR_NAME = 'electron-profile';
+export const LEGACY_STARTUP_SHORTCUT = 'EyeProtect Legacy 0.3.lnk';
+
+export interface RuntimePathInputs {
+  isPackaged: boolean;
+  execPath: string;
+  cwd: string;
+  portableExecutableDir?: string;
+  portableExecutableFile?: string;
+}
+
+const normalizeAbsolutePath = (value: string | undefined): string | null => {
+  const candidate = value?.trim();
+  return candidate && isAbsolute(candidate) ? candidate : null;
+};
+
+export const resolveAppBaseDir = ({
+  isPackaged,
+  execPath,
+  cwd,
+  portableExecutableDir
+}: RuntimePathInputs): string => {
+  if (!isPackaged) return cwd;
+  return normalizeAbsolutePath(portableExecutableDir) ?? dirname(execPath);
+};
+
+export const resolveLaunchExecutable = ({
+  isPackaged,
+  execPath,
+  portableExecutableFile
+}: RuntimePathInputs): string => {
+  if (!isPackaged) return execPath;
+  return normalizeAbsolutePath(portableExecutableFile) ?? execPath;
+};
+
+export const getLegacyProfileDir = (dataDir: string): string =>
+  join(dataDir, LEGACY_PROFILE_DIR_NAME);
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -120,8 +158,13 @@ export const getDataDir = (): string => {
   // packaged-app path — never in tests, which set EYEPROTECT_DATA_DIR.
   const require = createRequire(import.meta.url);
   const { app } = require('electron');
-  const baseDir = app.isPackaged ? dirname(process.execPath) : process.cwd();
-  return join(baseDir, 'data');
+  const baseDir = resolveAppBaseDir({
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    cwd: process.cwd(),
+    portableExecutableDir: env.PORTABLE_EXECUTABLE_DIR
+  });
+  return join(baseDir, LEGACY_DATA_DIR_NAME);
 };
 
 export class SettingsStore extends EventEmitter {
@@ -232,7 +275,7 @@ export const syncStartupShortcut = (settings: Settings): void => {
   const startupDir = env.APPDATA
     ? join(env.APPDATA, 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
     : join(app.getPath('appData'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup');
-  const shortcutPath = join(startupDir, STARTUP_SHORTCUT);
+  const shortcutPath = join(startupDir, LEGACY_STARTUP_SHORTCUT);
 
   if (!settings.startWithWindows) {
     if (existsSync(shortcutPath)) {
@@ -241,9 +284,15 @@ export const syncStartupShortcut = (settings: Settings): void => {
     return;
   }
 
+  const launchExecutable = resolveLaunchExecutable({
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    cwd: process.cwd(),
+    portableExecutableFile: env.PORTABLE_EXECUTABLE_FILE
+  });
   shell.writeShortcutLink(shortcutPath, 'create', {
-    target: process.execPath,
-    cwd: dirname(process.execPath),
-    description: 'EyeProtect'
+    target: launchExecutable,
+    cwd: dirname(launchExecutable),
+    description: 'EyeProtect Legacy 0.3'
   });
 };
