@@ -6,8 +6,8 @@ import type { ReminderAction, ReminderKind, Settings } from '../shared/types';
 import { AlarmClock } from './alarms';
 import { ReminderScheduler } from './reminders';
 import {
+  ensureLegacyProfileDir,
   getDataDir,
-  getLegacyProfileDir,
   SettingsStore,
   syncStartupShortcut
 } from './settings';
@@ -20,7 +20,7 @@ const fallbackTrayPng =
 let tray: Tray | null = null;
 let isQuitting = false;
 
-app.setPath('userData', getLegacyProfileDir(getDataDir()));
+app.setPath('userData', ensureLegacyProfileDir(getDataDir()));
 const lock = app.requestSingleInstanceLock();
 if (!lock) {
   app.quit();

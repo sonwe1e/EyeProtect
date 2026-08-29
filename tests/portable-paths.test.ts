@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  ensureLegacyProfileDir,
   getDataDir,
   getLegacyProfileDir,
   LEGACY_DATA_DIR_NAME,
@@ -62,6 +65,19 @@ test('profile and startup names are isolated from current EyeProtect', () => {
     'D:\\Tools\\EyeProtect Legacy\\data-legacy-v0.3\\electron-profile'
   );
   assert.equal(LEGACY_STARTUP_SHORTCUT, 'EyeProtect Legacy 0.3.lnk');
+});
+
+test('legacy profile directory is created before Electron receives it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'eyeprotect-profile-'));
+  const dataDir = join(root, 'missing', LEGACY_DATA_DIR_NAME);
+
+  try {
+    const profileDir = ensureLegacyProfileDir(dataDir);
+    assert.equal(profileDir, getLegacyProfileDir(dataDir));
+    assert.equal(existsSync(profileDir), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('startup targets the original portable executable', () => {

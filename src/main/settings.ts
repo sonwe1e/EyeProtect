@@ -70,6 +70,12 @@ export const resolveLaunchExecutable = ({
 export const getLegacyProfileDir = (dataDir: string): string =>
   join(dataDir, LEGACY_PROFILE_DIR_NAME);
 
+export const ensureLegacyProfileDir = (dataDir: string): string => {
+  const profileDir = getLegacyProfileDir(dataDir);
+  mkdirSync(profileDir, { recursive: true });
+  return profileDir;
+};
+
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) {
