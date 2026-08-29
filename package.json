@@ -34,8 +34,8 @@
     "vite": "^5.4.11"
   },
   "build": {
-    "appId": "local.eyeprotect.pet",
-    "productName": "EyeProtect",
+    "appId": "local.eyeprotect.legacy.v03",
+    "productName": "EyeProtect Legacy 0.3",
     "directories": {
       "output": "release"
     },
@@ -57,7 +57,7 @@
       ]
     },
     "portable": {
-      "artifactName": "EyeProtect-${version}-win-x64.exe"
+      "artifactName": "EyeProtect-Legacy-${version}-win-x64.exe"
     }
   }
 }

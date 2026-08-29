@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import type { ReminderAction, ReminderKind, Settings } from '../shared/types';
 import { AlarmClock } from './alarms';
 import { ReminderScheduler } from './reminders';
-import { SettingsStore, syncStartupShortcut } from './settings';
+import {
+  getDataDir,
+  getLegacyProfileDir,
+  SettingsStore,
+  syncStartupShortcut
+} from './settings';
 import { AppWindows, getRuntimeInfo } from './windows';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +20,7 @@ const fallbackTrayPng =
 let tray: Tray | null = null;
 let isQuitting = false;
 
+app.setPath('userData', getLegacyProfileDir(getDataDir()));
 const lock = app.requestSingleInstanceLock();
 if (!lock) {
   app.quit();
@@ -88,7 +94,7 @@ const asPartialSettings = (value: unknown): Partial<Settings> => {
   return value as Partial<Settings>;
 };
 
-app.setAppUserModelId('local.eyeprotect.pet');
+app.setAppUserModelId('local.eyeprotect.legacy.v03');
 
 app.whenReady().then(async () => {
   const settingsStore = new SettingsStore();
