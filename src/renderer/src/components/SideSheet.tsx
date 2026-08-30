@@ -21,14 +21,8 @@ export function SideSheet({
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const frame = requestAnimationFrame(() => focusFirst(panelRef.current));
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCloseRef.current();
-      keepFocusInside(event, panelRef.current);
-    };
-    window.addEventListener('keydown', onKeyDown);
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('keydown', onKeyDown);
       previouslyFocused?.focus();
     };
   }, [open]);
@@ -38,7 +32,23 @@ export function SideSheet({
   return (
     <div className="ui-sheet-layer">
       <button className="ui-sheet-scrim" type="button" aria-label="关闭任务详情" onClick={onClose} />
-      <aside ref={panelRef} className="ui-side-sheet" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+      <aside
+        ref={panelRef}
+        className="ui-side-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCloseRef.current();
+          } else {
+            keepFocusInside(event.nativeEvent, panelRef.current);
+          }
+          event.stopPropagation();
+        }}
+      >
         <header className="ui-side-sheet__header">
           <span>{title}</span>
           <IconButton aria-label="关闭任务详情" onClick={onClose}>

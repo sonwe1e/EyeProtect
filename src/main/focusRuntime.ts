@@ -1,4 +1,4 @@
-import type { FocusStatus } from '../shared/types';
+import type { FocusStatus, TaskCheckpointDraft } from '../shared/types';
 import type { FocusSessionService } from './focusSession';
 import type { TaskWorkTracker } from './taskWorkTracker';
 
@@ -12,20 +12,29 @@ export class FocusRuntime {
   ) {}
 
   start(taskId: string, timeBlockId: string | null = null): FocusStatus {
+    return this.switchTo(taskId, null, timeBlockId);
+  }
+
+  switchTo(
+    taskId: string,
+    checkpoint: TaskCheckpointDraft | null = null,
+    timeBlockId: string | null = null
+  ): FocusStatus {
     const current = this.sessions.getStatus();
     if (current.session?.onBreak || this.isHealthBreakActive()) {
       return current;
     }
     this.work.flush();
-    const status = this.sessions.start(taskId, timeBlockId);
+    const status = this.sessions.switchTo(taskId, checkpoint, timeBlockId);
     this.setActiveTask(status.session?.taskId ?? null);
     return status;
   }
 
-  pause(): FocusStatus {
+  pause(checkpoint: TaskCheckpointDraft | null = null): FocusStatus {
+    const taskId = this.sessions.getStatus().session?.taskId ?? null;
     this.work.flush();
-    const status = this.sessions.pause();
-    this.setActiveTask(null);
+    const status = this.sessions.pause(checkpoint);
+    this.setActiveTask(taskId);
     return status;
   }
 

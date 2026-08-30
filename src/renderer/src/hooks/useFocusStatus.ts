@@ -3,6 +3,7 @@ import type { FocusStatus } from '../../../shared/types';
 
 const EMPTY: FocusStatus = {
   session: null,
+  latestCheckpoint: null,
   todayTaskMs: 0,
   totalTaskMs: 0,
   plannedMinutes: null,

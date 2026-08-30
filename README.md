@@ -21,10 +21,12 @@ EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应�
 
 ## 数据与架构
 
-- `data/settings.json`：偏好设置。
-- `data/runtime-state.json`：护眼周期和暂停状态。
-- `data/reminder-history.json`：本地健康趋势。
-- `data/eyeprotect.db`：SQLite Task Core、独立提醒、公仔收藏、通知投递、任务工时和撤销状态。
+- 安装版数据目录：`%APPDATA%/eye-protect-pet/data/`；升级时会从旧安装目录安全迁移。
+- portable 数据目录：EXE 同目录的 `data/`。
+- `settings.json`：偏好设置。
+- `runtime-state.json`：护眼周期和暂停状态。
+- `reminder-history.json`：本地健康趋势。
+- `eyeprotect.db`：SQLite Task Core、独立提醒、公仔收藏、通知投递、任务工时、检查点、每日反思和撤销状态。
 
 Renderer 不直接访问 Node/Electron；窗口能力统一经 sandboxed preload 和主进程 IPC。桌宠是唯一常驻 renderer，且只订阅轻量计数通道（待办数、护理状态等），不接收全量任务数据；工作台按需创建；提醒窗口在结束后销毁。
 

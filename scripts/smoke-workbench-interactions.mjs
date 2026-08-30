@@ -50,7 +50,9 @@ if (mode === 'exercise') {
   })()`);
 
   const workbench = await waitForTarget(endpoint, '#workbench');
-  await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+  const hostScale = await evaluate(workbench, 'window.devicePixelRatio');
+  if (!Number.isFinite(hostScale) || hostScale <= 0) throw new Error(`Invalid host device scale factor: ${hostScale}`);
+  await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: hostScale, mobile: false });
   await waitFor(workbench, `Boolean(document.querySelector('.workbench-v2'))`);
   await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('日程')))?.click()`);
   await waitFor(workbench, `Boolean(document.querySelector('.plan-layout'))`);
@@ -95,7 +97,7 @@ if (mode === 'exercise') {
   if (!focused) throw new Error('Timeline block could not receive keyboard focus');
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown' });
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown' });
-  await waitFor(workbench, `document.activeElement?.classList.contains('timeline-block')`);
+  await waitFor(workbench, `document.activeElement?.classList.contains('timeline-block') && document.activeElement?.getAttribute('aria-label')?.includes('09:15 开始')`);
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', modifiers: 8 });
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', modifiers: 8 });
   await waitFor(workbench, `(async () => {
@@ -124,7 +126,7 @@ if (mode === 'exercise') {
     const task = (await window.eyeProtect.getTasks()).find((entry) => entry.title === 'SMOKE_BOARD_POINTER');
     return Boolean(doing && task?.sectionId === doing.id);
   })()`);
-  console.log('Workbench pointer and keyboard interactions persisted successfully');
+  console.log(`Workbench pointer and keyboard interactions persisted successfully at ${hostScale}x DPR`);
 } else {
   await evaluate(pet, `window.eyeProtect.openWorkbench('plan')`);
   const workbench = await waitForTarget(endpoint, '#workbench');

@@ -8,9 +8,13 @@ import {
   sanitizeTimeBlocks,
   sanitizeProjectSections,
   sanitizeFocusSessions,
+  sanitizeTaskCheckpoints,
+  sanitizeDailyReflections,
   type CharacterCollectionState,
   type DailyTaskPlan,
   type FocusSession,
+  type TaskCheckpoint,
+  type DailyReflection,
   type Project,
   type ProjectSection,
   type ReminderEvent,
@@ -21,7 +25,7 @@ import {
 } from '../shared/types';
 import type { TaskReminderOccurrence } from './taskStore';
 
-const BACKUP_SCHEMA_VERSION = 5;
+const BACKUP_SCHEMA_VERSION = 6;
 type PreferenceSettings = Omit<Settings, 'todos' | 'alarms' | 'activeTaskId'>;
 
 export interface BackupDomainData {
@@ -36,10 +40,12 @@ export interface BackupDomainData {
   timeBlocks: TimeBlock[];
   projectSections: ProjectSection[];
   focusSessions: FocusSession[];
+  taskCheckpoints: TaskCheckpoint[];
+  dailyReflections: DailyReflection[];
 }
 
 export interface EyeProtectBackup extends BackupDomainData {
-  version: 5;
+  version: 6;
   createdAt: number;
   appVersion: string;
   settings: PreferenceSettings;
@@ -56,7 +62,9 @@ const emptyDomain = (): BackupDomainData => ({
   dailyTaskPlans: [],
   timeBlocks: [],
   projectSections: [],
-  focusSessions: []
+  focusSessions: [],
+  taskCheckpoints: [],
+  dailyReflections: []
 });
 
 type BackupDomainInput = Partial<BackupDomainData> & {
@@ -91,13 +99,15 @@ export const createBackup = (
   dailyTaskPlans: domain.dailyTaskPlans ?? [],
   timeBlocks: domain.timeBlocks ?? [],
   projectSections: domain.projectSections ?? [],
-  focusSessions: domain.focusSessions ?? []
+  focusSessions: domain.focusSessions ?? [],
+  taskCheckpoints: domain.taskCheckpoints ?? [],
+  dailyReflections: domain.dailyReflections ?? []
 } satisfies EyeProtectBackup, null, 2)}\n`;
 
 export const parseBackup = (text: string): EyeProtectBackup => {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (
-    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
+    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
     !Number.isFinite(parsed.createdAt) ||
     typeof parsed.appVersion !== 'string' ||
     !parsed.settings || typeof parsed.settings !== 'object' ||
@@ -215,6 +225,16 @@ export const parseBackup = (text: string): EyeProtectBackup => {
       timeBlockId: session.timeBlockId && timeBlockIds.has(session.timeBlockId) ? session.timeBlockId : null
     }))
     .filter((session) => taskIds.has(session.taskId));
+  const focusSessionIds = new Set(focusSessions.map((session) => session.id));
+  const taskCheckpoints = sanitizeTaskCheckpoints(parsed.taskCheckpoints)
+    .map((checkpoint) => ({
+      ...checkpoint,
+      focusSessionId: checkpoint.focusSessionId && focusSessionIds.has(checkpoint.focusSessionId)
+        ? checkpoint.focusSessionId
+        : null
+    }))
+    .filter((checkpoint) => taskIds.has(checkpoint.taskId));
+  const dailyReflections = sanitizeDailyReflections(parsed.dailyReflections);
 
   // Tasks and projects each form their own parent forest. A backup must be a
   // DAG: reject multi-node cycles (A->B->A) that the per-row self-check misses.
@@ -240,6 +260,8 @@ export const parseBackup = (text: string): EyeProtectBackup => {
     timeBlocks,
     projectSections,
     focusSessions,
+    taskCheckpoints,
+    dailyReflections,
     activeTaskId: typeof (parsed.activeTaskId ?? legacyActiveTaskId) === 'string' &&
       tasks.some((task) => task.id === (parsed.activeTaskId ?? legacyActiveTaskId))
       ? (parsed.activeTaskId ?? legacyActiveTaskId) as string

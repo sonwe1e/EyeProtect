@@ -13,6 +13,8 @@
 import type {
   CharacterCollectionState,
   DailyReviewSummary,
+  DailyReflection,
+  DailyReflectionInput,
   CommandResult,
   DailyTaskPlan,
   DailyTaskPlanInput,
@@ -23,6 +25,7 @@ import type {
   ProjectInput,
   ProjectSection,
   ProjectSectionInput,
+  ProjectWorkstreamSummary,
   ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
@@ -31,6 +34,9 @@ import type {
   StandaloneReminder,
   StandaloneReminderInput,
   Task,
+  TaskCheckpoint,
+  TaskCheckpointDraft,
+  TaskCheckpointInput,
   TaskInput,
   TaskMoveInput,
   TaskStatus,
@@ -107,20 +113,34 @@ export const commands = {
     move: (id: string, beforeSectionId: string | null) =>
       run<ProjectSection[]>(() => window.eyeProtect.moveProjectSection(id, beforeSectionId)),
     remove: (id: string) =>
-      run<boolean>(() => window.eyeProtect.deleteProjectSection(id))
+      run<boolean>(() => window.eyeProtect.deleteProjectSection(id)),
+    workSummaries: (projectId: string, since: number) =>
+      run<ProjectWorkstreamSummary[]>(() => window.eyeProtect.getProjectWorkstreamSummaries(projectId, since))
   },
 
   // Focus sessions (USERPLAN 1.2 PR6, ADR-005)
   focus: {
     start: (taskId: string, timeBlockId?: string | null) =>
       run<FocusStatus>(() => window.eyeProtect.startFocus(taskId, timeBlockId)),
-    pause: () => run<FocusStatus>(() => window.eyeProtect.pauseFocus()),
+    switch: (taskId: string, checkpoint?: TaskCheckpointDraft | null) =>
+      run<FocusStatus>(() => window.eyeProtect.switchFocus(taskId, checkpoint)),
+    pause: (checkpoint?: TaskCheckpointDraft | null) =>
+      run<FocusStatus>(() => window.eyeProtect.pauseFocus(checkpoint)),
     resume: () => run<FocusStatus>(() => window.eyeProtect.resumeFocus()),
     complete: () => run<FocusStatus>(() => window.eyeProtect.completeFocus())
   },
+  checkpoints: {
+    list: (taskId: string) => run<TaskCheckpoint[]>(() => window.eyeProtect.getTaskCheckpoints(taskId)),
+    create: (input: TaskCheckpointInput) =>
+      run<TaskCheckpoint>(() => window.eyeProtect.createTaskCheckpoint(input))
+  },
   review: {
     getDaily: (localDate: string) =>
-      run<DailyReviewSummary>(() => window.eyeProtect.getDailyReview(localDate))
+      run<DailyReviewSummary>(() => window.eyeProtect.getDailyReview(localDate)),
+    getReflection: (localDate: string) =>
+      run<DailyReflection | null>(() => window.eyeProtect.getDailyReflection(localDate)),
+    saveReflection: (input: DailyReflectionInput) =>
+      run<DailyReflection>(() => window.eyeProtect.saveDailyReflection(input))
   },
 
   // ── Characters ─────────────────────────────────────────────────────────────

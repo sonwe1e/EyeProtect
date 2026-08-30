@@ -64,6 +64,15 @@ export const WORKBENCH_SHORTCUTS = {
 
 export type WorkbenchShortcut = keyof typeof WORKBENCH_SHORTCUTS;
 
+const EDITING_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
+
+export function shouldIgnoreWorkbenchShortcut(
+  target: { matches: (selector: string) => boolean } | null,
+  modalOpen: boolean
+): boolean {
+  return modalOpen || (target?.matches(EDITING_SELECTOR) ?? false);
+}
+
 export function isPrimarySection(id: WorkbenchSectionId): boolean {
   return (PRIMARY_WORKBENCH_SECTIONS as readonly string[]).includes(id);
 }

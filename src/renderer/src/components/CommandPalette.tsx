@@ -48,6 +48,7 @@ export function CommandPalette({
       <div className="command-palette-search">
         <Search size={17} aria-hidden="true" />
         <TextField
+          autoFocus
           value={query}
           placeholder="输入命令…"
           aria-label="搜索命令"

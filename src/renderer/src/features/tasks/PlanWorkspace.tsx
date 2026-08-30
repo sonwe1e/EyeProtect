@@ -422,7 +422,15 @@ export function PlanWorkspace({ tasks, projects, now, nextEyeAt, nextWalkAt, onO
           <div
             className="timeline-grid"
             style={{ height: windowMinutes * PIXELS_PER_MINUTE }}
-            onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes(TASK_DRAG_TYPE)) return;
+              event.preventDefault();
+              // Task cards advertise effectAllowed='copy' because scheduling
+              // creates a TimeBlock without removing the task from backlog.
+              // A mismatched 'move' effect makes Chromium cancel the native
+              // drop even though synthetic DragEvent tests appear to pass.
+              event.dataTransfer.dropEffect = 'copy';
+            }}
             onDrop={(event) => {
               event.preventDefault();
               const id = event.dataTransfer.getData(TASK_DRAG_TYPE);

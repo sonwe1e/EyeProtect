@@ -1,5 +1,9 @@
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, RefreshCcw, RotateCcw, Shuffle } from 'lucide-react';
-import { Button, StatusChip } from '../../components/primitives';
+import { Button, Field, StatusChip } from '../../components/primitives';
+import { CommandButton } from '../../components/CommandButton';
+import { useCommand } from '../../hooks/useCommand';
+import { commands } from '../../lib/commands';
 import type { DailyReviewSummary } from '../../../../shared/types';
 import styles from './DailyReview.module.css';
 
@@ -38,6 +42,21 @@ export const DailyReview = ({
   onBacklog: () => void;
   onRefresh: () => void;
 }): JSX.Element => {
+  const [reflectionNote, setReflectionNote] = useState('');
+  const [reflectionNextStep, setReflectionNextStep] = useState('');
+  const saveReflection = useCommand(() => commands.review.saveReflection({
+    localDate: summary?.localDate ?? '',
+    note: reflectionNote,
+    nextStep: reflectionNextStep
+  }));
+  useEffect(() => {
+    setReflectionNote(summary?.reflection?.note ?? '');
+    setReflectionNextStep(summary?.reflection?.nextStep ?? '');
+  }, [summary?.localDate, summary?.reflection?.updatedAt]);
+  const taskTitleById = useMemo(
+    () => new Map((summary?.tasks ?? []).map((task) => [task.taskId, task.title])),
+    [summary?.tasks]
+  );
   return (
     <div className={`workspace-page review-page ${styles.root}`}>
       <header className="page-header">
@@ -45,7 +64,7 @@ export const DailyReview = ({
           <span className="page-eyebrow">Daily Shutdown</span>
           <h1>今日复盘 · {dateLabel}</h1>
         </div>
-        <StatusChip>{summary ? `${summary.tasks.length} 个计划任务` : '加载中…'}</StatusChip>
+        <StatusChip>{summary ? `${summary.tasks.length} 个涉及任务` : '加载中…'}</StatusChip>
       </header>
       {!summary ? (
         <p className="review-loading">正在汇总今日数据…</p>
@@ -93,23 +112,52 @@ export const DailyReview = ({
 
           <section>
             <header className="page-sub-header">
-              <h2>今日任务明细（按日计划）</h2>
+              <h2>今日任务明细（计划与实际投入）</h2>
             </header>
             {summary.tasks.length === 0 ? (
-              <p className={styles.empty}>今天还没有日计划任务。</p>
+              <p className={styles.empty}>今天还没有计划或实际投入。</p>
             ) : (
               <ul className={styles.taskList}>
                 {summary.tasks.map((entry) => (
                   <li key={entry.taskId}>
                     <div>
                       <strong>{entry.title}</strong>
-                      <span>{renderStatus(entry.status)}</span>
+                      <span>{entry.planned ? '已计划' : '未计划投入'} · {renderStatus(entry.status)}</span>
                     </div>
                     <small>计划 {entry.plannedMinutes ?? '--'}m · 今日 {formatWorkMs(entry.todayWorkMs)} · 累计 {formatWorkMs(entry.totalWorkMs)}</small>
                   </li>
                 ))}
               </ul>
             )}
+          </section>
+
+          <section className="review-checkpoints">
+            <header className="page-sub-header"><h2>今日切换与检查点</h2></header>
+            {summary.checkpoints.length ? (
+              <ol className="task-checkpoint-list">
+                {summary.checkpoints.map((checkpoint) => (
+                  <li key={checkpoint.id}>
+                    <time>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(checkpoint.createdAt))}</time>
+                    <strong>{taskTitleById.get(checkpoint.taskId) ?? '任务记录'}</strong>
+                    {checkpoint.progress ? <span>做到：{checkpoint.progress}</span> : null}
+                    {checkpoint.nextStep ? <span>下一步：{checkpoint.nextStep}</span> : null}
+                    {checkpoint.feeling ? <small>感受：{checkpoint.feeling}</small> : null}
+                  </li>
+                ))}
+              </ol>
+            ) : <p className={styles.empty}>今天还没有保存检查点。</p>}
+          </section>
+
+          <section className="review-reflection">
+            <header className="page-sub-header"><h2>今天真实发生了什么？</h2></header>
+            <Field label="自由反思"><textarea rows={4} value={reflectionNote} onChange={(event) => setReflectionNote(event.currentTarget.value)} /></Field>
+            <Field label="明天回来先做什么？"><input value={reflectionNextStep} onChange={(event) => setReflectionNextStep(event.currentTarget.value)} /></Field>
+            <CommandButton
+              variant="primary"
+              state={saveReflection.state}
+              errorReason={saveReflection.error?.message}
+              onClick={() => void saveReflection.run().then((result) => { if (result.ok) onRefresh(); })}
+            >保存复盘</CommandButton>
           </section>
 
           <section className={styles.actions}>

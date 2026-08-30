@@ -92,7 +92,7 @@ export const buildDailyReview = (
 
   const todayPlans = plans.filter((plan) => plan.localDate === localDate);
   const todaysThree = todayPlans.filter((plan) => plan.dailyRank !== null);
-  const tasks: DailyReviewTaskSummary[] = todayPlans
+  const plannedTasks: DailyReviewTaskSummary[] = todayPlans
     .slice()
     .sort(planSort)
     .map((plan) => {
@@ -106,10 +106,26 @@ export const buildDailyReview = (
         status: task.status,
         plannedMinutes: plan.plannedMinutes ?? null,
         todayWorkMs: getDailyTaskWork(store, task.id, from),
-        totalWorkMs: getTotalTaskWork(store, task.id)
+        totalWorkMs: getTotalTaskWork(store, task.id),
+        planned: true
       };
     })
-    .filter((entry): entry is DailyReviewTaskSummary => entry !== null)
+    .filter((entry): entry is DailyReviewTaskSummary => entry !== null);
+  const plannedTaskIds = new Set(plannedTasks.map((entry) => entry.taskId));
+  const unplannedWorkedTasks: DailyReviewTaskSummary[] = allTasks
+    .filter((task) => !plannedTaskIds.has(task.id))
+    .map((task) => ({
+      taskId: task.id,
+      title: task.title,
+      status: task.status,
+      plannedMinutes: null,
+      todayWorkMs: getDailyTaskWork(store, task.id, from),
+      totalWorkMs: getTotalTaskWork(store, task.id),
+      planned: false
+    }))
+    .filter((entry) => entry.todayWorkMs > 0)
+    .sort((left, right) => right.todayWorkMs - left.todayWorkMs || left.title.localeCompare(right.title));
+  const tasks = [...plannedTasks, ...unplannedWorkedTasks];
 
   const focusedSessions = store.getFocusSessions();
   const focusSummary = summarizeReviewSessions(focusedSessions, from, to);
@@ -120,8 +136,8 @@ export const buildDailyReview = (
     localDate,
     plannedMinutes: sum(todayPlans.map((plan) => plan.plannedMinutes ?? 0)),
     actualWorkMs: sum(actualTaskMs),
-    completedPlannedTaskCount: tasks.filter((entry) => taskById.get(entry.taskId)?.status === 'done').length,
-    plannedTaskCount: tasks.length,
+    completedPlannedTaskCount: plannedTasks.filter((entry) => taskById.get(entry.taskId)?.status === 'done').length,
+    plannedTaskCount: plannedTasks.length,
     completedTodaysThreeCount: todaysThree.filter(
       (plan) => taskById.get(plan.taskId)?.status === 'done'
     ).length,
@@ -132,7 +148,9 @@ export const buildDailyReview = (
     focusPausedSessions: focusSummary.focusPausedSessions,
     focusInterruptedSessions: focusSummary.focusInterruptedSessions,
     focusWorkMs: focusSummary.focusWorkMs,
-    tasks
+    tasks,
+    checkpoints: store.getTaskCheckpointsInRange(from, to),
+    reflection: store.getDailyReflection(localDate)
   };
 };
 

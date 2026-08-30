@@ -31,16 +31,17 @@ export const useDailyReview = (localDate: string): {
     const offTasks = window.eyeProtect.onTasksChanged(() => refresh());
     const offPlans = window.eyeProtect.onDailyPlansChanged(() => refresh());
     const offFocus = window.eyeProtect.onFocusStatusChanged(() => refresh());
+    const offCheckpoints = window.eyeProtect.onTaskCheckpointsChanged(() => refresh());
     const offHistory = window.eyeProtect.onWeeklyReportChanged(() => refresh());
     return () => {
       cancel();
       offTasks();
       offPlans();
       offFocus();
+      offCheckpoints();
       offHistory();
     };
   }, [refresh]);
 
   return { summary, refresh };
 };
-

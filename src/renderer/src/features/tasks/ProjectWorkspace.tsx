@@ -10,17 +10,20 @@ import {
 } from '../../../../shared/types';
 import { isProjectAssignable, isProjectWritable } from '../../../../shared/projectPolicy';
 import { groupTasksBySection } from '../../../../shared/projectSections';
+import { startOfLocalDate } from '../../../../shared/calendar';
 import { CommandButton } from '../../components/CommandButton';
 import { Button, Dialog, ProjectDot, StatusChip } from '../../components/primitives';
 import { useCommand } from '../../hooks/useCommand';
 import { useProjectSections } from '../../hooks/useProjectSections';
+import { useProjectWorkstreamSummaries } from '../../hooks/useProjectWorkstreamSummaries';
 import { commands } from '../../lib/commands';
 import { TaskComposer } from './TaskComposer';
 import { TaskList } from './TaskList';
 import styles from './ProjectWorkspace.module.css';
 
-function BoardCard({ task, active, writable, onOpen }: { task: Task; active: boolean; writable: boolean; onOpen: () => void }): JSX.Element {
-  const focus = useCommand(() => commands.focus.start(task.id));
+const formatWork = (value: number): string => value > 0 && value < 60_000 ? '<1m' : `${Math.floor(value / 60_000)}m`;
+
+function BoardCard({ task, active, writable, onOpen, onStartFocus }: { task: Task; active: boolean; writable: boolean; onOpen: () => void; onStartFocus: () => void }): JSX.Element {
   const complete = useCommand((status: Task['status']) => commands.tasks.setStatus(task.id, status));
 
   return (
@@ -41,7 +44,7 @@ function BoardCard({ task, active, writable, onOpen }: { task: Task; active: boo
       </div>
       {writable ? (
         <div className="project-board-card__actions">
-          <CommandButton variant="ghost" state={focus.state} errorReason={focus.error?.message} onClick={() => void focus.run()}><Play size={14} />开始专注</CommandButton>
+          <Button variant="ghost" onClick={onStartFocus}><Play size={14} />开始专注</Button>
           <CommandButton variant="ghost" state={complete.state} errorReason={complete.error?.message} onClick={() => void complete.run('done')}><CheckCircle2 size={14} />完成</CommandButton>
         </div>
       ) : null}
@@ -81,7 +84,7 @@ function SectionHeader({ section, count, canMoveLeft, canMoveRight, moveLeftBefo
     if (rename.isPending) return;
     const name = draft.trim();
     if (!name) {
-      setValidationError('分组名称不能为空');
+      setValidationError('工作流名称不能为空');
       return;
     }
     if (name === section.name) {
@@ -120,7 +123,7 @@ function SectionHeader({ section, count, canMoveLeft, canMoveRight, moveLeftBefo
         />
       ) : (
         <h2>
-          <button type="button" className="project-section-name" title={`${section.name}（点击重命名）`} onClick={() => { cancelRenameRef.current = false; setEditing(true); }}>
+          <button type="button" className="project-section-name" title={`${section.name}（点击重命名工作流）`} onClick={() => { cancelRenameRef.current = false; setEditing(true); }}>
             {section.name}
           </button>
         </h2>
@@ -129,18 +132,18 @@ function SectionHeader({ section, count, canMoveLeft, canMoveRight, moveLeftBefo
         <span className="project-section-count">{count}</span>
         <button type="button" aria-label={`「${section.name}」左移`} disabled={!canMoveLeft || move.isPending} onClick={() => commitMove(moveLeftBeforeId)}><ChevronLeft size={13} /></button>
         <button type="button" aria-label={`「${section.name}」右移`} disabled={!canMoveRight || move.isPending} onClick={() => commitMove(moveRightBeforeId)}><ChevronRight size={13} /></button>
-        <button type="button" aria-label={`删除分组「${section.name}」`} onClick={() => setConfirmOpen(true)}><Trash2 size={13} /></button>
+        <button type="button" aria-label={`删除工作流「${section.name}」`} onClick={() => setConfirmOpen(true)}><Trash2 size={13} /></button>
       </span>
       {editing && (validationError || rename.error) ? <small className="project-section-error" role="alert">{validationError ?? rename.error?.message}</small> : null}
       {move.error ? <small className="project-section-error" role="alert">{move.error.message}</small> : null}
       <Dialog
         open={confirmOpen}
-        title={`删除分组「${section.name}」`}
-        description="分组内的任务会保留，并移回未分组。"
+        title={`删除工作流「${section.name}」`}
+        description="工作流内的任务会保留，并移回未分组。"
         onClose={() => { if (!remove.isPending) setConfirmOpen(false); }}
         footer={<><Button onClick={() => setConfirmOpen(false)}>取消</Button><CommandButton variant="danger" state={remove.state} errorReason={remove.error?.message} onClick={() => void remove.run().then((result) => { if (result.ok) { setConfirmOpen(false); onDeleted(); } })}>确认删除</CommandButton></>}
       >
-        <p>{count > 0 ? `${count} 个任务将移回未分组，不会被删除。` : '该分组目前是空的。'}</p>
+        <p>{count > 0 ? `${count} 个任务将移回未分组，不会被删除。` : '该工作流目前是空的。'}</p>
       </Dialog>
     </header>
   );
@@ -154,7 +157,8 @@ export function ProjectWorkspace({
   activeTaskId,
   now,
   selectedTaskId,
-  onSelectTask
+  onSelectTask,
+  onStartFocus
 }: {
   project: Project;
   tasks: Task[];
@@ -164,6 +168,7 @@ export function ProjectWorkspace({
   now: number;
   selectedTaskId: string | null;
   onSelectTask: (id: string) => void;
+  onStartFocus: (id: string) => void;
 }): JSX.Element {
   const [goalDraft, setGoalDraft] = useState(project.goal ?? '');
   const [goalEditing, setGoalEditing] = useState(false);
@@ -171,6 +176,11 @@ export function ProjectWorkspace({
   const [newSectionName, setNewSectionName] = useState('');
   const [sectionCreatorOpen, setSectionCreatorOpen] = useState(false);
   const { sections, refresh } = useProjectSections(project.id);
+  const workstreamSummaries = useProjectWorkstreamSummaries(project.id, startOfLocalDate(now));
+  const workstreamBySection = useMemo(
+    () => new Map(workstreamSummaries.map((summary) => [summary.sectionId, summary])),
+    [workstreamSummaries]
+  );
   const updateProject = useCommand((input: Parameters<typeof commands.projects.update>[1]) => commands.projects.update(project.id, input));
   const moveTask = useCommand((input: Parameters<typeof commands.tasks.move>[0]) => commands.tasks.move(input));
   const setTaskSection = useCommand((taskId: string, sectionId: string | null) => commands.tasks.setSection(taskId, sectionId));
@@ -299,7 +309,7 @@ export function ProjectWorkspace({
                 className="project-section-input"
                 autoFocus
                 value={newSectionName}
-                placeholder="新分组名称…"
+                placeholder="新工作流名称…"
                 onChange={(event) => setNewSectionName(event.currentTarget.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
@@ -311,7 +321,7 @@ export function ProjectWorkspace({
                   }
                 }}
               />
-              <Button disabled={createSection.isPending || !newSectionName.trim()} onClick={() => addSection(newSectionName)}><Plus size={14} />添加分组</Button>
+              <Button disabled={createSection.isPending || !newSectionName.trim()} onClick={() => addSection(newSectionName)}><Plus size={14} />添加工作流</Button>
               <Button variant="ghost" disabled={createSection.isPending} onClick={() => { setNewSectionName(''); setSectionCreatorOpen(false); }}>取消</Button>
               {sections.length === 0 ? (
                 <Button variant="ghost" disabled={createSection.isPending} onClick={() => void addTemplate()}>
@@ -320,7 +330,7 @@ export function ProjectWorkspace({
               ) : null}
             </>
           ) : (
-            <Button variant="ghost" onClick={() => setSectionCreatorOpen(true)}><Plus size={14} />分组</Button>
+            <Button variant="ghost" onClick={() => setSectionCreatorOpen(true)}><Plus size={14} />工作流</Button>
           )}
           {createSection.error ? <span className="project-page-error" role="alert">{createSection.error.message}</span> : null}
         </div>
@@ -331,6 +341,14 @@ export function ProjectWorkspace({
           {groups.map((group) => (
             <section className="task-section" key={group.sectionId ?? 'none'}>
               <h2>{group.title}</h2>
+              {group.sectionId && workstreamBySection.get(group.sectionId) ? (() => {
+                const summary = workstreamBySection.get(group.sectionId)!;
+                return <p className="project-workstream-summary">
+                  今日 {formatWork(summary.todayWorkMs)} · 累计 {formatWork(summary.totalWorkMs)} · {summary.openTaskCount} 进行中 / {summary.doneTaskCount} 完成
+                  {summary.latestCheckpoint?.progress ? <span>最近进展：{summary.latestCheckpoint.progress}</span> : null}
+                  {summary.latestCheckpoint?.nextStep ? <strong>下一步：{summary.latestCheckpoint.nextStep}</strong> : null}
+                </p>;
+              })() : null}
               {group.tasks.length === 0 ? <p className="project-empty-hint">暂无任务</p> : (
                 <TaskList
                   tasks={group.tasks}
@@ -342,6 +360,7 @@ export function ProjectWorkspace({
                   timeBlocks={timeBlocks}
                   onMovePending={moveTask.isPending}
                   onSelect={onSelectTask}
+                  onStartFocus={onStartFocus}
                   onMove={(taskId, beforeTaskId) => void moveTask.run({ taskId, beforeTaskId, scope: { type: 'project', projectId: project.id } })}
                 />
               )}
@@ -359,6 +378,7 @@ export function ProjectWorkspace({
                 scopeProjectId={project.id}
                 timeBlocks={timeBlocks}
                 onSelect={onSelectTask}
+                onStartFocus={onStartFocus}
               />
             </details>
           ) : null}
@@ -396,7 +416,11 @@ export function ProjectWorkspace({
                 ) : (
                   <header className="project-section-header"><h2>{group.title}</h2><span className="project-section-tools"><span className="project-section-count">{group.tasks.length}</span></span></header>
                 )}
-                <div>{group.tasks.map((task) => <BoardCard key={task.id} task={task} active={task.id === activeTaskId} writable={writable} onOpen={() => onSelectTask(task.id)} />)}</div>
+                {group.sectionId && workstreamBySection.get(group.sectionId) ? (() => {
+                  const summary = workstreamBySection.get(group.sectionId)!;
+                  return <p className="project-workstream-summary">今日 {formatWork(summary.todayWorkMs)} · 累计 {formatWork(summary.totalWorkMs)}{summary.latestCheckpoint?.nextStep ? <strong>下一步：{summary.latestCheckpoint.nextStep}</strong> : null}</p>;
+                })() : null}
+                <div>{group.tasks.map((task) => <BoardCard key={task.id} task={task} active={task.id === activeTaskId} writable={writable} onOpen={() => onSelectTask(task.id)} onStartFocus={() => onStartFocus(task.id)} />)}</div>
                 {group.tasks.length === 0 ? <p className="project-empty-hint">拖拽任务到这里</p> : null}
               </section>
             );
@@ -415,6 +439,7 @@ export function ProjectWorkspace({
             scopeProjectId={project.id}
             timeBlocks={timeBlocks}
             onSelect={onSelectTask}
+            onStartFocus={onStartFocus}
           />
         </details>
       ) : null}

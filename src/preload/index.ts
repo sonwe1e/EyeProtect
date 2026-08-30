@@ -5,6 +5,8 @@ import type {
   CharacterCollectionState,
   CharacterMaterial,
   DailyReviewSummary,
+  DailyReflection,
+  DailyReflectionInput,
   DailyTaskPlan,
   DailyTaskPlanInput,
   DataActionResult,
@@ -21,6 +23,7 @@ import type {
   ProjectInput,
   ProjectSection,
   ProjectSectionInput,
+  ProjectWorkstreamSummary,
   ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
@@ -30,6 +33,9 @@ import type {
   StandaloneReminder,
   StandaloneReminderInput,
   Task,
+  TaskCheckpoint,
+  TaskCheckpointDraft,
+  TaskCheckpointInput,
   TaskInput,
   TaskMoveInput,
   TaskStatus,
@@ -122,13 +128,27 @@ const api: EyeProtectApi = {
   onProjectSectionsChanged: (callback) => on<{ projectId: string | null }>('section:changed', callback),
   setTaskSection: (taskId: string, sectionId: string | null) =>
     ipcRenderer.invoke('task:set-section', taskId, sectionId) as Promise<Task>,
+  getProjectWorkstreamSummaries: (projectId: string, since: number) =>
+    ipcRenderer.invoke('section:work-summary', projectId, since) as Promise<ProjectWorkstreamSummary[]>,
   getFocusStatus: () => ipcRenderer.invoke('focus:get') as Promise<FocusStatus>,
   startFocus: (taskId: string, timeBlockId?: string | null) =>
     ipcRenderer.invoke('focus:start', taskId, timeBlockId ?? null) as Promise<FocusStatus>,
-  pauseFocus: () => ipcRenderer.invoke('focus:pause') as Promise<FocusStatus>,
+  switchFocus: (taskId: string, checkpoint?: TaskCheckpointDraft | null) =>
+    ipcRenderer.invoke('focus:switch', taskId, checkpoint ?? null) as Promise<FocusStatus>,
+  pauseFocus: (checkpoint?: TaskCheckpointDraft | null) =>
+    ipcRenderer.invoke('focus:pause', checkpoint ?? null) as Promise<FocusStatus>,
   resumeFocus: () => ipcRenderer.invoke('focus:resume') as Promise<FocusStatus>,
   completeFocus: () => ipcRenderer.invoke('focus:complete') as Promise<FocusStatus>,
   onFocusStatusChanged: (callback) => on<FocusStatus>('focus:session-changed', callback),
+  getTaskCheckpoints: (taskId: string) =>
+    ipcRenderer.invoke('checkpoint:list', taskId) as Promise<TaskCheckpoint[]>,
+  createTaskCheckpoint: (input: TaskCheckpointInput) =>
+    ipcRenderer.invoke('checkpoint:create', input) as Promise<TaskCheckpoint>,
+  onTaskCheckpointsChanged: (callback) => on<{ taskId: string | null }>('checkpoint:changed', callback),
+  getDailyReflection: (localDate: string) =>
+    ipcRenderer.invoke('daily:reflection:get', localDate) as Promise<DailyReflection | null>,
+  saveDailyReflection: (input: DailyReflectionInput) =>
+    ipcRenderer.invoke('daily:reflection:save', input) as Promise<DailyReflection>,
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),

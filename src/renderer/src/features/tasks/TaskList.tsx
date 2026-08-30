@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarClock, Check, Flag, Footprints, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, Check, Flag, Footprints, Play, Trash2 } from 'lucide-react';
 import {
   TASK_TITLE_MAX,
   nextTodoPriority,
@@ -75,6 +75,7 @@ const TaskRow = memo(function TaskRow({
   scopedToProject,
   movePending,
   onSelect,
+  onStartFocus,
   onMove,
   onDragStartRow,
   onDropOnRow,
@@ -98,6 +99,7 @@ const TaskRow = memo(function TaskRow({
    *  press computed from stale row order cannot be silently dropped. */
   movePending: boolean;
   onSelect: (id: string) => void;
+  onStartFocus?: (id: string) => void;
   onMove: (index: number, direction: -1 | 1) => void;
   onDragStartRow: (id: string) => void;
   onDropOnRow: (targetId: string) => void;
@@ -273,6 +275,9 @@ const TaskRow = memo(function TaskRow({
         </div>
       </div>
       <span className="task-status-label">{STATUS_LABELS[task.status] ?? task.status}</span>
+      {task.status === 'open' && onStartFocus ? (
+        <button type="button" className="task-focus" aria-label={`开始专注「${task.title}」`} onClick={(event) => { event.stopPropagation(); onStartFocus(task.id); }}><Play size={12} /></button>
+      ) : null}
       <span className="task-order-controls">
         <button type="button" title="上移" aria-label={`上移「${task.title}」`} disabled={!canReorder || siblingIndex === 0 || movePending} onClick={(event) => { event.stopPropagation(); onMove(index, -1); }}><ArrowUp size={11} /></button>
         <button type="button" title="下移" aria-label={`下移「${task.title}」`} disabled={!canReorder || siblingIndex === siblingCount - 1 || movePending} onClick={(event) => { event.stopPropagation(); onMove(index, 1); }}><ArrowDown size={11} /></button>
@@ -305,6 +310,7 @@ export function TaskList({
   timeBlocks = [],
   onMovePending = false,
   onSelect,
+  onStartFocus,
   onMove
 }: {
   tasks: Task[];
@@ -316,6 +322,7 @@ export function TaskList({
   timeBlocks?: TimeBlock[];
   onMovePending?: boolean;
   onSelect: (id: string) => void;
+  onStartFocus?: (id: string) => void;
   onMove?: (taskId: string, beforeTaskId: string | null) => void;
 }): JSX.Element {
   const projectById = useMemo(() => {
@@ -445,6 +452,7 @@ export function TaskList({
             scopedToProject={Boolean(scopeProjectId)}
             movePending={onMovePending}
             onSelect={onSelect}
+            onStartFocus={onStartFocus}
             onMove={handleMove}
             onDragStartRow={setDraggingId}
             onDropOnRow={handleRowDrop}

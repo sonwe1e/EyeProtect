@@ -72,6 +72,7 @@ test('buildDailyReview aggregates plans, work, reminders and focus sessions', ()
 
     store.recordWorkSegment(activeTask, TODAY_START + 60 * 60_000, TODAY_START + 60 * 60_000 + 20 * 60_000, 20 * 60_000);
     store.recordWorkSegment(doneTask, TODAY_START + 3 * 60 * 60_000, TODAY_START + 3 * 60 * 60_000 + 10 * 60_000, 10 * 60_000);
+    store.recordWorkSegment(interruptedTask, TODAY_START + 90 * 60_000, TODAY_START + 96 * 60_000, 6 * 60_000);
     store.recordWorkSegment(activeTask, YESTERDAY_START + 3 * 60 * 60_000, YESTERDAY_START + 3 * 60 * 60_000 + 15 * 60_000, 15 * 60_000);
     store.recordWorkSegment(yesterdayTask, TODAY_START - 10 * 60_000, TODAY_START - 5 * 60_000, 5 * 60_000);
 
@@ -81,8 +82,21 @@ test('buildDailyReview aggregates plans, work, reminders and focus sessions', ()
     const secondSession = store.startFocusSession({ taskId: interruptedTask }, TODAY_START + 90 * 60_000);
     store.addFocusSessionActiveMs(secondSession.id, 6 * 60_000, TODAY_START + 96 * 60_000);
     store.endFocusSession(secondSession.id, 'interrupted', TODAY_START + 96 * 60_000);
+    store.createTaskCheckpoint({
+      taskId: interruptedTask,
+      focusSessionId: secondSession.id,
+      kind: 'switch',
+      progress: '问题已定位',
+      nextStep: '等待反馈',
+      feeling: '被打断'
+    }, TODAY_START + 96 * 60_000);
     const thirdSession = store.startFocusSession({ taskId: activeTask }, TODAY_START + 110 * 60_000);
     store.endFocusSession(thirdSession.id, 'paused', TODAY_START + 110 * 60_000);
+    store.upsertDailyReflection({
+      localDate: TODAY_KEY,
+      note: '今天发生了两次任务切换',
+      nextStep: '明天继续活跃任务'
+    }, TODAY_START + 120 * 60_000);
 
     history.record(
       makeReminder({
@@ -108,7 +122,7 @@ test('buildDailyReview aggregates plans, work, reminders and focus sessions', ()
     const summary = buildDailyReview(store, history, TODAY_KEY);
     assert.equal(summary.localDate, TODAY_KEY);
     assert.equal(summary.plannedMinutes, 210);
-    assert.equal(summary.actualWorkMs, 30 * 60_000);
+    assert.equal(summary.actualWorkMs, 36 * 60_000);
     assert.equal(summary.completedPlannedTaskCount, 1);
     assert.equal(summary.plannedTaskCount, 2);
     assert.equal(summary.completedTodaysThreeCount, 1);
@@ -125,14 +139,20 @@ test('buildDailyReview aggregates plans, work, reminders and focus sessions', ()
     const taskSummary = new Map(summary.tasks.map((entry) => [entry.taskId, entry]));
     const activeTaskSummary = taskSummary.get(activeTask);
     const doneTaskSummary = taskSummary.get(doneTask);
+    const interruptedTaskSummary = taskSummary.get(interruptedTask);
     assert.ok(activeTaskSummary);
     assert.ok(doneTaskSummary);
+    assert.ok(interruptedTaskSummary, 'worked-but-unplanned tasks belong in the review detail');
     assert.equal(activeTaskSummary.plannedMinutes, 90);
     assert.equal(activeTaskSummary.todayWorkMs, 20 * 60_000);
     assert.equal(activeTaskSummary.totalWorkMs, 35 * 60_000);
     assert.equal(doneTaskSummary.plannedMinutes, 120);
     assert.equal(doneTaskSummary.todayWorkMs, 10 * 60_000);
     assert.equal(doneTaskSummary.totalWorkMs, 10 * 60_000);
+    assert.equal(interruptedTaskSummary.plannedMinutes, null);
+    assert.equal(interruptedTaskSummary.todayWorkMs, 6 * 60_000);
+    assert.equal(summary.checkpoints[0].taskId, interruptedTask);
+    assert.equal(summary.reflection?.note, '今天发生了两次任务切换');
   } finally {
     teardown(fixture);
   }

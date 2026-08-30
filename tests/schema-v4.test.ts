@@ -402,7 +402,7 @@ test('schema v4 sanitizers reject malformed input', () => {
 
 // ── Backup round-trip ──────────────────────────────────────────────────────────
 
-test('backup v5 round-trips the planning domain', () => {
+test('backup v6 round-trips planning, checkpoints and reflections', () => {
   withStore((store) => {
     const project = store.createProject({ name: 'Research', status: 'onHold' }, NOW);
     const task = store.createTask({ title: 'Paper', projectId: project.id }, NOW);
@@ -416,6 +416,8 @@ test('backup v5 round-trips the planning domain', () => {
     const session = store.startFocusSession({ taskId: task.id, timeBlockId: block.id }, NOW);
     store.addFocusSessionActiveMs(session.id, 120_000, NOW);
     store.endFocusSession(session.id, 'paused', NOW + 300_000);
+    store.createTaskCheckpoint({ taskId: task.id, focusSessionId: session.id, kind: 'pause', progress: '完成阅读', nextStep: '整理笔记' }, NOW + 300_000);
+    store.upsertDailyReflection({ localDate: '2026-08-10', note: '今天完成阅读', nextStep: '明天整理笔记' }, NOW + 300_000);
 
     const text = createBackup(DEFAULT_SETTINGS, [], '1.2.0', NOW, {
       tasks: store.getTasks(),
@@ -425,10 +427,12 @@ test('backup v5 round-trips the planning domain', () => {
       dailyTaskPlans: store.getAllDailyTaskPlans(),
       timeBlocks: store.getTimeBlocks(),
       projectSections: store.getAllProjectSections(),
-      focusSessions: store.getFocusSessions()
+      focusSessions: store.getFocusSessions(),
+      taskCheckpoints: store.getTaskCheckpoints(),
+      dailyReflections: store.getDailyReflections()
     });
     const backup = parseBackup(text);
-    assert.equal(backup.version, 5);
+    assert.equal(backup.version, 6);
     assert.equal(backup.dailyTaskPlans.length, 1);
     assert.equal(backup.dailyTaskPlans[0].dailyRank, 1);
     assert.equal(backup.timeBlocks.length, 1);
@@ -439,6 +443,8 @@ test('backup v5 round-trips the planning domain', () => {
     assert.equal(backup.focusSessions[0].timeBlockId, block.id);
     assert.equal(backup.projects[0].status, 'onHold');
     assert.equal(backup.tasks[0].sectionId, section.id);
+    assert.equal(backup.taskCheckpoints[0].nextStep, '整理笔记');
+    assert.equal(backup.dailyReflections[0].note, '今天完成阅读');
 
     // Apply into a fresh store exactly like importBackup does.
     withStore((target) => {
@@ -448,16 +454,20 @@ test('backup v5 round-trips the planning domain', () => {
       target.replaceAllDailyTaskPlans(backup.dailyTaskPlans);
       target.replaceAllTimeBlocks(backup.timeBlocks);
       target.replaceAllFocusSessions(backup.focusSessions);
+      target.replaceAllTaskCheckpoints(backup.taskCheckpoints);
+      target.replaceAllDailyReflections(backup.dailyReflections);
       assert.equal(target.getTask(task.id)?.sectionId, section.id);
       assert.equal(target.getProject(project.id)?.status, 'onHold');
       assert.equal(target.getDailyPlans('2026-08-10')[0].plannedMinutes, 90);
       assert.equal(target.getTimeBlocksForTask(task.id).length, 1);
       assert.equal(target.getFocusSessions()[0].activeMs, 120_000);
+      assert.equal(target.getTaskCheckpoints(task.id)[0].progress, '完成阅读');
+      assert.equal(target.getDailyReflection('2026-08-10')?.nextStep, '明天整理笔记');
     });
   });
 });
 
-test('pre-v5 backups import with an empty planning domain', () => {
+test('pre-v6 backups import with empty new domains', () => {
   const legacy = JSON.stringify({
     version: 4,
     createdAt: NOW,
@@ -476,6 +486,8 @@ test('pre-v5 backups import with an empty planning domain', () => {
   assert.deepEqual(backup.timeBlocks, []);
   assert.deepEqual(backup.projectSections, []);
   assert.deepEqual(backup.focusSessions, []);
+  assert.deepEqual(backup.taskCheckpoints, []);
+  assert.deepEqual(backup.dailyReflections, []);
 });
 
 test('backup import drops planning rows that lost their referential target', () => {

@@ -25,6 +25,7 @@ import type {
   CharacterAppearanceMode,
   CharacterMaterial,
   DailyTaskPlanInput,
+  DailyReflectionInput,
   HotkeyAction,
   HotkeyStatus,
   PetAccessory,
@@ -34,12 +35,15 @@ import type {
   Settings,
   StandaloneReminderInput,
   Task,
+  TaskCheckpointDraft,
+  TaskCheckpointInput,
   TaskMoveInput,
   TaskStatus,
   TimeBlockInput
 } from '../shared/types';
 import type { Project } from '../shared/types';
 import { DEFAULT_SETTINGS, isLocalDateKey, sanitizeStandaloneReminderSchedule } from '../shared/types';
+import { startOfLocalDate } from '../shared/calendar';
 import { createBackup, parseBackup } from './backup';
 import { startDiagnostics } from './diagnostics';
 import { ReminderScheduler } from './reminders';
@@ -332,6 +336,38 @@ const asString = (value: unknown): string => (typeof value === 'string' ? value 
 
 const asNumber = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const asCheckpointDraft = (value: unknown): TaskCheckpointDraft | null => {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as TaskCheckpointDraft;
+  return {
+    progress: typeof candidate.progress === 'string' ? candidate.progress : null,
+    nextStep: typeof candidate.nextStep === 'string' ? candidate.nextStep : null,
+    feeling: typeof candidate.feeling === 'string' ? candidate.feeling : null
+  };
+};
+
+const asCheckpointInput = (value: unknown): TaskCheckpointInput => {
+  const candidate = (value && typeof value === 'object' ? value : {}) as TaskCheckpointInput;
+  const kind = candidate.kind === 'pause' || candidate.kind === 'switch' || candidate.kind === 'complete'
+    ? candidate.kind
+    : 'manual';
+  return {
+    taskId: asString(candidate.taskId),
+    focusSessionId: typeof candidate.focusSessionId === 'string' ? candidate.focusSessionId : null,
+    kind,
+    ...asCheckpointDraft(candidate)
+  };
+};
+
+const asDailyReflectionInput = (value: unknown): DailyReflectionInput => {
+  const candidate = (value && typeof value === 'object' ? value : {}) as DailyReflectionInput;
+  return {
+    localDate: asString(candidate.localDate),
+    note: asString(candidate.note),
+    nextStep: typeof candidate.nextStep === 'string' ? candidate.nextStep : null
+  };
+};
 
 const asStandaloneReminderInput = (value: unknown): StandaloneReminderInput | null => {
   const candidate = (value && typeof value === 'object' ? value : {}) as Partial<StandaloneReminderInput>;
@@ -822,6 +858,9 @@ app.whenReady().then(async () => {
   taskService.on('project-sections-changed', (payload: { projectId: string | null }) => {
     windows.broadcastToWorkbench('section:changed', payload);
   });
+  taskStore.on('checkpoint-changed', (payload: { taskId: string | null }) => {
+    windows.broadcastToWorkbench('checkpoint:changed', payload);
+  });
   taskService.on('active-task-changed', (id: string | null) => {
     taskWorkTracker.setActiveTask(id);
     windows.broadcastActiveTask(id);
@@ -1057,7 +1096,9 @@ app.whenReady().then(async () => {
         dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
         timeBlocks: taskStore.getTimeBlocks(),
         projectSections: taskStore.getAllProjectSections(),
-        focusSessions: taskStore.getFocusSessions()
+        focusSessions: taskStore.getFocusSessions(),
+        taskCheckpoints: taskStore.getTaskCheckpoints(),
+        dailyReflections: taskStore.getDailyReflections()
       }),
       'utf8'
     );
@@ -1107,7 +1148,9 @@ app.whenReady().then(async () => {
           dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
           timeBlocks: taskStore.getTimeBlocks(),
           projectSections: taskStore.getAllProjectSections(),
-          focusSessions: taskStore.getFocusSessions()
+          focusSessions: taskStore.getFocusSessions(),
+          taskCheckpoints: taskStore.getTaskCheckpoints(),
+          dailyReflections: taskStore.getDailyReflections()
         }
       );
       const rollbackPath = join(settingsStore.getDataDir(), `import-rollback-${Date.now()}.json`);
@@ -1124,6 +1167,8 @@ app.whenReady().then(async () => {
         taskStore.replaceAllDailyTaskPlans(candidate.dailyTaskPlans);
         taskStore.replaceAllTimeBlocks(candidate.timeBlocks);
         taskStore.replaceAllFocusSessions(candidate.focusSessions);
+        taskStore.replaceAllTaskCheckpoints(candidate.taskCheckpoints);
+        taskStore.replaceAllDailyReflections(candidate.dailyReflections);
         taskStore.replaceTaskReminderOccurrences(candidate.taskReminderOccurrences);
         taskStore.replaceStandaloneReminders(candidate.standaloneReminders);
         taskStore.setActiveTaskId(candidate.activeTaskId);
@@ -1172,6 +1217,7 @@ app.whenReady().then(async () => {
     settingsStore.save(DEFAULT_SETTINGS);
     taskStore.replaceAll([]);
     taskStore.replaceProjects([]);
+    taskStore.replaceAllDailyReflections([]);
     taskStore.replaceStandaloneReminders([]);
     taskStore.setActiveTaskId(null);
     characterService.replaceState(null);
@@ -1430,9 +1476,29 @@ app.whenReady().then(async () => {
       )
     )
   );
-  handleIpc('focus:pause', () => requireWritableTaskDatabase(() => focusRuntime.pause()));
+  handleIpc('focus:switch', (taskId, checkpoint) =>
+    requireWritableTaskDatabase(() => focusRuntime.switchTo(asString(taskId), asCheckpointDraft(checkpoint)))
+  );
+  handleIpc('focus:pause', (checkpoint) =>
+    requireWritableTaskDatabase(() => focusRuntime.pause(asCheckpointDraft(checkpoint)))
+  );
   handleIpc('focus:resume', () => requireWritableTaskDatabase(() => focusRuntime.resume()));
   handleIpc('focus:complete', () => requireWritableTaskDatabase(() => focusRuntime.complete()));
+  handleIpc('checkpoint:list', (taskId) => taskStore.getTaskCheckpoints(asString(taskId)));
+  handleIpc('checkpoint:create', (input) =>
+    requireWritableTaskDatabase(() => taskStore.createTaskCheckpoint(asCheckpointInput(input)))
+  );
+  handleIpc('section:work-summary', (projectId, since) =>
+    taskStore.getProjectWorkstreamSummaries(asString(projectId), asNumber(since, startOfLocalDate(Date.now())))
+  );
+  handleIpc('daily:reflection:get', (localDate) =>
+    isLocalDateKey(localDate) ? taskStore.getDailyReflection(localDate) : null
+  );
+  handleIpc('daily:reflection:save', (input) => {
+    const candidate = asDailyReflectionInput(input);
+    if (!isLocalDateKey(candidate.localDate)) throw new Error('无效的日期输入');
+    return requireWritableTaskDatabase(() => taskStore.upsertDailyReflection(candidate));
+  });
   handleIpc(
     'daily:review',
     (localDate) => isLocalDateKey(localDate) ? buildDailyReview(taskStore, historyStore, localDate) : (() => {

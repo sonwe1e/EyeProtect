@@ -9,6 +9,8 @@ import { useSettings } from '../hooks/useSettings';
 import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
 import { commands } from '../lib/commands';
 
+const REACTION_MS = 1_100;
+
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
   const care = useCareStatus();
@@ -25,6 +27,8 @@ export default function PetView(): JSX.Element {
     moved: boolean;
   } | null>(null);
   const suppressClickUntilRef = useRef(0);
+  const reactionTimer = useRef<number | null>(null);
+  const [reaction, setReaction] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const handleOpenAlarms = useCallback(() => {
@@ -105,6 +109,19 @@ export default function PetView(): JSX.Element {
   const hasGift = collection.candidate?.decision === 'pending';
   const compactPet = settings.petScale < 0.7;
 
+  // Pointer capture on the drag surface retargets the synthesized `click`
+  // event to the surface itself, so it never reaches the PetCharacter child.
+  // The reaction trigger therefore lives here, on the capturing element, and
+  // only fires on a genuine single click (detail === 1), never after a drag.
+  const handleReact = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (event.detail !== 1) return;
+    const actions = character.favoriteActions;
+    const action = actions[Math.floor(Math.random() * actions.length)];
+    setReaction(action);
+    if (reactionTimer.current) clearTimeout(reactionTimer.current);
+    reactionTimer.current = window.setTimeout(() => setReaction(null), REACTION_MS);
+  }, [character.favoriteActions]);
+
   return (
     <main className={`pet-shell ${compactPet ? 'pet-compact' : ''} ${isFiring ? 'alarms-active' : ''}`.trim()} onContextMenu={handleContextMenu}>
       {!compactPet ? <div className="pet-toolbar">
@@ -133,18 +150,21 @@ export default function PetView(): JSX.Element {
           onPointerUp={handlePointerEnd}
           onPointerCancel={handlePointerEnd}
           onLostPointerCapture={handlePointerEnd}
-          onClickCapture={(event) => {
-            if (Date.now() <= suppressClickUntilRef.current) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
+          onClick={(event) => {
+            // A drag synthesizes a click on release; suppress it so releasing
+            // a drag does not also trigger an interaction. Pointer capture
+            // retargets the click to this surface, so the handler lives here
+            // rather than on the PetCharacter child.
+            if (Date.now() <= suppressClickUntilRef.current) return;
+            handleReact(event);
           }}
+          onDoubleClick={handlePetDoubleClick}
         >
           <PetCharacter
             character={character}
             mood={mood}
             accessory={accessory}
-            onDoubleClick={handlePetDoubleClick}
+            reaction={reaction}
             doubleClickHint={
               reminderStatus.activeReminder?.mode === 'gentle'
                 ? '双击完成当前休息'

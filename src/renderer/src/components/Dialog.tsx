@@ -30,14 +30,8 @@ export function Dialog({
     const frame = requestAnimationFrame(() => {
       focusFirst(panelRef.current);
     });
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCloseRef.current();
-      keepFocusInside(event, panelRef.current);
-    };
-    window.addEventListener('keydown', onKeyDown);
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('keydown', onKeyDown);
       previouslyFocused?.focus();
     };
   }, [open]);
@@ -55,6 +49,15 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCloseRef.current();
+          } else {
+            keepFocusInside(event.nativeEvent, panelRef.current);
+          }
+          event.stopPropagation();
+        }}
       >
         <header className="ui-dialog__header">
           <div>

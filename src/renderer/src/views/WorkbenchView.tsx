@@ -17,6 +17,7 @@ import {
 import {
   matchesTaskView,
   type FailedDeliveryNotice,
+  type TaskCheckpointDraft,
   type Task
 } from '../../../shared/types';
 import { addLocalDays, localDateKey, sameLocalDate, startOfLocalDate } from '../../../shared/calendar';
@@ -24,7 +25,7 @@ import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
 import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
 import { CommandButton } from '../components/CommandButton';
-import { Button, ProjectDot, SideSheet, StatusChip, Toast } from '../components/primitives';
+import { Button, Dialog, Field, ProjectDot, SideSheet, StatusChip, Toast } from '../components/primitives';
 import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
 import { DailyReview } from '../features/review/DailyReview';
 import { StandaloneReminderSection } from '../features/reminders/StandaloneReminderSection';
@@ -56,6 +57,7 @@ import {
   UTILITY_SECTION_ORDER,
   WORKBENCH_SECTIONS,
   WORKBENCH_SHORTCUTS,
+  shouldIgnoreWorkbenchShortcut,
   type WorkbenchSectionId
 } from '../features/workbench/workbenchNavigation';
 import { WorkbenchSidebar, type WorkbenchNavItem } from '../features/workbench/WorkbenchSidebar';
@@ -102,6 +104,9 @@ export default function WorkbenchView(): JSX.Element {
   const dismissDelivery = useCommand((id: string) => commands.deliveries.dismiss(id));
   const pause = useCommand((minutes: number) => commands.scheduler.pause(minutes));
   const resume = useCommand(() => commands.scheduler.resume());
+  const switchFocus = useCommand((input: { taskId: string; checkpoint: TaskCheckpointDraft | null }) =>
+    commands.focus.switch(input.taskId, input.checkpoint)
+  );
   const [section, setSection] = useState<WorkbenchSection>('today');
   const [planningOpen, setPlanningOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -112,6 +117,10 @@ export default function WorkbenchView(): JSX.Element {
   const [search, setSearch] = useState('');
   const [failedDeliveries, setFailedDeliveries] = useState<FailedDeliveryNotice[]>([]);
   const [reviewDate, setReviewDate] = useState(localDateKey(now));
+  const [pendingFocusTaskId, setPendingFocusTaskId] = useState<string | null>(null);
+  const [switchProgress, setSwitchProgress] = useState('');
+  const [switchNextStep, setSwitchNextStep] = useState('');
+  const [switchFeeling, setSwitchFeeling] = useState('');
   const reviewDateLabel = reviewDateFormatter.format(new Date(`${reviewDate}T00:00:00`));
   const { summary: reviewSummary, refresh: refreshReview } = useDailyReview(reviewDate);
 
@@ -201,6 +210,26 @@ export default function WorkbenchView(): JSX.Element {
     setSearch('');
   }, []);
 
+  const runFocusSwitch = useCallback((taskId: string, checkpoint: TaskCheckpointDraft | null): void => {
+    void switchFocus.run({ taskId, checkpoint }).then((result) => {
+      if (!result.ok) return;
+      setPendingFocusTaskId(null);
+      setSwitchProgress('');
+      setSwitchNextStep('');
+      setSwitchFeeling('');
+      selectSection('focus');
+    });
+  }, [selectSection, switchFocus.run]);
+
+  const requestFocusStart = useCallback((taskId: string): void => {
+    const live = focusStatus.session;
+    if (live && live.taskId !== taskId) {
+      setPendingFocusTaskId(taskId);
+      return;
+    }
+    runFocusSwitch(taskId, null);
+  }, [focusStatus.session, runFocusSwitch]);
+
   const startNewTask = useCallback(() => {
     if (section !== 'projects' || !selectedProjectId) {
       selectSection('inbox');
@@ -211,7 +240,9 @@ export default function WorkbenchView(): JSX.Element {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null;
-      const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]') ?? false;
+      if (shouldIgnoreWorkbenchShortcut(target, Boolean(document.querySelector('[aria-modal="true"]')))) {
+        return;
+      }
       const key = event.key.toLocaleLowerCase();
       const shortcuts = WORKBENCH_SHORTCUTS;
       if (event.key === 'Escape' && isFocusMode) {
@@ -220,7 +251,7 @@ export default function WorkbenchView(): JSX.Element {
       } else if ((event.ctrlKey || event.metaKey) && key === shortcuts.command) {
         event.preventDefault();
         setPaletteOpen(true);
-      } else if (!isEditing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
         if (key === shortcuts.newTask) {
           event.preventDefault();
           startNewTask();
@@ -285,6 +316,7 @@ export default function WorkbenchView(): JSX.Element {
       timeBlocks={allBlocks}
       onMovePending={moveTask.isPending}
       onSelect={setSelectedTaskId}
+      onStartFocus={requestFocusStart}
       onMove={view === 'inbox' ? (taskId, beforeTaskId) => {
         void moveTask.run({
           taskId,
@@ -344,6 +376,7 @@ export default function WorkbenchView(): JSX.Element {
           eyeRemaining={eyeRemaining}
           onOpen={setSelectedTaskId}
           onBack={() => selectSection('today')}
+          onStartFocus={requestFocusStart}
         />
       );
     }
@@ -381,7 +414,7 @@ export default function WorkbenchView(): JSX.Element {
           </div>
         );
       }
-      return <ProjectWorkspace project={selectedProject} tasks={tasks} projects={projects} timeBlocks={allBlocks} activeTaskId={activeTaskId} now={now} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} />;
+      return <ProjectWorkspace project={selectedProject} tasks={tasks} projects={projects} timeBlocks={allBlocks} activeTaskId={activeTaskId} now={now} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} onStartFocus={requestFocusStart} />;
     }
     if (section === 'inbox') {
       return (
@@ -426,14 +459,20 @@ export default function WorkbenchView(): JSX.Element {
                 : ''}
               {` · 下次护眼 ${formatMinutes(eyeRemaining)}`}
             </p>
-            <Button variant="primary" onClick={() => selectSection('focus')}><Play size={16} />继续专注</Button>
+            <Button variant="primary" onClick={() => requestFocusStart(activeTask.id)}><Play size={16} />继续专注</Button>
           </section>
         ) : null}
         <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'today', localDate: todayKey }} />
         {todaysThree.length ? (
           <section className="task-section"><h2>今日目标（Today&apos;s {todaysThree.length}）</h2>{taskList(todaysThree, 'today')}</section>
         ) : (
-          <section className="task-section today-goals-empty"><h2>今日目标</h2><p className="empty-state">还没有今日承诺。<Button onClick={() => setPlanningOpen(true)}>开始每日规划</Button>，选出不超过 3 件真正要做的事。</p></section>
+          <section className="task-section today-goals-empty">
+            <div className="today-goals-empty-inner">
+              <p>还没有今日承诺。</p>
+              <Button variant="secondary" onClick={() => setPlanningOpen(true)}>开始每日规划</Button>
+              <p className="empty-hint">选出不超过 3 件真正要做的事。</p>
+            </div>
+          </section>
         )}
         {scheduledToday.length ? <section className="task-section"><h2>已安排</h2>{taskList(scheduledToday, 'today')}</section> : null}
         {flexibleToday.length ? <section className="task-section"><h2>灵活（今天要做，未排时间）</h2>{taskList(flexibleToday, 'today')}</section> : null}
@@ -485,6 +524,29 @@ export default function WorkbenchView(): JSX.Element {
         {selectedTask ? <TaskDetail key={selectedTask.id} task={selectedTask} tasks={tasks} projects={projects} active={selectedTask.id === activeTaskId} onDeleted={() => setSelectedTaskId(null)} /> : null}
       </SideSheet>
       <CommandPalette open={paletteOpen} commands={paletteCommands} onClose={() => setPaletteOpen(false)} />
+      <Dialog
+        open={pendingFocusTaskId !== null}
+        title={`切换到「${tasks.find((task) => task.id === pendingFocusTaskId)?.title ?? '新任务'}」`}
+        description={`当前正在进行「${focusTask?.title ?? '当前任务'}」。可以留下一条恢复检查点，也可以直接切换。`}
+        onClose={() => { if (!switchFocus.isPending) setPendingFocusTaskId(null); }}
+        footer={<>
+          <Button disabled={switchFocus.isPending} onClick={() => pendingFocusTaskId && runFocusSwitch(pendingFocusTaskId, null)}>直接切换</Button>
+          <CommandButton
+            variant="primary"
+            state={switchFocus.state}
+            errorReason={switchFocus.error?.message}
+            onClick={() => pendingFocusTaskId && runFocusSwitch(pendingFocusTaskId, {
+              progress: switchProgress,
+              nextStep: switchNextStep,
+              feeling: switchFeeling
+            })}
+          >记录并切换</CommandButton>
+        </>}
+      >
+        <Field label="做到哪里？"><textarea rows={2} value={switchProgress} onChange={(event) => setSwitchProgress(event.currentTarget.value)} /></Field>
+        <Field label="回来先做什么？"><textarea rows={2} value={switchNextStep} onChange={(event) => setSwitchNextStep(event.currentTarget.value)} /></Field>
+        <Field label="此刻感受？"><input value={switchFeeling} onChange={(event) => setSwitchFeeling(event.currentTarget.value)} /></Field>
+      </Dialog>
       {undo ? <Toast actions={<CommandButton variant="ghost" state={undoTask.state} errorReason={undoTask.error?.message} onClick={() => void undoTask.run(undo.operationId)}>撤销</CommandButton>}><span className="undo-toast-copy">{undo.kind === 'delete' ? '已删除' : '已完成'}「{undo.taskTitle}」</span></Toast> : null}
       {failedDelivery ? <Toast tone="danger" role="alert" actions={<><CommandButton variant="ghost" state={retryDelivery.state} errorReason={retryDelivery.error?.message} onClick={() => void retryDelivery.run(failedDelivery.id)}>重试</CommandButton><CommandButton variant="ghost" state={dismissDelivery.state} errorReason={dismissDelivery.error?.message} onClick={() => void dismissDelivery.run(failedDelivery.id)}>忽略</CommandButton></>}><strong>有提醒未能送达</strong><span>{failedDelivery.title} · {failedDelivery.body}</span></Toast> : null}
     </main>

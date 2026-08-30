@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { localDateKey, startOfLocalDate } from '../shared/calendar';
-import type { FocusSession, FocusStatus, TimeBlock } from '../shared/types';
+import type { FocusSession, FocusStatus, TaskCheckpointDraft, TimeBlock } from '../shared/types';
 import type { TaskStore } from './taskStore';
 
 export interface FocusSessionServiceOptions {
@@ -37,6 +37,7 @@ export class FocusSessionService extends EventEmitter {
     let totalTaskMs = 0;
     let plannedMinutes: number | null = null;
     let block: TimeBlock | null = null;
+    const latestCheckpoint = taskId ? this.store.getTaskCheckpoints(taskId)[0] ?? null : null;
     if (taskId) {
       todayTaskMs = this.store.getTaskWorkMsSince(taskId, startOfLocalDate(now));
       totalTaskMs = this.store.getTaskWorkMs(taskId);
@@ -49,7 +50,7 @@ export class FocusSessionService extends EventEmitter {
     if (session?.timeBlockId) {
       block = this.store.getTimeBlocks().find((entry) => entry.id === session.timeBlockId) ?? null;
     }
-    return { session, todayTaskMs, totalTaskMs, plannedMinutes, block };
+    return { session, latestCheckpoint, todayTaskMs, totalTaskMs, plannedMinutes, block };
   }
 
   /**
@@ -57,16 +58,22 @@ export class FocusSessionService extends EventEmitter {
    * (append-only history); starting the same task is idempotent.
    */
   start(taskId: string, timeBlockId: string | null = null): FocusStatus {
+    return this.switchTo(taskId, null, timeBlockId);
+  }
+
+  switchTo(
+    taskId: string,
+    checkpoint: TaskCheckpointDraft | null = null,
+    timeBlockId: string | null = null
+  ): FocusStatus {
     const live = this.store.getLiveFocusSession();
     if (live) {
       if (live.taskId === taskId) {
         if (live.onBreak) this.store.setFocusSessionOnBreak(live.id, false);
         return this.emitAndReturn();
       }
-      this.store.endFocusSession(live.id, 'interrupted', this.now());
     }
-    this.store.startFocusSession({ taskId, timeBlockId }, this.now());
-    this.store.setActiveTaskId(taskId, this.now());
+    this.store.switchFocusSession(taskId, timeBlockId, checkpoint, this.now());
     return this.emitAndReturn();
   }
 
@@ -96,13 +103,9 @@ export class FocusSessionService extends EventEmitter {
     return this.emitAndReturn();
   }
 
-  /** Pause: the session ends as `paused`; the active task is released. */
-  pause(): FocusStatus {
-    const live = this.store.getLiveFocusSession();
-    if (live) {
-      this.store.endFocusSession(live.id, 'paused', this.now());
-      this.store.setActiveTaskId(null, this.now());
-    }
+  /** Pause: end the live session but retain the active task for one-click resume. */
+  pause(checkpoint: TaskCheckpointDraft | null = null): FocusStatus {
+    this.store.pauseFocusSession(checkpoint, this.now());
     return this.emitAndReturn();
   }
 

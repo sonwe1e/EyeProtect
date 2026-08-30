@@ -13,22 +13,22 @@ if (!Number.isInteger(repeat) || repeat < 1 || repeat > 10) {
 
 if (repeat > 1) {
   const metricSnapshots = [];
-  const temporaryDirs = [];
   for (let pass = 1; pass <= repeat; pass += 1) {
-    const passDir = pass === repeat ? outputDir : resolve(outputDir, `.repeat-${pass}`);
-    if (pass !== repeat) temporaryDirs.push(passDir);
-    const result = spawnSync(process.execPath, [process.argv[1], String(port), passDir], {
+    // Every pass writes to the root outputDir. Each pass resets its own
+    // fixtures deterministically, so sharing the directory is safe, and a
+    // failing pass's screenshots land where CI uploads them (*.png at root)
+    // instead of in an unuploaded .repeat-N/ subdir.
+    const result = spawnSync(process.execPath, [process.argv[1], String(port), outputDir], {
       cwd: process.cwd(),
       encoding: 'utf8',
       stdio: 'inherit'
     });
     if (result.status !== 0) process.exit(result.status ?? 1);
-    metricSnapshots.push(readFileSync(resolve(passDir, 'layout-metrics.json'), 'utf8'));
+    metricSnapshots.push(readFileSync(resolve(outputDir, 'layout-metrics.json'), 'utf8'));
   }
   if (metricSnapshots.some((snapshot) => snapshot !== metricSnapshots[0])) {
     throw new Error('capture:ui repeat produced different layout metrics after fixture reset');
   }
-  for (const directory of temporaryDirs) rmSync(directory, { recursive: true, force: true });
   console.log(`capture:ui completed ${repeat} identical fixture/layout passes`);
   process.exit(0);
 }
@@ -61,7 +61,17 @@ const auditComputedTheme = async (target, expectedTheme, selectors) => {
       const element = document.querySelector(selector);
       if (!element) return { name, missing: true };
       const style = getComputedStyle(element);
-      return { name, color: style.color, background: style.backgroundColor };
+      // className / opacity / disabled are captured alongside the raw colors
+      // so a contrast failure reports the full computed-style picture instead
+      // of a single ratio — the cascade, not the design token, is what fails.
+      return {
+        name,
+        color: style.color,
+        background: style.backgroundColor,
+        opacity: style.opacity,
+        disabled: element.disabled,
+        className: typeof element.className === 'string' ? element.className : null
+      };
     })
   }))()`);
   const schemes = snapshot.colorScheme.split(/\s+/);
@@ -72,7 +82,9 @@ const auditComputedTheme = async (target, expectedTheme, selectors) => {
   for (const sample of snapshot.samples) {
     if (sample.missing) throw new Error(`Missing computed-style sample: ${sample.name}`);
     const ratio = contrast(sample.color, sample.background);
-    if (ratio < 4.5) throw new Error(`${expectedTheme} ${sample.name} contrast ${ratio.toFixed(2)} is below 4.5:1`);
+    if (ratio < 4.5) {
+      throw new Error(`${expectedTheme} ${sample.name} contrast ${ratio.toFixed(2)} is below 4.5:1: ${JSON.stringify(sample)}`);
+    }
   }
 };
 const dragPointer = async (target, from, to) => {

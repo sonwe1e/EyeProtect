@@ -427,6 +427,54 @@ export interface FocusSessionStartInput {
   timeBlockId?: string | null;
 }
 
+export type TaskCheckpointKind = 'manual' | 'pause' | 'switch' | 'complete';
+
+export interface TaskCheckpointDraft {
+  progress?: string | null;
+  nextStep?: string | null;
+  feeling?: string | null;
+}
+
+export interface TaskCheckpoint extends TaskCheckpointDraft {
+  id: string;
+  taskId: string;
+  focusSessionId: string | null;
+  kind: TaskCheckpointKind;
+  progress: string | null;
+  nextStep: string | null;
+  feeling: string | null;
+  createdAt: number;
+}
+
+export interface TaskCheckpointInput extends TaskCheckpointDraft {
+  taskId: string;
+  focusSessionId?: string | null;
+  kind?: TaskCheckpointKind;
+}
+
+export interface DailyReflection {
+  localDate: string;
+  note: string;
+  nextStep: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DailyReflectionInput {
+  localDate: string;
+  note: string;
+  nextStep?: string | null;
+}
+
+export interface ProjectWorkstreamSummary {
+  sectionId: string;
+  openTaskCount: number;
+  doneTaskCount: number;
+  todayWorkMs: number;
+  totalWorkMs: number;
+  latestCheckpoint: TaskCheckpoint | null;
+}
+
 /**
  * Renderer-facing focus state (USERPLAN 1.2 PR6 / §十四): the live session
  * plus the task-level time layers the Focus surface displays — today's
@@ -434,6 +482,8 @@ export interface FocusSessionStartInput {
  */
 export interface FocusStatus {
   session: FocusSession | null;
+  /** Latest saved resume context for the active/live task. */
+  latestCheckpoint: TaskCheckpoint | null;
   /** Active task's tracked work since local midnight (segments incl. live). */
   todayTaskMs: number;
   /** Active task's tracked work across all days. */
@@ -454,6 +504,8 @@ export interface DailyReviewTaskSummary {
   todayWorkMs: number;
   /** All-time tracked work for this task. */
   totalWorkMs: number;
+  /** True when the task had an explicit DailyTaskPlan for this date. */
+  planned: boolean;
 }
 
 export interface DailyReviewSummary {
@@ -482,6 +534,10 @@ export interface DailyReviewSummary {
   focusWorkMs: number;
   /** 本日涉及到的日计划任务明细。 */
   tasks: DailyReviewTaskSummary[];
+  /** Checkpoints captured during this local day, newest first. */
+  checkpoints: TaskCheckpoint[];
+  /** Optional free-form end-of-day reflection. */
+  reflection: DailyReflection | null;
 }
 
 export interface PetPosition {
@@ -862,14 +918,21 @@ export interface EyeProtectApi {
   deleteProjectSection: (id: string) => Promise<boolean>;
   onProjectSectionsChanged: (callback: (payload: { projectId: string | null }) => void) => () => void;
   setTaskSection: (taskId: string, sectionId: string | null) => Promise<Task>;
+  getProjectWorkstreamSummaries: (projectId: string, since: number) => Promise<ProjectWorkstreamSummary[]>;
   /** Focus session lifecycle (USERPLAN 1.2 PR6, ADR-005). */
   getFocusStatus: () => Promise<FocusStatus>;
   startFocus: (taskId: string, timeBlockId?: string | null) => Promise<FocusStatus>;
-  pauseFocus: () => Promise<FocusStatus>;
+  switchFocus: (taskId: string, checkpoint?: TaskCheckpointDraft | null) => Promise<FocusStatus>;
+  pauseFocus: (checkpoint?: TaskCheckpointDraft | null) => Promise<FocusStatus>;
   resumeFocus: () => Promise<FocusStatus>;
   completeFocus: () => Promise<FocusStatus>;
   onFocusStatusChanged: (callback: (status: FocusStatus) => void) => () => void;
+  getTaskCheckpoints: (taskId: string) => Promise<TaskCheckpoint[]>;
+  createTaskCheckpoint: (input: TaskCheckpointInput) => Promise<TaskCheckpoint>;
+  onTaskCheckpointsChanged: (callback: (payload: { taskId: string | null }) => void) => () => void;
   getDailyReview: (localDate: string) => Promise<DailyReviewSummary>;
+  getDailyReflection: (localDate: string) => Promise<DailyReflection | null>;
+  saveDailyReflection: (input: DailyReflectionInput) => Promise<DailyReflection>;
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
@@ -1565,6 +1628,55 @@ export const sanitizeFocusSessions = (value: unknown, now: number = Date.now()):
     .map((entry) => sanitizeFocusSession(entry, now))
     .filter((entry): entry is FocusSession => Boolean(entry));
 };
+
+const sanitizeCheckpointText = (value: unknown, limit: number): string | null =>
+  typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : null;
+
+export const sanitizeTaskCheckpoint = (value: unknown, now: number = Date.now()): TaskCheckpoint | null => {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<TaskCheckpoint>;
+  if (typeof candidate.id !== 'string' || !candidate.id) return null;
+  if (typeof candidate.taskId !== 'string' || !candidate.taskId) return null;
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  return {
+    id: candidate.id,
+    taskId: candidate.taskId,
+    focusSessionId: typeof candidate.focusSessionId === 'string' && candidate.focusSessionId ? candidate.focusSessionId : null,
+    kind: candidate.kind === 'pause' || candidate.kind === 'switch' || candidate.kind === 'complete'
+      ? candidate.kind
+      : 'manual',
+    progress: sanitizeCheckpointText(candidate.progress, 2_000),
+    nextStep: sanitizeCheckpointText(candidate.nextStep, 2_000),
+    feeling: sanitizeCheckpointText(candidate.feeling, 2_000),
+    createdAt
+  };
+};
+
+export const sanitizeTaskCheckpoints = (value: unknown, now: number = Date.now()): TaskCheckpoint[] =>
+  Array.isArray(value)
+    ? value.map((entry) => sanitizeTaskCheckpoint(entry, now)).filter((entry): entry is TaskCheckpoint => Boolean(entry))
+    : [];
+
+export const sanitizeDailyReflection = (value: unknown, now: number = Date.now()): DailyReflection | null => {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<DailyReflection>;
+  if (!isLocalDateKey(candidate.localDate)) return null;
+  if (typeof candidate.note !== 'string') return null;
+  const createdAt = normalizeTaskTimestamp(candidate.createdAt, now) ?? now;
+  const updatedAt = normalizeTaskTimestamp(candidate.updatedAt, createdAt) ?? createdAt;
+  return {
+    localDate: candidate.localDate,
+    note: candidate.note.trim().slice(0, 4_000),
+    nextStep: sanitizeCheckpointText(candidate.nextStep, 2_000),
+    createdAt,
+    updatedAt
+  };
+};
+
+export const sanitizeDailyReflections = (value: unknown, now: number = Date.now()): DailyReflection[] =>
+  Array.isArray(value)
+    ? value.map((entry) => sanitizeDailyReflection(entry, now)).filter((entry): entry is DailyReflection => Boolean(entry))
+    : [];
 
 /**
  * Pure recurrence math (USERPLAN §二). Given a rule and an epoch-ms reference

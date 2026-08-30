@@ -21,6 +21,15 @@
   overflow-y: auto;
 }
 
+.app-sidebar::-webkit-scrollbar,
+.workspace-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.app-sidebar::-webkit-scrollbar-track,
+.workspace-scroll::-webkit-scrollbar-track { background: transparent; }
+.app-sidebar::-webkit-scrollbar-thumb,
+.workspace-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+.app-sidebar:hover::-webkit-scrollbar-thumb,
+.workspace-scroll:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
 .app-brand {
   display: flex;
   align-items: center;
@@ -36,7 +45,7 @@
   place-items: center;
   color: var(--brand);
   background: var(--brand-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 
 .app-brand > div { display: grid; gap: 1px; }
@@ -59,13 +68,13 @@
   color: var(--fg-secondary);
   text-align: left;
   background: transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 
 .app-nav-item svg { color: currentColor; stroke: currentColor; }
 .app-nav-item:hover { color: var(--fg-primary); background: var(--surface-hover); }
-.app-nav-item.is-active { position: relative; color: var(--fg-primary); background: var(--surface-selected); font-weight: 600; }
-.app-nav-item.is-active::before { position: absolute; top: 12px; bottom: 12px; left: 2px; width: 2px; content: ''; background: var(--brand); border-radius: 2px; }
+.app-nav-item.is-active { position: relative; color: var(--fg-primary); background: var(--surface-selected); font-weight: 500; }
+.app-nav-item.is-active::before { position: absolute; top: 10px; bottom: 10px; left: 2px; width: 2px; content: ''; background: var(--brand); border-radius: 2px; }
 .app-nav-item.is-active svg { color: var(--brand); }
 .app-nav-count { min-width: 20px; color: currentColor; font-size: 12px; text-align: right; }
 
@@ -107,7 +116,7 @@
   padding: 0 4px 0 11px;
   color: var(--fg-secondary);
   background: transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 
 .workbench-v2 .project-item:hover { color: var(--fg-primary); background: var(--surface-hover); }
@@ -118,7 +127,7 @@
 .workbench-v2 .project-item.status-onHold,
 .workbench-v2 .project-item.status-completed,
 .workbench-v2 .project-item.status-archived { color: var(--fg-tertiary); }
-.workbench-v2 .project-group-label { padding: 8px 10px 2px; color: var(--fg-tertiary); font-size: 10px; font-weight: 700; }
+.workbench-v2 .project-group-label { padding: 8px 10px 2px; color: var(--fg-tertiary); font-size: 10px; font-weight: 600; }
 .workbench-v2 .project-item-menu-trigger { display: grid; flex: none; width: 36px; height: 36px; padding: 0; place-items: center; color: var(--fg-tertiary); background: transparent; border: 0; border-radius: var(--radius-small); opacity: 0; }
 .workbench-v2 .project-item:hover .project-item-menu-trigger,
 .workbench-v2 .project-item:focus-within .project-item-menu-trigger { opacity: 1; }
@@ -159,7 +168,7 @@
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 .command-palette-trigger:hover { color: var(--fg-primary); border-color: var(--border-strong); }
 .command-palette-trigger span { flex: 1; }
@@ -174,12 +183,13 @@
   color: var(--fg-secondary);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 
 .workspace-search input { flex: 1; min-width: 0; color: var(--fg-primary); background: transparent; border: 0; outline: 0; }
-.toolbar-rhythm { display: flex; align-items: center; gap: 12px; margin-left: auto; color: var(--fg-secondary); font-size: 12px; }
-.toolbar-rhythm .command-button { min-height: 36px; padding: 0 12px; color: var(--fg-primary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; }
+.toolbar-rhythm { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.toolbar-rhythm > span { color: var(--fg-tertiary); font-size: 11px; white-space: nowrap; }
+.toolbar-rhythm .command-button { min-height: 36px; padding: 0 12px; color: var(--fg-primary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
 
 .workspace-scroll {
   min-width: 0;
@@ -211,9 +221,9 @@
 .page-header h1 { margin: 2px 0 0; font-size: clamp(25px, 3vw, 32px); font-weight: 680; letter-spacing: -0.025em; }
 .page-header > span { padding-bottom: 5px; color: var(--fg-secondary); font-size: 13px; }
 .page-eyebrow { color: var(--fg-secondary); font-size: 13px; }
-.rhythm-summary { display: flex; gap: 8px; }
-.rhythm-summary span { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 8px; color: var(--fg-secondary); background: transparent; border: 0; border-radius: var(--radius-medium); }
-.rhythm-summary svg { color: var(--brand); }
+.rhythm-summary { display: flex; gap: 10px; color: var(--fg-tertiary); font-size: 11px; }
+.rhythm-summary span { display: inline-flex; align-items: center; gap: 4px; }
+.rhythm-summary svg { color: currentColor; opacity: 0.85; }
 
 /* NOW focus strip (USERPLAN 1.2 B5): a compact 64-80px status row instead of a
    hero card, so the task list keeps the primary visual weight. */
@@ -284,7 +294,7 @@
   color: var(--fg-primary);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   overflow: hidden;
 }
 
@@ -353,6 +363,8 @@
 .workbench-v2 .project-chip { gap: 4px; }
 .workbench-v2 .project-chip-dot { width: 6px; height: 6px; background: var(--fg-tertiary); border-radius: 50%; }
 .workbench-v2 .task-status-label { display: none; }
+.workbench-v2 .task-focus { display: grid; width: 36px; height: 36px; flex: none; place-items: center; color: var(--brand); background: transparent; border: 0; border-radius: var(--radius-small); }
+.workbench-v2 .task-focus:hover { background: var(--surface); }
 .workbench-v2 .task-list--today .task-order-controls { display: none; }
 .workbench-v2 .task-order-controls button,
 .workbench-v2 .task-remove { width: 36px; height: 36px; color: var(--fg-tertiary); background: transparent; }
@@ -368,7 +380,7 @@
 .workbench-v2 .task-row:focus-within .task-order-controls,
 .workbench-v2 .task-row:focus-within .task-remove { opacity: 1; pointer-events: auto; }
 .workbench-v2 .project-chip { color: var(--fg-secondary); background: transparent; }
-.workbench-v2 .task-empty { min-height: 96px; color: var(--fg-secondary); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: 10px; }
+.workbench-v2 .task-empty { min-height: 96px; color: var(--fg-secondary); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-medium); }
 
 .overdue-callout {
   display: flex;
@@ -378,7 +390,7 @@
   margin-top: 32px;
   padding: 16px 18px;
   background: var(--warning-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 
 .overdue-callout > div { display: grid; gap: 4px; }
@@ -433,15 +445,18 @@
 }
 
 /* ── Today 2.1 + Daily Planning (USERPLAN 1.2 PR3) ────────────────────────── */
-.workbench-v2 .today-header-actions { display: flex; align-items: center; gap: 12px; }
-.workbench-v2 .today-goals-empty .empty-state { display: flex; gap: 8px; align-items: center; color: var(--fg-secondary); font-size: 13px; }
+.workbench-v2 .today-header-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.workbench-v2 .today-header-actions .ui-button { white-space: nowrap; flex-shrink: 0; }
+.workbench-v2 .today-goals-empty-inner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; color: var(--fg-secondary); font-size: 12.5px; line-height: 1.6; }
+.workbench-v2 .today-goals-empty-inner p { margin: 0; }
+.workbench-v2 .today-goals-empty-inner .empty-hint { color: var(--fg-tertiary); }
 
 .workbench-v2 .planning-page { display: grid; gap: 22px; }
 .workbench-v2 .planning-step {
   padding: 18px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
+  border-radius: var(--radius-large);
 }
 .workbench-v2 .planning-step h2 { display: flex; gap: 7px; align-items: center; margin: 0 0 10px; font-size: 15px; }
 .workbench-v2 .planning-hint { margin: 0 0 10px; color: var(--fg-secondary); font-size: 12.5px; line-height: 1.55; }
@@ -459,7 +474,7 @@
   padding: 9px 12px;
   background: var(--bg-app);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 .workbench-v2 .planning-task-title {
   min-width: 0;
@@ -556,3 +571,16 @@
 /* ── Focus session layers (USERPLAN 1.2 PR6) ─────────────────────────────── */
 .workbench-v2 .focus-block-range { color: var(--fg-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
 .workbench-v2 .focus-on-break { color: var(--warning); background: var(--warning-subtle); border-radius: 8px; padding: 6px 10px; }
+
+.workbench-v2 .focus-resume-context,
+.workbench-v2 .project-workstream-summary { display: grid; gap: var(--space-1); color: var(--fg-secondary); }
+.workbench-v2 .project-workstream-summary { margin: 0 0 var(--space-3); font-size: 12px; }
+.workbench-v2 .project-workstream-summary span,
+.workbench-v2 .project-workstream-summary strong { display: block; }
+.workbench-v2 .task-checkpoint-list { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.workbench-v2 .task-checkpoint-list li { display: grid; gap: 3px; padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); background: var(--surface-subtle); }
+.workbench-v2 .task-checkpoint-list time,
+.workbench-v2 .task-checkpoint-list small { color: var(--fg-tertiary); font-size: 12px; }
+.workbench-v2 .review-checkpoints,
+.workbench-v2 .review-reflection { display: grid; gap: var(--space-3); }
+.workbench-v2 .review-reflection textarea { width: 100%; resize: vertical; }

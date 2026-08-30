@@ -71,6 +71,28 @@ test('starting the same task is idempotent; another task interrupts the live ses
   }
 });
 
+test('switching and pausing can save a recoverable checkpoint', () => {
+  const fixture = setup();
+  try {
+    fixture.service.start(fixture.taskA);
+    const switched = fixture.service.switchTo(fixture.taskB, {
+      progress: '完成仓库扫描',
+      nextStep: '整理核心模块',
+      feeling: '被临时事项打断'
+    });
+    assert.equal(switched.session?.taskId, fixture.taskB);
+    assert.equal(fixture.store.getFocusSessions().find((session) => session.taskId === fixture.taskA)?.outcome, 'interrupted');
+    assert.equal(fixture.store.getTaskCheckpoints(fixture.taskA)[0].nextStep, '整理核心模块');
+
+    const paused = fixture.service.pause({ progress: '线上问题已定位', nextStep: '等待反馈' });
+    assert.equal(paused.session, null);
+    assert.equal(paused.latestCheckpoint?.taskId, fixture.taskB);
+    assert.equal(paused.latestCheckpoint?.progress, '线上问题已定位');
+  } finally {
+    teardown(fixture);
+  }
+});
+
 test('work segments accumulate only for the live session task outside breaks', () => {
   const fixture = setup();
   try {
@@ -110,12 +132,12 @@ test('break pause stops accumulation; break resume continues the SAME session', 
   }
 });
 
-test('pause and complete end the session with the right outcome and release the active task', () => {
+test('pause keeps the active task resumable while completion releases it', () => {
   const fixture = setup();
   try {
     fixture.service.start(fixture.taskA);
     fixture.service.pause();
-    assert.equal(fixture.store.getActiveTaskId(), null);
+    assert.equal(fixture.store.getActiveTaskId(), fixture.taskA);
     assert.equal(fixture.store.getFocusSessions()[0].outcome, 'paused');
 
     fixture.service.start(fixture.taskA);
@@ -125,6 +147,7 @@ test('pause and complete end the session with the right outcome and release the 
     const outcomes = history.map((session) => session.outcome).sort();
     assert.deepEqual(outcomes, ['completed', 'paused']);
     assert.equal(fixture.store.getLiveFocusSession(), null);
+    assert.equal(fixture.store.getActiveTaskId(), null);
   } finally {
     teardown(fixture);
   }

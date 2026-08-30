@@ -8,6 +8,7 @@ const FOCUSABLE_SELECTOR = [
 ].join(',');
 
 export const focusFirst = (container: HTMLElement | null): void => {
+  if (container?.contains(document.activeElement)) return;
   container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
 };
 

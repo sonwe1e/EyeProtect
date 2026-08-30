@@ -14,6 +14,7 @@ import { isProjectAssignable } from '../../../../shared/projectPolicy';
 import { CommandButton } from '../../components/CommandButton';
 import { useCommand } from '../../hooks/useCommand';
 import { useProjectSections } from '../../hooks/useProjectSections';
+import { useTaskCheckpoints } from '../../hooks/useTaskCheckpoints';
 import { commands } from '../../lib/commands';
 import styles from './TaskDetail.module.css';
 
@@ -146,6 +147,9 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const [parentId, setParentId] = useState(task.parentId);
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [checkpointProgress, setCheckpointProgress] = useState('');
+  const [checkpointNextStep, setCheckpointNextStep] = useState('');
+  const [checkpointFeeling, setCheckpointFeeling] = useState('');
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const initialSyncRef = useRef(true);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,6 +189,14 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
   const statusCommand = useCommand((next: TaskStatus) => commands.tasks.setStatus(task.id, next));
   const activeCommand = useCommand((id: string | null) => commands.tasks.setActive(id));
   const deleteCommand = useCommand(() => commands.tasks.delete(task.id));
+  const checkpointCommand = useCommand(() => commands.checkpoints.create({
+    taskId: task.id,
+    kind: 'manual',
+    progress: checkpointProgress,
+    nextStep: checkpointNextStep,
+    feeling: checkpointFeeling
+  }));
+  const { checkpoints, refresh: refreshCheckpoints } = useTaskCheckpoints(task.id);
   const { sections: taskSections } = useProjectSections(projectId ?? '');
   const assignableProjects = projects.filter(isProjectAssignable);
   const recurrenceCommand = useCommand(
@@ -358,6 +370,38 @@ export function TaskDetail({ task, projects, tasks = [], active = false, onUpdat
           onBlur={flushNotes}
         />
       </label>
+
+      <section className="detail-section task-checkpoints" aria-labelledby="task-checkpoints-heading">
+        <h2 id="task-checkpoints-heading">进展记录</h2>
+        <label className="detail-field"><span>做到哪里？</span><textarea rows={2} value={checkpointProgress} onChange={(event) => setCheckpointProgress(event.currentTarget.value)} /></label>
+        <label className="detail-field"><span>回来先做什么？</span><textarea rows={2} value={checkpointNextStep} onChange={(event) => setCheckpointNextStep(event.currentTarget.value)} /></label>
+        <label className="detail-field"><span>此刻感受？</span><input value={checkpointFeeling} onChange={(event) => setCheckpointFeeling(event.currentTarget.value)} /></label>
+        <CommandButton
+          variant="secondary"
+          state={checkpointCommand.state}
+          errorReason={checkpointCommand.error?.message}
+          disabled={!checkpointProgress.trim() && !checkpointNextStep.trim() && !checkpointFeeling.trim()}
+          onClick={() => void checkpointCommand.run().then((result) => {
+            if (!result.ok) return;
+            setCheckpointProgress('');
+            setCheckpointNextStep('');
+            setCheckpointFeeling('');
+            refreshCheckpoints();
+          })}
+        >保存检查点</CommandButton>
+        {checkpoints.length ? (
+          <ol className="task-checkpoint-list">
+            {checkpoints.slice(0, 5).map((checkpoint) => (
+              <li key={checkpoint.id}>
+                <time>{dateFormatter.format(new Date(checkpoint.createdAt))}</time>
+                {checkpoint.progress ? <span>做到：{checkpoint.progress}</span> : null}
+                {checkpoint.nextStep ? <strong>下一步：{checkpoint.nextStep}</strong> : null}
+                {checkpoint.feeling ? <small>感受：{checkpoint.feeling}</small> : null}
+              </li>
+            ))}
+          </ol>
+        ) : <p className="detail-empty-value">还没有进展检查点。</p>}
+      </section>
 
       <section className="detail-section" aria-labelledby="detail-core-heading">
         <h2 id="detail-core-heading">属性</h2>

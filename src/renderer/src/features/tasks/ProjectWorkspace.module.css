@@ -5,7 +5,7 @@
 .root :global(.project-goal-text) { display: block; max-width: min(520px, 55vw); margin-top: 3px; padding: 0; overflow: hidden; color: var(--fg-secondary); font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; }
 .root :global(.project-goal-text:hover) { color: var(--fg-primary); }
 .root :global(.project-goal-input) { display: block; width: min(520px, 55vw); min-height: 32px; margin-top: 3px; padding: 0 7px; color: var(--fg-primary); background: var(--surface); border: 1px solid var(--brand); border-radius: var(--radius-small); outline: 2px solid color-mix(in srgb, var(--focus-ring) 20%, transparent); }
-.root :global(.project-view-switch) { display: flex; gap: 4px; padding: 3px; background: var(--surface-hover); border-radius: 10px; }
+.root :global(.project-view-switch) { display: flex; gap: 4px; padding: 3px; background: var(--surface-hover); border-radius: var(--radius-medium); }
 .root :global(.project-view-switch .ui-button) { min-height: 34px; padding: 0 10px; color: var(--fg-secondary); }
 .root :global(.project-view-switch .ui-button.is-active) { color: var(--brand); background: var(--surface); }
 .root :global(.project-progress-summary) { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
@@ -22,7 +22,7 @@
 .root :global(.project-board-column header span),
 .root :global(.project-board-column > p) { color: var(--fg-tertiary); font-size: 12px; }
 .root :global(.project-board-column > div) { display: grid; gap: 8px; }
-.root :global(.project-board-card) { display: grid; gap: 10px; padding: 12px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 10px; cursor: grab; }
+.root :global(.project-board-card) { display: grid; gap: 10px; padding: 12px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); cursor: grab; }
 .root :global(.project-board-card:active) { cursor: grabbing; }
 .root :global(.project-board-column:has(.project-board-card:active)) { background: var(--surface-hover); border-color: var(--brand); }
 .root :global(.project-board-card__title) { overflow: hidden; color: var(--fg-primary); font-weight: 600; text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; }

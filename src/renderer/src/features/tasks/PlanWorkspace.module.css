@@ -49,7 +49,7 @@
 .root :global(.plan-task-actions .ui-button) { min-height: 34px; padding: 0 9px; font-size: 12px; }
 .root :global(.plan-drag-hint) { display: inline-flex; align-items: center; gap: 2px; color: var(--fg-tertiary); font-size: 11px; }
 .root :global(.plan-timeline) { max-height: calc(100vh - 180px); overflow: auto; }
-.root :global(.timeline-grid) { position: relative; min-width: 0; margin-top: 6px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
+.root :global(.timeline-grid) { position: relative; min-width: 0; margin-top: 6px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); overflow: hidden; }
 .root :global(.timeline-hour) { position: absolute; right: 0; left: 0; height: 1px; background: var(--border-subtle); pointer-events: none; }
 .root :global(.timeline-hour > span) { position: absolute; top: 6px; left: 10px; color: var(--fg-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .root :global(.timeline-blocks) { position: absolute; inset: 0; pointer-events: none; }

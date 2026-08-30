@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -46,6 +47,7 @@ export interface RuntimePathInputs {
   cwd: string;
   portableExecutableDir?: string;
   portableExecutableFile?: string;
+  userDataDir?: string;
 }
 
 const normalizeAbsolutePath = (value: string | undefined): string | null => {
@@ -74,6 +76,46 @@ export const resolveLaunchExecutable = ({
     return execPath;
   }
   return normalizeAbsolutePath(portableExecutableFile) ?? execPath;
+};
+
+export const resolveDataDir = (inputs: RuntimePathInputs): string => {
+  if (!inputs.isPackaged) {
+    return join(inputs.cwd, 'data');
+  }
+  const portableDir = normalizeAbsolutePath(inputs.portableExecutableDir);
+  if (portableDir) {
+    return join(portableDir, 'data');
+  }
+  return join(normalizeAbsolutePath(inputs.userDataDir) ?? dirname(inputs.execPath), 'data');
+};
+
+export const migrateLegacyDataDirectory = (sourceDir: string, targetDir: string): boolean => {
+  if (!existsSync(sourceDir) || existsSync(targetDir) || sourceDir === targetDir) {
+    return false;
+  }
+  const parentDir = dirname(targetDir);
+  const stagingDir = `${targetDir}.migrating-${process.pid}-${randomUUID()}`;
+  mkdirSync(parentDir, { recursive: true });
+  try {
+    cpSync(sourceDir, stagingDir, { recursive: true, errorOnExist: true, force: false });
+    renameSync(stagingDir, targetDir);
+    return true;
+  } catch (error) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw error;
+  }
+};
+
+const prepareDataDir = (inputs: RuntimePathInputs): string => {
+  const targetDir = resolveDataDir(inputs);
+  if (
+    inputs.isPackaged &&
+    !normalizeAbsolutePath(inputs.portableExecutableDir) &&
+    normalizeAbsolutePath(inputs.userDataDir)
+  ) {
+    migrateLegacyDataDirectory(join(dirname(inputs.execPath), 'data'), targetDir);
+  }
+  return targetDir;
 };
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
@@ -303,13 +345,13 @@ export const getDataDir = (): string => {
   // packaged-app path — never in tests, which set EYEPROTECT_DATA_DIR.
   const require = createRequire(import.meta.url);
   const { app } = require('electron');
-  const baseDir = resolveAppBaseDir({
+  return prepareDataDir({
     isPackaged: app.isPackaged,
     execPath: process.execPath,
     cwd: process.cwd(),
-    portableExecutableDir: env.PORTABLE_EXECUTABLE_DIR
+    portableExecutableDir: env.PORTABLE_EXECUTABLE_DIR,
+    userDataDir: app.getPath('userData')
   });
-  return join(baseDir, 'data');
 };
 
 /**

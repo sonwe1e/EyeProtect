@@ -6,7 +6,7 @@
   color: var(--fg-primary);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
 }
 
@@ -58,7 +58,7 @@
   color: var(--fg-primary);
   background: var(--bg-app);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
 }
 
 .ui-input:hover,
@@ -117,7 +117,7 @@
   color: var(--fg-primary);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   box-shadow: var(--shadow-overlay);
 }
 .ui-toast--danger { color: var(--danger); background: var(--danger-subtle); border-color: var(--danger); }
@@ -180,7 +180,7 @@
   color: var(--fg-primary);
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
+  border-radius: var(--radius-large);
   box-shadow: var(--shadow-overlay);
 }
 

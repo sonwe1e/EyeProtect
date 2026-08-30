@@ -10,6 +10,7 @@ import {
   WORKBENCH_SHORTCUTS,
   isPrimarySection,
   isUtilitySection,
+  shouldIgnoreWorkbenchShortcut,
   type WorkbenchSectionId
 } from '../src/renderer/src/features/workbench/workbenchNavigation';
 
@@ -74,4 +75,13 @@ test('shortcuts are single lower-case characters', () => {
     assert.equal(key, key.toLocaleLowerCase(), `shortcut ${name} must be lower-case`);
   }
   assert.equal(new Set(entries.map(([, key]) => key)).size, entries.length, 'shortcut keys must be unique');
+});
+
+test('workbench shortcuts stay inert while a modal is open or text is being edited', () => {
+  const input = { matches: (selector: string) => selector.includes('input') };
+  const button = { matches: () => false };
+  assert.equal(shouldIgnoreWorkbenchShortcut(button, true), true);
+  assert.equal(shouldIgnoreWorkbenchShortcut(input, false), true);
+  assert.equal(shouldIgnoreWorkbenchShortcut(button, false), false);
+  assert.equal(shouldIgnoreWorkbenchShortcut(null, false), false);
 });

@@ -188,6 +188,10 @@ export class AppWindows {
     });
 
     await loadRenderer(this.petWindow, 'pet');
+    // Re-applying the intended DIP bounds after the renderer loads removes the
+    // 1–2 px client-area drift Windows can introduce at fractional DPI before
+    // the first move. The first drag must not double as an implicit resize.
+    this.petWindow.setBounds(bounds, false);
     this.petWindow.showInactive();
     this.refreshBubble();
   }

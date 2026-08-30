@@ -12,6 +12,7 @@ const failedTaskWrite: CommandResult<Task[]> = {
 
 const completedFocus: FocusStatus = {
   session: null,
+  latestCheckpoint: null,
   todayTaskMs: 0,
   totalTaskMs: 0,
   plannedMinutes: null,

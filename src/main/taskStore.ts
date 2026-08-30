@@ -23,6 +23,12 @@ import {
   type FocusSession,
   type FocusSessionOutcome,
   type FocusSessionStartInput,
+  type TaskCheckpoint,
+  type TaskCheckpointDraft,
+  type TaskCheckpointInput,
+  type DailyReflection,
+  type DailyReflectionInput,
+  type ProjectWorkstreamSummary,
   type Project,
   type ProjectInput,
   type ProjectSection,
@@ -90,6 +96,14 @@ interface LegacyTasksFile {
 
 type SqlValue = string | number | bigint | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
+
+const checkpointText = (value: string | null | undefined): string | null => {
+  const text = value?.trim();
+  return text ? text.slice(0, 2_000) : null;
+};
+
+const hasCheckpointContent = (draft: TaskCheckpointDraft | null | undefined): boolean =>
+  Boolean(checkpointText(draft?.progress) || checkpointText(draft?.nextStep) || checkpointText(draft?.feeling));
 
 /**
  * Main-process-only SQLite store for tasks and projects. The public methods keep
@@ -1298,6 +1312,27 @@ export class TaskStore extends EventEmitter {
       CREATE UNIQUE INDEX IF NOT EXISTS focus_sessions_live
         ON focus_sessions(live_slot) WHERE live_slot = 1;
       CREATE INDEX IF NOT EXISTS focus_sessions_task ON focus_sessions(task_id, started_at);
+      CREATE TABLE IF NOT EXISTS task_checkpoints (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        focus_session_id TEXT REFERENCES focus_sessions(id) ON DELETE SET NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('manual','pause','switch','complete')),
+        progress TEXT,
+        next_step TEXT,
+        feeling TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS task_checkpoints_task
+        ON task_checkpoints(task_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS task_checkpoints_created
+        ON task_checkpoints(created_at DESC);
+      CREATE TABLE IF NOT EXISTS daily_reflections (
+        local_date TEXT PRIMARY KEY CHECK(length(local_date) = 10),
+        note TEXT NOT NULL,
+        next_step TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS character_collection_state (
         id INTEGER PRIMARY KEY CHECK(id = 1),
         data_json TEXT NOT NULL,
@@ -1779,6 +1814,189 @@ export class TaskStore extends EventEmitter {
     return this.getAllProjectSections();
   }
 
+  createTaskCheckpoint(input: TaskCheckpointInput, now: number = Date.now()): TaskCheckpoint {
+    if (!this.getTask(input.taskId)) {
+      throw new Error('任务不存在，无法记录进展');
+    }
+    const kind = input.kind === 'pause' || input.kind === 'switch' || input.kind === 'complete'
+      ? input.kind
+      : 'manual';
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO task_checkpoints(id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.taskId,
+      input.focusSessionId ?? null,
+      kind,
+      checkpointText(input.progress),
+      checkpointText(input.nextStep),
+      checkpointText(input.feeling),
+      now
+    );
+    const checkpoint = this.getTaskCheckpoints(input.taskId).find((entry) => entry.id === id)!;
+    this.emit('checkpoint-changed', { taskId: input.taskId });
+    return checkpoint;
+  }
+
+  getTaskCheckpoints(taskId?: string): TaskCheckpoint[] {
+    const rows = (taskId
+      ? this.db.prepare(`
+          SELECT id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at
+          FROM task_checkpoints WHERE task_id = ? ORDER BY created_at DESC, id DESC
+        `).all(taskId)
+      : this.db.prepare(`
+          SELECT id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at
+          FROM task_checkpoints ORDER BY created_at DESC, id DESC
+        `).all()) as SqlRow[];
+    return rows.map(rowToTaskCheckpoint);
+  }
+
+  getTaskCheckpointsInRange(from: number, to: number): TaskCheckpoint[] {
+    return (this.db.prepare(`
+      SELECT id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at
+      FROM task_checkpoints WHERE created_at >= ? AND created_at < ?
+      ORDER BY created_at DESC, id DESC
+    `).all(from, to) as SqlRow[]).map(rowToTaskCheckpoint);
+  }
+
+  upsertDailyReflection(input: DailyReflectionInput, now: number = Date.now()): DailyReflection {
+    const note = input.note.trim().slice(0, 4_000);
+    const nextStep = checkpointText(input.nextStep);
+    this.db.prepare(`
+      INSERT INTO daily_reflections(local_date, note, next_step, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(local_date) DO UPDATE SET
+        note = excluded.note,
+        next_step = excluded.next_step,
+        updated_at = excluded.updated_at
+    `).run(input.localDate, note, nextStep, now, now);
+    return this.getDailyReflection(input.localDate)!;
+  }
+
+  getDailyReflection(localDate: string): DailyReflection | null {
+    const row = this.db.prepare(`
+      SELECT local_date, note, next_step, created_at, updated_at
+      FROM daily_reflections WHERE local_date = ?
+    `).get(localDate) as SqlRow | undefined;
+    return row ? rowToDailyReflection(row) : null;
+  }
+
+  getDailyReflections(): DailyReflection[] {
+    return (this.db.prepare(`
+      SELECT local_date, note, next_step, created_at, updated_at
+      FROM daily_reflections ORDER BY local_date DESC
+    `).all() as SqlRow[]).map(rowToDailyReflection);
+  }
+
+  replaceAllTaskCheckpoints(checkpoints: TaskCheckpoint[]): TaskCheckpoint[] {
+    this.transaction(() => {
+      this.db.exec('DELETE FROM task_checkpoints;');
+      const insert = this.db.prepare(`
+        INSERT INTO task_checkpoints(id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const checkpoint of checkpoints) {
+        if (!this.getTask(checkpoint.taskId)) continue;
+        const sessionExists = checkpoint.focusSessionId
+          ? this.getFocusSessions().some((session) => session.id === checkpoint.focusSessionId)
+          : false;
+        insert.run(
+          checkpoint.id,
+          checkpoint.taskId,
+          sessionExists ? checkpoint.focusSessionId : null,
+          checkpoint.kind,
+          checkpoint.progress,
+          checkpoint.nextStep,
+          checkpoint.feeling,
+          checkpoint.createdAt
+        );
+      }
+    });
+    this.emit('checkpoint-changed', { taskId: null });
+    return this.getTaskCheckpoints();
+  }
+
+  replaceAllDailyReflections(reflections: DailyReflection[]): DailyReflection[] {
+    this.transaction(() => {
+      this.db.exec('DELETE FROM daily_reflections;');
+      const insert = this.db.prepare(`
+        INSERT INTO daily_reflections(local_date, note, next_step, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const reflection of reflections) {
+        insert.run(reflection.localDate, reflection.note, reflection.nextStep, reflection.createdAt, reflection.updatedAt);
+      }
+    });
+    return this.getDailyReflections();
+  }
+
+  getProjectWorkstreamSummaries(projectId: string, since: number): ProjectWorkstreamSummary[] {
+    const tasks = this.getTasks().filter((task) => task.projectId === projectId && task.sectionId);
+    return this.getProjectSections(projectId).map((section) => {
+      const sectionTasks = tasks.filter((task) => task.sectionId === section.id && task.status !== 'archived');
+      const checkpoints = sectionTasks.flatMap((task) => this.getTaskCheckpoints(task.id));
+      return {
+        sectionId: section.id,
+        openTaskCount: sectionTasks.filter((task) => task.status === 'open').length,
+        doneTaskCount: sectionTasks.filter((task) => task.status === 'done').length,
+        todayWorkMs: sectionTasks.reduce((total, task) => total + this.getTaskWorkMsSince(task.id, since), 0),
+        totalWorkMs: sectionTasks.reduce((total, task) => total + this.getTaskWorkMs(task.id), 0),
+        latestCheckpoint: checkpoints.sort((left, right) => right.createdAt - left.createdAt)[0] ?? null
+      };
+    });
+  }
+
+  switchFocusSession(
+    taskId: string,
+    timeBlockId: string | null,
+    checkpoint: TaskCheckpointDraft | null,
+    now: number = Date.now()
+  ): FocusSession {
+    const task = this.getTask(taskId);
+    if (!task || task.status !== 'open') {
+      throw new Error('任务不存在或已完成，无法开始专注');
+    }
+    const live = this.getLiveFocusSession();
+    if (live?.taskId === taskId) {
+      if (live.onBreak) this.setFocusSessionOnBreak(live.id, false, now);
+      return this.getLiveFocusSession()!;
+    }
+    return this.transaction(() => {
+      if (live) {
+        if (hasCheckpointContent(checkpoint)) {
+          this.createTaskCheckpoint({
+            taskId: live.taskId,
+            focusSessionId: live.id,
+            kind: 'switch',
+            ...checkpoint
+          }, now);
+        }
+        this.endFocusSession(live.id, 'interrupted', now);
+      }
+      const session = this.startFocusSession({ taskId, timeBlockId }, now);
+      this.setActiveTaskId(taskId, now);
+      return session;
+    });
+  }
+
+  pauseFocusSession(checkpoint: TaskCheckpointDraft | null, now: number = Date.now()): FocusSession | null {
+    const live = this.getLiveFocusSession();
+    if (!live) return null;
+    return this.transaction(() => {
+      if (hasCheckpointContent(checkpoint)) {
+        this.createTaskCheckpoint({
+          taskId: live.taskId,
+          focusSessionId: live.id,
+          kind: 'pause',
+          ...checkpoint
+        }, now);
+      }
+      return this.endFocusSession(live.id, 'paused', now);
+    });
+  }
+
   getLiveFocusSession(): FocusSession | null {
     const row = this.db.prepare(`
       SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, on_break, created_at
@@ -2124,6 +2342,25 @@ const rowToFocusSession = (row: SqlRow): FocusSession => ({
       : null,
   onBreak: Number(row.on_break) === 1,
   createdAt: Number(row.created_at)
+});
+
+const rowToTaskCheckpoint = (row: SqlRow): TaskCheckpoint => ({
+  id: String(row.id),
+  taskId: String(row.task_id),
+  focusSessionId: typeof row.focus_session_id === 'string' ? row.focus_session_id : null,
+  kind: row.kind === 'pause' || row.kind === 'switch' || row.kind === 'complete' ? row.kind : 'manual',
+  progress: typeof row.progress === 'string' ? row.progress : null,
+  nextStep: typeof row.next_step === 'string' ? row.next_step : null,
+  feeling: typeof row.feeling === 'string' ? row.feeling : null,
+  createdAt: Number(row.created_at)
+});
+
+const rowToDailyReflection = (row: SqlRow): DailyReflection => ({
+  localDate: String(row.local_date),
+  note: String(row.note),
+  nextStep: typeof row.next_step === 'string' ? row.next_step : null,
+  createdAt: Number(row.created_at),
+  updatedAt: Number(row.updated_at)
 });
 
 const parseJson = (value: SqlValue | undefined): unknown => {

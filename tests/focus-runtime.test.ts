@@ -50,11 +50,11 @@ test('focus runtime flushes tails and synchronizes the tracker across transition
     const second = store.getFocusSessions().find((session) => session.taskId === taskB);
     assert.equal(second?.outcome, 'paused');
     assert.equal(second?.activeMs, 1_500, 'pausing persists the unfinished tail');
-    assert.equal(activeTaskId, null);
+    assert.equal(activeTaskId, taskB, 'paused work stays selected for one-click resume');
 
     healthBreakActive = true;
     assert.equal(runtime.start(taskA).session, null, 'a health break blocks a new focus session');
-    assert.equal(activeTaskId, null);
+    assert.equal(activeTaskId, taskB);
     healthBreakActive = false;
     runtime.start(taskA);
     wall += 1_200;

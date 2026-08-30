@@ -24,7 +24,9 @@ if (mode === 'exercise') {
   })()`);
 
   const workbench = await waitForTarget(endpoint, '#workbench');
-  await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  const hostScale = await evaluate(workbench, 'window.devicePixelRatio');
+  if (!Number.isFinite(hostScale) || hostScale <= 0) throw new Error(`Invalid host device scale factor: ${hostScale}`);
+  await call(workbench, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: hostScale, mobile: false });
   await waitFor(workbench, `Boolean(document.querySelector('.workbench-v2'))`);
   await evaluate(workbench, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('今天')))?.click()`);
   await waitFor(workbench, `[...document.querySelectorAll('.task-row')].some((entry) => entry.textContent?.includes('SMOKE_PLAN_MULTI_BLOCK'))`);
@@ -93,7 +95,7 @@ if (mode === 'exercise') {
     return Boolean(task && blocks.length === 1 && Math.round((blocks[0].endAt - blocks[0].startAt) / 60000) === 45);
   })()`);
   await waitFor(workbench, `[...document.querySelectorAll('.plan-task-card')].some((entry) => entry.textContent?.includes('已排 1 块 · 45m'))`);
-  console.log('Plan in/out, multi-block and resize interactions persisted successfully');
+  console.log(`Plan in/out, multi-block and resize interactions persisted successfully at ${hostScale}x DPR`);
 } else {
   await evaluate(pet, `window.eyeProtect.openWorkbench('plan')`);
   const workbench = await waitForTarget(endpoint, '#workbench');
