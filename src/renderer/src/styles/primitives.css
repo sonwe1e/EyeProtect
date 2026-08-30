@@ -7,7 +7,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-medium);
-  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
 }
 
 .ui-button {
@@ -27,14 +27,17 @@
   color: var(--brand-contrast);
   background: var(--brand);
   border-color: var(--brand);
+  box-shadow: 0 1px 1px color-mix(in srgb, var(--brand-strong) 22%, transparent);
 }
 
 .ui-button--primary:hover { background: var(--brand-strong); }
 .ui-button--secondary { background: var(--surface); border-color: var(--border-strong); }
 .ui-button--secondary:hover,
 .ui-button--ghost:hover,
-.ui-icon-button:hover { background: var(--surface-hover); }
-.ui-button--danger { color: var(--danger); background: var(--danger-subtle); }
+.ui-icon-button:hover { background: var(--surface-hover); border-color: var(--border-subtle); }
+.ui-button--danger { color: var(--danger); background: var(--danger-subtle); border-color: transparent; }
+.ui-button:active,
+.ui-icon-button:active { transform: translateY(1px); }
 .ui-button:disabled,
 .ui-icon-button:disabled { cursor: not-allowed; opacity: 0.48; }
 
@@ -56,9 +59,10 @@
   min-height: 42px;
   padding: 0 12px;
   color: var(--fg-primary);
-  background: var(--bg-app);
+  background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
 .ui-input:hover,
@@ -66,6 +70,7 @@
 
 .ui-input:focus,
 .ui-select:focus {
+  background: var(--surface);
   border-color: var(--brand);
   outline: 2px solid color-mix(in srgb, var(--focus-ring) 22%, transparent);
   outline-offset: 0;
@@ -87,13 +92,14 @@
   padding: 0 9px;
   color: var(--fg-secondary);
   background: var(--surface-hover);
+  border: 1px solid transparent;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
 }
-.ui-status-chip--brand { color: var(--brand); background: var(--brand-subtle); }
-.ui-status-chip--warning { color: var(--warning); background: var(--warning-subtle); }
-.ui-status-chip--danger { color: var(--danger); background: var(--danger-subtle); }
+.ui-status-chip--brand { color: var(--brand); background: var(--brand-subtle); border-color: color-mix(in srgb, var(--brand) 22%, transparent); }
+.ui-status-chip--warning { color: var(--warning); background: var(--warning-subtle); border-color: color-mix(in srgb, var(--warning) 22%, transparent); }
+.ui-status-chip--danger { color: var(--danger); background: var(--danger-subtle); border-color: color-mix(in srgb, var(--danger) 22%, transparent); }
 
 .ui-project-dot {
   display: inline-block;
@@ -145,10 +151,12 @@
   color: var(--fg-secondary);
   text-align: left;
   background: transparent;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
 }
 .command-palette-list button:hover,
-.command-palette-list button.is-active { color: var(--fg-primary); background: var(--surface-hover); }
+.command-palette-list button.is-active { color: var(--fg-primary); background: var(--surface-hover); border-color: var(--border-subtle); }
 .command-palette-list kbd,
 .command-palette-trigger kbd {
   padding: 2px 6px;
@@ -157,7 +165,7 @@
   font-size: 11px;
   background: var(--bg-app);
   border: 1px solid var(--border-subtle);
-  border-radius: 5px;
+  border-radius: var(--radius-small);
 }
 .command-palette-list p { margin: 18px 0 4px; color: var(--fg-secondary); text-align: center; }
 
@@ -178,7 +186,7 @@
 .ui-dialog {
   width: min(440px, 100%);
   color: var(--fg-primary);
-  background: var(--surface);
+  background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-large);
   box-shadow: var(--shadow-overlay);
@@ -238,7 +246,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ui-button,
+  .ui-icon-button,
+  .ui-input,
+  .ui-select,
+  .command-palette-list button { transition: none; }
   .ui-side-sheet { animation: none; }
+  .command-spinner { animation: none; }
 }
 
 @media (forced-colors: active) {
@@ -248,5 +262,6 @@
   .ui-select,
   .ui-toast,
   .ui-dialog,
-  .ui-side-sheet { border: 1px solid ButtonText; }
+  .ui-side-sheet,
+  .command-palette-list button { border: 1px solid ButtonText; }
 }
