@@ -28,7 +28,7 @@
    threshold is calibrated against real workspace metrics: at a 960px window
    the workspace column is ~736px, which is too narrow for the 710px minimum,
    so it stacks and avoids page-level horizontal overflow. */
-.root :global(.plan-layout) { display: grid; grid-template-columns: minmax(210px, 0.65fr) minmax(430px, 1.35fr); align-items: start; gap: 16px; }
+.root :global(.plan-layout) { display: grid; grid-template-columns: minmax(210px, 0.65fr) minmax(430px, 1.35fr); align-items: start; gap: 14px; }
 .root :global(.plan-column) { min-width: 0; padding: 18px; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); }
 .root :global(.plan-column > header) { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .root :global(.plan-column > header h2) { display: flex; align-items: center; gap: 7px; }

@@ -17,6 +17,7 @@
    exception in the acceptance matrix is intentional — only .project-board. */
 .root :global(.project-board) { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 300px); grid-template-columns: none; gap: 14px; margin-top: 26px; overflow-x: auto; overscroll-behavior-inline: contain; padding: 4px 2px 8px; }
 .root :global(.project-board-column) { min-width: 0; padding: 8px; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); transition: background var(--motion-fast), border-color var(--motion-fast); }
+.root :global(.project-board-column:hover) { background: var(--surface-hover); border-color: var(--border-strong); }
 .root :global(.project-board-column > header) { display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 0 3px 8px; }
 .root :global(.project-board-column h2) { margin: 0; font-size: 13px; }
 .root :global(.project-board-column header span),
