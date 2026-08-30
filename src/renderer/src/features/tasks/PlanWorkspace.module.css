@@ -53,7 +53,7 @@
 .root :global(.timeline-hour) { position: absolute; right: 0; left: 0; height: 1px; background: var(--border-subtle); pointer-events: none; }
 .root :global(.timeline-hour > span) { position: absolute; top: 6px; left: 10px; color: var(--fg-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .root :global(.timeline-blocks) { position: absolute; inset: 0; pointer-events: none; }
-.root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: minmax(0, auto) minmax(0, auto) 5px; padding: 5px 26px 0 3px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: var(--radius-medium); box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); }
+.root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: minmax(0, auto) minmax(0, auto) 5px; padding: 5px 26px 0 3px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: var(--radius-medium); box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); pointer-events: auto; overflow: hidden; }
 .root :global(.timeline-block.is-error) { border-color: var(--danger); }
 /* Unestimated task: dashed border signals the block height is a visual
    minimum, not a planned-duration fact (USERPLAN 1.2 PR0). */
