@@ -15,9 +15,13 @@
 .workbench-v2 .status-item,
 .workbench-v2 .settings-section {
   color: var(--fg-primary);
-  background: var(--surface);
+  background: var(--surface-raised);
   border-color: var(--border-subtle);
-  border-radius: var(--radius-medium);
+  border-radius: var(--radius-large);
+}
+
+.workbench-v2 .status-item {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg-inverse) 18%, transparent);
 }
 
 .workbench-v2 .number-row,
@@ -25,10 +29,15 @@
 .workbench-v2 .mode-card,
 .workbench-v2 .icon-button {
   color: var(--fg-primary);
-  background: var(--bg-app);
+  background: var(--surface);
   border-color: var(--border-subtle);
   border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
+
+.workbench-v2 .number-row:hover,
+.workbench-v2 .switch-row:hover,
+.workbench-v2 .mode-card:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 
 .workbench-v2 .mode-card.selected {
   background: var(--brand-subtle);
@@ -52,11 +61,17 @@
 .workbench-v2 .settings-shell input[type='time'],
 .workbench-v2 .settings-shell input[type='number'] {
   color: var(--fg-primary);
-  background: var(--bg-app);
+  background: var(--surface-raised);
   border-color: var(--border-strong);
+}
+
+.workbench-v2 .settings-shell input:focus,
+.workbench-v2 .settings-shell select:focus,
+.workbench-v2 .settings-shell textarea:focus {
+  background: var(--surface);
 }
 
 .workbench-v2 .settings-shell input[type='checkbox'] { accent-color: var(--brand); }
 
 .settings-inline-field { display: grid; gap: 6px; color: var(--fg-secondary); font-size: 12px; }
-.settings-inline-field select { min-height: 40px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-medium); }
+.settings-inline-field select { min-height: 40px; padding: 0 10px; color: var(--fg-primary); background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-medium); }

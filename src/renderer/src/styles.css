@@ -1672,19 +1672,19 @@
 .bubble-reminder .bubble-title, .bubble-reminder .bubble-card > p,
 .bubble-prealert .bubble-title, .bubble-prealert .bubble-card > p { padding-right: 48px; }
 
-.standalone-reminders { width: min(880px, calc(100% - 48px)); margin: 0 auto; padding: 32px 0 48px; }
+.standalone-reminders { width: min(880px, calc(100% - 48px)); margin: 0 auto; padding: 32px 0 48px; color: var(--fg-primary); }
 .standalone-reminders > header > div { display: flex; align-items: center; gap: 12px; }
 .standalone-reminders h1 { margin: 0; }
 .standalone-reminders p { margin: 4px 0 0; color: var(--color-text-muted); }
-.standalone-composer { display: grid; grid-template-columns: minmax(180px, 1fr) 150px 190px auto; gap: 10px; align-items: center; margin-top: 24px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); background: var(--surface); box-shadow: var(--shadow-soft); }
+.standalone-composer { display: grid; grid-template-columns: minmax(180px, 1fr) 150px 190px auto; gap: 10px; align-items: center; margin-top: 24px; padding: 18px; border: 1px solid var(--border-subtle); border-radius: var(--radius-large); background: var(--surface-raised); box-shadow: 0 1px 0 color-mix(in srgb, var(--fg-inverse) 18%, transparent); }
 .standalone-composer .weekday-picker, .standalone-composer .interval-days { grid-column: 1 / -1; }
 .weekday-picker { display: flex; gap: 6px; }
-.weekday-picker button { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
-.weekday-picker button.is-active { color: var(--brand-contrast); background: var(--color-accent); }
+.weekday-picker button { width: 36px; height: 36px; padding: 0; color: var(--fg-secondary); background: transparent; border: 1px solid var(--border-strong); border-radius: 50%; transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast); }
+.weekday-picker button.is-active { color: var(--brand-contrast); background: var(--color-accent); border-color: var(--color-accent); }
 .interval-days { display: flex; align-items: center; gap: 8px; }
 .interval-days input { width: 72px; }
 .standalone-list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.standalone-list li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 58px; padding: 10px 14px; border-radius: 12px; background: var(--surface-raised); }
+.standalone-list li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 58px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); }
 .standalone-list li > div { display: flex; flex-direction: column; gap: 4px; }
 .standalone-list small { color: var(--color-text-muted); }
 .break-return-task {
@@ -1694,6 +1694,7 @@
   color: var(--color-text-muted);
   font-size: 12px;
   background: color-mix(in srgb, var(--brand) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, transparent);
   border-radius: var(--radius-small);
   text-overflow: ellipsis;
   white-space: nowrap;
