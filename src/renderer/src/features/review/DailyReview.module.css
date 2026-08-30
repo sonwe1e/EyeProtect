@@ -6,14 +6,14 @@
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .card {
-  padding: 12px;
+  padding: 16px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-medium);
-  background: var(--surface);
+  border-radius: var(--radius-large);
+  background: var(--surface-raised);
 }
 
 .card span {
@@ -24,9 +24,10 @@
 
 .card strong {
   display: block;
-  margin-top: 6px;
-  font-size: 20px;
+  margin-top: 7px;
+  font-size: 22px;
   color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .card small {
@@ -42,18 +43,18 @@
 }
 
 .taskList {
+  display: grid;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
-  display: grid;
-  gap: 8px;
 }
 
 .taskList li {
-  padding: 9px 10px;
+  padding: 11px 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface-raised);
+  border-radius: var(--radius-medium);
+  background: var(--surface);
 }
 
 .taskList li div {
@@ -73,8 +74,8 @@
 
 .actions {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 8px;
 }
 
 .review-loading {

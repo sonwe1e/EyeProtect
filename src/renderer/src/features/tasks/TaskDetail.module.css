@@ -2,7 +2,7 @@
   display: flex;
   min-height: 100%;
   flex-direction: column;
-  padding: 22px 24px 20px;
+  padding: 24px 24px 20px;
   color: var(--fg-primary);
   background: var(--surface);
 }
@@ -11,9 +11,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-bottom: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
 }
-
 .root :global(.detail-title-input) {
   flex: 1;
   min-width: 0;
@@ -25,6 +25,7 @@
   background: transparent;
   border: 0;
   border-bottom: 1px solid transparent;
+  transition: border-color var(--motion-fast);
 }
 
 .root :global(.detail-title-input:hover) { border-bottom-color: var(--border-subtle); }
@@ -35,7 +36,7 @@
 .root :global(.detail-notes-field) {
   display: grid;
   gap: 6px;
-  padding: 0 0 18px;
+  padding: 18px 0;
   color: var(--fg-secondary);
   font-size: 12px;
 }
@@ -47,14 +48,15 @@
   color: var(--fg-primary);
   line-height: 1.55;
   resize: vertical;
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
 .root :global(.detail-notes-field textarea:hover) { background: var(--surface-hover); }
 .root :global(.detail-notes-field textarea:focus) {
-  background: var(--surface-raised);
+  background: var(--surface);
   border-color: var(--brand);
   outline: 2px solid color-mix(in srgb, var(--focus-ring) 20%, transparent);
 }
@@ -90,6 +92,7 @@
   font-size: 12px;
   border: 0;
   border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--motion-fast);
 }
 
 .root :global(.detail-field > span:first-child),
@@ -116,9 +119,10 @@
   min-height: 36px;
   padding: 6px 8px;
   color: var(--fg-primary);
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
 .root :global(.detail-field input:not([type='checkbox']):hover),
@@ -126,7 +130,7 @@
 
 .root :global(.detail-field input:focus),
 .root :global(.detail-field select:focus) {
-  background: var(--surface-raised);
+  background: var(--surface);
   border-color: var(--brand);
   outline: 2px solid color-mix(in srgb, var(--focus-ring) 20%, transparent);
   outline-offset: 0;
@@ -141,9 +145,10 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 3px;
-  padding: 0;
-  background: transparent;
-  border: 0;
+  padding: 3px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-medium);
 }
 
 .root :global(.segmented button) {
@@ -156,11 +161,12 @@
   color: var(--fg-secondary);
   background: transparent;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-small);
+  transition: background var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
-.root :global(.segmented button:hover) { color: var(--fg-primary); background: var(--surface-hover); }
-.root :global(.segmented button.is-active) { color: var(--fg-primary); font-weight: 650; background: var(--surface-selected); }
+.root :global(.segmented button:hover) { color: var(--fg-primary); background: var(--surface); }
+.root :global(.segmented button.is-active) { color: var(--fg-primary); font-weight: 650; background: var(--surface); box-shadow: 0 1px 2px color-mix(in srgb, var(--fg-primary) 8%, transparent); }
 
 .root :global(.detail-priority-swatch) {
   width: 7px;
@@ -200,6 +206,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
 
 .root :global(.detail-empty-value:hover) { color: var(--fg-primary); background: var(--surface-hover); }
@@ -217,7 +224,10 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast);
 }
+
+.root :global(.detail-advanced summary:hover) { color: var(--fg-primary); background: var(--surface-hover); }
 
 .root :global(.detail-advanced-body) { display: grid; padding-bottom: 8px; }
 .root :global(.detail-advanced-body .detail-field:last-child) { border-bottom: 0; }

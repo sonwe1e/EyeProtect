@@ -18,28 +18,28 @@
   white-space: nowrap;
 }
 
-.root :global(.plan-day-switch .ui-button) { display: grid; min-width: 0; min-height: 48px; padding: 4px 3px; place-content: center; gap: 1px; color: var(--fg-secondary); line-height: 1.15; }
+.root :global(.plan-day-switch .ui-button) { display: grid; min-width: 0; min-height: 48px; padding: 4px 3px; place-content: center; gap: 1px; color: var(--fg-secondary); line-height: 1.15; transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast); }
 .root :global(.plan-day-switch .ui-button > span) { font-size: 10px; font-weight: 550; }
 .root :global(.plan-day-switch .ui-button > strong) { color: inherit; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.root :global(.plan-day-switch .ui-button.is-active) { color: var(--brand); background: var(--surface-active); }
+.root :global(.plan-day-switch .ui-button.is-active) { color: var(--fg-primary); background: var(--surface-selected); border-color: var(--border-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 28%, transparent); }
 
 /* Double-column layout only when the workspace channel is wide enough to
    hold both min-widths (250 + 440) plus the gap. Below that, stack. The
    threshold is calibrated against real workspace metrics: at a 960px window
    the workspace column is ~736px, which is too narrow for the 710px minimum,
    so it stacks and avoids page-level horizontal overflow. */
-.root :global(.plan-layout) { display: grid; grid-template-columns: minmax(210px, 0.65fr) minmax(430px, 1.35fr); align-items: start; gap: 14px; }
-.root :global(.plan-column) { min-width: 0; padding: 18px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); }
+.root :global(.plan-layout) { display: grid; grid-template-columns: minmax(210px, 0.65fr) minmax(430px, 1.35fr); align-items: start; gap: 16px; }
+.root :global(.plan-column) { min-width: 0; padding: 18px; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); }
 .root :global(.plan-column > header) { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .root :global(.plan-column > header h2) { display: flex; align-items: center; gap: 7px; }
 .root :global(.plan-column h2) { margin: 0; font-size: 15px; }
 .root :global(.plan-column header span) { color: var(--fg-secondary); font-size: 12px; }
 .root :global(.plan-column-hint) { margin: -4px 0 14px; color: var(--fg-secondary); font-size: 12px; line-height: 1.5; }
-.root :global(.plan-backlog) { transition: border-color 120ms ease, background 120ms ease; }
+.root :global(.plan-backlog) { transition: border-color var(--motion-fast), background var(--motion-fast); }
 .root :global(.plan-backlog:has(.plan-task-card:hover)) { border-color: var(--border-strong); }
 .root :global(.plan-backlog.is-drop-pending) { border-color: var(--brand); background: var(--brand-subtle); }
 .root :global(.plan-task-list) { display: grid; gap: 3px; }
-.root :global(.plan-task-card) { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 44px; gap: 2px 10px; padding: 7px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-medium); cursor: grab; }
+.root :global(.plan-task-card) { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 44px; gap: 2px 10px; padding: 7px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-medium); cursor: grab; transition: background var(--motion-fast), border-color var(--motion-fast); }
 .root :global(.plan-task-card:hover),
 .root :global(.plan-task-card:focus-within) { background: var(--surface-hover); border-color: var(--border-subtle); }
 .root :global(.plan-task-card:active) { cursor: grabbing; }
@@ -49,11 +49,11 @@
 .root :global(.plan-task-actions .ui-button) { min-height: 34px; padding: 0 9px; font-size: 12px; }
 .root :global(.plan-drag-hint) { display: inline-flex; align-items: center; gap: 2px; color: var(--fg-tertiary); font-size: 11px; }
 .root :global(.plan-timeline) { max-height: calc(100vh - 180px); overflow: auto; }
-.root :global(.timeline-grid) { position: relative; min-width: 0; margin-top: 6px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); overflow: hidden; }
+.root :global(.timeline-grid) { position: relative; min-width: 0; margin-top: 6px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); overflow: hidden; }
 .root :global(.timeline-hour) { position: absolute; right: 0; left: 0; height: 1px; background: var(--border-subtle); pointer-events: none; }
 .root :global(.timeline-hour > span) { position: absolute; top: 6px; left: 10px; color: var(--fg-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .root :global(.timeline-blocks) { position: absolute; inset: 0; pointer-events: none; }
-.root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: minmax(0, auto) minmax(0, auto) 5px; padding: 5px 26px 0 3px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: 7px; box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); pointer-events: auto; overflow: hidden; }
+.root :global(.timeline-block) { position: absolute; right: 12px; left: 64px; z-index: 2; display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: minmax(0, auto) minmax(0, auto) 5px; padding: 5px 26px 0 3px; color: var(--fg-primary); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border-subtle)); border-radius: var(--radius-medium); box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-app) 55%, transparent); }
 .root :global(.timeline-block.is-error) { border-color: var(--danger); }
 /* Unestimated task: dashed border signals the block height is a visual
    minimum, not a planned-duration fact (USERPLAN 1.2 PR0). */
