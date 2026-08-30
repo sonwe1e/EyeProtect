@@ -428,7 +428,7 @@
   transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
 }
 
-.alert-actions button:hover:not(:disabled),
+.alert-actions button:hover:not(:disabled):not(.primary),
 .test-actions button:hover:not(:disabled) { background: var(--surface); border-color: var(--brand); }
 
 .alert-actions .primary {
@@ -1676,7 +1676,7 @@
   transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
 }
 
-.bubble-actions button:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); }
+.bubble-actions button:hover:not(:disabled):not(.primary) { background: var(--surface); border-color: var(--border-strong); }
 
 .bubble-actions button:disabled {
   opacity: 0.35;
