@@ -60,9 +60,9 @@
   color: var(--fg-primary);
   background: var(--glass-surface);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   opacity: 0;
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity var(--motion-fast) ease, background var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
 .pet-shell:hover .pet-gear {
@@ -77,9 +77,9 @@
   color: var(--fg-primary);
   background: var(--glass-surface);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   opacity: 0;
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity var(--motion-fast) ease, background var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
 .pet-shell:hover .pet-alarm {
@@ -128,14 +128,13 @@
   opacity: 0;
   pointer-events: none;
   transform: translateX(-50%);
-  transition: opacity 140ms ease;
+  transition: opacity var(--motion-fast) ease;
   /* The full pet uses the pointer/IPC drag path. Mixing in a native draggable
      transparent region can make DWM hide the window while dragging. */
   -webkit-app-region: no-drag;
 }
 
 .pet-shell:hover .pet-drag-handle { opacity: 0.72; }
-
 .pet-compact .pet-drag-handle,
 .pet-compact .pet-care-badge,
 .pet-compact .pet-gift-badge {
@@ -185,6 +184,7 @@
   border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
   border-radius: 999px;
   opacity: 0.76;
+  transition: opacity var(--motion-fast) ease, border-color var(--motion-fast) ease;
   -webkit-app-region: no-drag;
 }
 
@@ -200,8 +200,16 @@
 
 @media (prefers-reduced-motion: reduce) {
   .procedural-character *,
-  .reminder-atmosphere * {
+  .reminder-atmosphere *,
+  .pet-gear,
+  .pet-alarm,
+  .pet-todo-tab,
+  .pet-care-badge,
+  .pet-gift-badge,
+  .alert-actions button,
+  .bubble-actions button {
     animation: none !important;
+    transition: none !important;
   }
 }
 
@@ -250,7 +258,7 @@
   cursor: pointer;
   background: radial-gradient(circle at 50% 45%, var(--artwork-stage-center) 0, var(--artwork-stage-mid) 45%, var(--artwork-stage-edge) 100%);
   border: 1px solid color-mix(in srgb, var(--fg-inverse) 12%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-large);
   box-shadow: 0 18px 42px color-mix(in srgb, var(--artwork-stage-edge) 72%, transparent);
 }
 
@@ -300,9 +308,9 @@
   padding: clamp(12px, 2vh, 16px);
   overflow: hidden;
   color: var(--fg-primary);
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  background: var(--glass-surface-strong);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-large);
   box-shadow: var(--shadow-overlay);
 }
 
@@ -411,19 +419,26 @@
   justify-content: center;
   gap: 6px;
   min-width: 0;
-  min-height: 38px;
+  min-height: 40px;
   padding: 0 10px;
   color: var(--fg-primary);
   background: var(--surface-hover);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
 }
+
+.alert-actions button:hover:not(:disabled),
+.test-actions button:hover:not(:disabled) { background: var(--surface); border-color: var(--brand); }
 
 .alert-actions .primary {
   color: var(--brand-contrast);
   background: var(--brand);
   border-color: var(--brand);
 }
+
+.alert-actions button:active:not(:disabled),
+.test-actions button:active:not(:disabled) { transform: translateY(1px); }
 
 .alert-actions button:disabled {
   opacity: 0.3;
@@ -435,11 +450,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   margin-top: 10px;
   padding: 7px 10px;
   font-size: 12px;
   background: var(--surface-hover);
-  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-medium);
 }
 
 .alert-wait-time {
@@ -463,7 +480,8 @@
   gap: 5px;
   padding: 8px 10px;
   background: var(--brand-subtle);
-  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, transparent);
+  border-radius: var(--radius-medium);
 }
 
 .activity-guide-heading {
@@ -1408,9 +1426,9 @@
   color: var(--fg-primary);
   background: var(--glass-surface);
   border: 1px solid color-mix(in srgb, var(--fg-primary) 14%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   opacity: 0;
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity var(--motion-fast) ease, background var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
   -webkit-app-region: no-drag;
 }
 
@@ -1430,7 +1448,7 @@
 .pet-gear:active,
 .pet-alarm:active,
 .pet-todo-tab:active {
-  transform: scale(0.92);
+  transform: translateY(1px);
 }
 
 
@@ -1456,7 +1474,8 @@
   color: var(--fg-primary);
   background: var(--glass-surface-strong);
   border: 1px solid color-mix(in srgb, var(--fg-primary) 18%, transparent);
-  border-radius: 12px;
+  border-radius: var(--radius-large);
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease;
 }
 
 .bubble-close {
@@ -1465,14 +1484,14 @@
   right: 6px;
   z-index: 2;
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   place-items: center;
   color: var(--fg-secondary);
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 
 .bubble-close:hover {
@@ -1623,7 +1642,7 @@
   text-align: left;
   background: var(--warning-subtle);
   border: 1px solid color-mix(in srgb, var(--warning) 18%, transparent);
-  border-radius: 7px;
+  border-radius: var(--radius-medium);
 }
 
 .bubble-break-todo span {
@@ -1646,15 +1665,18 @@
   justify-content: center;
   gap: 3px;
   min-width: 0;
-  min-height: 26px;
+  min-height: 30px;
   padding: 0 4px;
   color: var(--fg-primary);
   font-size: 11px;
   background: var(--surface-hover);
   border: 1px solid color-mix(in srgb, var(--fg-primary) 12%, transparent);
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
 }
+
+.bubble-actions button:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); }
 
 .bubble-actions button:disabled {
   opacity: 0.35;
@@ -1724,4 +1746,36 @@
 
 .empty-state svg {
   color: var(--fg-disabled);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-v2 *,
+  .pet-shell *,
+  .alert-shell *,
+  .bubble-shell * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .pet-gear,
+  .pet-alarm,
+  .pet-todo-tab,
+  .pet-care-badge,
+  .pet-gift-badge,
+  .alert-panel,
+  .alert-actions button,
+  .activity-guide,
+  .bubble-card,
+  .bubble-actions button,
+  .standalone-composer,
+  .standalone-list li {
+    border-color: ButtonText;
+  }
+
+  .alert-panel,
+  .bubble-card {
+    outline: 1px solid ButtonText;
+  }
 }
