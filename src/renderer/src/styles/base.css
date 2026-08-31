@@ -15,6 +15,12 @@ input {
   font: inherit;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-secondary);
+  opacity: 1;
+}
+
 button {
   border: 0;
   cursor: pointer;
@@ -30,4 +36,19 @@ input:focus:not(:focus-visible) {
 button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
   outline-offset: 1px;
+}
+
+/* Screen-reader-only content: visually hidden but still announced by AT.
+   Used for icon-only buttons (e.g. the priority dot) that need a text label
+   for assistive tech without showing it visually. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

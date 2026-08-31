@@ -1,5 +1,5 @@
 :root {
-  color: #1f2a2e;
+  color: var(--fg-primary);
   font-family:
     "Microsoft YaHei UI",
     "Microsoft YaHei",
@@ -11,24 +11,53 @@
   background: transparent;
   letter-spacing: 0;
 
-  --color-text: #1f2a2e;
-  --color-text-muted: #66756d;
-  --color-accent: #217a70;
-  --color-priority-normal: #8a9a8e;
-  --color-priority-important: #e67e22;
-  --color-priority-urgent: #c0392b;
-  --surface-base: #fffdf7;
-  --surface-raised: #ffffff;
+  /* ── Spacing scale ─────────────────────────────────────────────────── */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-6: 24px;
-  --radius-small: 8px;
-  --radius-medium: 14px;
-  --radius-large: 22px;
-  --shadow-floating: 0 12px 32px rgb(31 42 46 / 16%);
+
+  /* ── Radius scale (single source of truth — theme.css must NOT override) */
+  --radius-small: 6px;
+  --radius-medium: 8px;
+  --radius-large: 12px;
+
+  /* ── Motion ────────────────────────────────────────────────────────── */
   --motion-fast: 140ms;
   --motion-standard: 220ms;
   --motion-slow: 360ms;
+
+  /* ── Hit targets / control sizes ───────────────────────────────────── */
+  --hit-target-min: 44px;
+  --control-height-sm: 36px;
+  --control-height-md: 40px;
+  --task-row-height: 52px;
+
+  /* ── Workbench layout ──────────────────────────────────────────────── */
+  --workbench-sidebar-width: 208px;
+  --workbench-toolbar-height: 52px;
+  --workbench-content-max: 960px;
+  --workbench-page-top: 32px;
+  --workbench-section-gap: 24px;
+}
+
+:root[data-theme='dark'] {
+  color: var(--color-text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    color: var(--color-text);
+  }
+}
+
+:root[data-density='compact'] {
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-6: 18px;
+  --task-row-height: 44px;
+  --workbench-page-top: 30px;
+  --workbench-section-gap: 20px;
 }

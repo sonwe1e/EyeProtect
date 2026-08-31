@@ -1,17 +1,23 @@
 import { Check, Clock3, X } from 'lucide-react';
 import type { BreakActivity } from '../../../shared/types';
 import { getActivity } from '../../../shared/breakActivities';
+import { CommandButton } from '../components/CommandButton';
 import { ActivityGuide } from '../features/reminders/ActivityGuide';
 import { ReminderArtwork, reminderCopy } from '../features/reminders/ReminderArtwork';
 import { useClock } from '../hooks/useClock';
+import { useActiveTaskId } from '../hooks/useActiveTask';
+import { useCommand } from '../hooks/useCommand';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useTodos } from '../hooks/useTodos';
+import { useTasks } from '../hooks/useTasks';
+import { commands } from '../lib/commands';
 
 export default function AlertView(): JSX.Element {
   const status = useReminderStatus();
-  const todos = useTodos();
+  const tasks = useTasks();
+  const activeTaskId = useActiveTaskId();
   const now = useClock(1_000);
   const active = status.activeReminder;
+  const completeBreakTask = useCommand((id: string) => commands.tasks.setStatus(id, 'done'));
 
   if (!active) {
     return <main className="alert-shell" />;
@@ -28,13 +34,14 @@ export default function AlertView(): JSX.Element {
     active.startedAt +
     Math.max(0, ...activities.map((activity) => activity.durationSeconds * 1_000));
   const suggestedSeconds = Math.max(0, Math.ceil((suggestedUntil - now) / 1_000));
-  const liveBreakTodo = active.breakTodo
-    ? todos.find((todo) => todo.id === active.breakTodo?.id)
+  const liveBreakTask = active.breakTask
+    ? tasks.find((task) => task.id === active.breakTask?.id)
     : null;
+  const activeTask = activeTaskId ? tasks.find((task) => task.id === activeTaskId) : null;
 
   const handleDoubleClick = (): void => {
     if (!waiting) {
-      void window.eyeProtect.reminderAction('complete', active.id);
+      void commands.reminderActions.act('complete', active.id);
     }
   };
 
@@ -71,21 +78,24 @@ export default function AlertView(): JSX.Element {
             <small>不强制等待，可随时完成</small>
           </div>
         ) : null}
-        {active.breakTodo && liveBreakTodo && !liveBreakTodo.completed ? (
+        {active.breakTask && liveBreakTask && liveBreakTask.status !== 'done' ? (
           <div className="break-todo-card">
             <div>
               <span>这次走动可以顺便</span>
-              <strong>{active.breakTodo.text}</strong>
+              <strong>{active.breakTask.title}</strong>
             </div>
-            <button
+            <CommandButton
               type="button"
-              onClick={() => void window.eyeProtect.toggleTodo(active.breakTodo?.id ?? '')}
+              state={completeBreakTask.state}
+              errorReason={completeBreakTask.error?.message}
+              onClick={() => void completeBreakTask.run(active.breakTask?.id ?? '')}
             >
               <Check size={14} />
               做好了
-            </button>
+            </CommandButton>
           </div>
         ) : null}
+        {activeTask ? <p className="break-return-task">休息后继续：<strong>{activeTask.title}</strong></p> : null}
         {waiting ? (
           <div className="alert-wait-hint">
             <span className="alert-wait-time">
@@ -98,19 +108,19 @@ export default function AlertView(): JSX.Element {
           <button
             className="primary"
             disabled={waiting}
-            onClick={() => void window.eyeProtect.reminderAction('complete', active.id)}
+            onClick={() => void commands.reminderActions.act('complete', active.id)}
           >
             <Check size={18} />
             完成
           </button>
           <button
             disabled={snoozeLocked}
-            onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}
+            onClick={() => void commands.reminderActions.act('snooze', active.id)}
           >
             <Clock3 size={18} />
             稍后
           </button>
-          <button onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}>
+          <button onClick={() => void commands.reminderActions.act('skip', active.id)}>
             <X size={18} />
             跳过
           </button>

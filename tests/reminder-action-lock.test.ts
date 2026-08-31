@@ -10,13 +10,17 @@ const baseSettings: Settings = {
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
+  naturalBreakMinutes: 5,
+  dailyCapacityMinutes: 360,
+  workStartMinutes: 7 * 60,
+  workEndMinutes: 21 * 60,
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  todoBubbleEnabled: true,
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
-  petSkin: 'stable',
   dimDesktop: true,
   historyEnabled: true,
   historyRetentionDays: 30,
@@ -27,8 +31,11 @@ const baseSettings: Settings = {
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
   hotkeysEnabled: true,
+  theme: 'system',
+  density: 'comfortable',
   alarms: [],
-  todos: []
+  todos: [],
+  activeTaskId: null
 };
 
 const makeScheduler = (overrides: Partial<Settings> = {}) => {
@@ -56,13 +63,13 @@ test('complete is rejected before unlockAt and accepted after it', () => {
   assert.equal(active?.snoozeAllowedAt, clock.now(), 'first-cycle snooze needs no wait');
 
   // Immediate complete: refused, reminder stays on screen.
-  assert.equal(scheduler.handleAction('complete', active.id).activeReminder?.id, active.id);
+  assert.equal(scheduler.handleAction('complete', active!.id).activeReminder?.id, active.id);
 
   clock.advance(29_000);
-  assert.equal(scheduler.handleAction('complete', active.id).activeReminder?.id, active.id);
+  assert.equal(scheduler.handleAction('complete', active!.id).activeReminder?.id, active.id);
 
   clock.advance(1_001);
-  assert.equal(scheduler.handleAction('complete', active.id).activeReminder, null);
+  assert.equal(scheduler.handleAction('complete', active!.id).activeReminder, null);
 });
 
 test('skip is always allowed, even while complete is locked', () => {
@@ -70,7 +77,7 @@ test('skip is always allowed, even while complete is locked', () => {
   clock.advance(20 * MINUTE);
   const active = scheduler.tick().activeReminder;
 
-  assert.equal(scheduler.handleAction('skip', active.id).activeReminder, null);
+  assert.equal(scheduler.handleAction('skip', active!.id).activeReminder, null);
 });
 
 test('snooze locks after the first snooze until unlockAt', () => {
@@ -79,7 +86,7 @@ test('snooze locks after the first snooze until unlockAt', () => {
   const first = scheduler.tick().activeReminder;
 
   // First snooze of the cycle: immediate.
-  assert.equal(scheduler.handleAction('snooze', first.id).activeReminder, null);
+  assert.equal(scheduler.handleAction('snooze', first!.id).activeReminder, null);
 
   clock.advance(5 * MINUTE + 1_000);
   const second = scheduler.tick().activeReminder;
@@ -124,5 +131,6 @@ test('actions with a stale reminder id are ignored', () => {
   clock.advance(61_000);
 
   const status = scheduler.handleAction('complete', 'some-old-id');
-  assert.equal(status.activeReminder?.id, active.id, 'wrong id leaves the reminder untouched');
+  assert.equal(status.activeReminder?.id, active!.id, 'wrong id leaves the reminder untouched');
 });
+

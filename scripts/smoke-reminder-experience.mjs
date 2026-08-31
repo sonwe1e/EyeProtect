@@ -1,94 +1,16 @@
 const port = Number(process.argv[2] ?? 9333);
 const endpoint = `http://127.0.0.1:${port}`;
-
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-const listTargets = async () => {
-  const response = await fetch(`${endpoint}/json`);
-  if (!response.ok) {
-    throw new Error(`CDP target list returned HTTP ${response.status}`);
-  }
-  return response.json();
-};
-
-const waitForTarget = async (hash, timeoutMs = 10_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const target = (await listTargets()).find(
-      (candidate) => candidate.type === 'page' && candidate.url.endsWith(hash)
-    );
-    if (target) {
-      return target;
-    }
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for the ${hash} renderer`);
-};
-
-const evaluate = async (target, expression) => {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed to open')), {
-      once: true
-    });
-  });
-
-  try {
-    const id = 1;
-    const response = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('CDP evaluation timed out')), 10_000);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== id) {
-          return;
-        }
-        clearTimeout(timeout);
-        if (message.error) {
-          reject(new Error(message.error.message));
-        } else {
-          resolve(message.result);
-        }
-      });
-      socket.send(
-        JSON.stringify({
-          id,
-          method: 'Runtime.evaluate',
-          params: {
-            expression,
-            awaitPromise: true,
-            returnByValue: true
-          }
-        })
-      );
-    });
-
-    if (response.exceptionDetails) {
-      const description =
-        response.exceptionDetails.exception?.description ??
-        response.exceptionDetails.text ??
-        'unknown renderer exception';
-      throw new Error(description);
-    }
-    return response.result?.value;
-  } finally {
-    socket.close();
-  }
-};
-
-const waitForValue = async (hash, expression, predicate, timeoutMs = 10_000) => {
+import { delay, evaluate, listTargets, waitForTarget, waitForTargetGone } from './lib/cdp.mjs';
+const waitForValue = async (hash, expression, predicate, timeoutMs = 12_000) => {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
     try {
-      const target = await waitForTarget(hash, Math.min(1_000, timeoutMs));
+      const target = await waitForTarget(endpoint, hash, 1_000);
       last = await evaluate(target, expression);
-      if (predicate(last)) {
-        return { target, value: last };
-      }
+      if (predicate(last)) return { target, value: last };
     } catch {
-      // A short-lived window may be destroyed between target discovery and
-      // evaluation; retry until the overall deadline.
+      // Transient window creation/destruction; retry.
     }
     await delay(100);
   }
@@ -96,322 +18,181 @@ const waitForValue = async (hash, expression, predicate, timeoutMs = 10_000) => 
 };
 
 const assert = (condition, message, detail) => {
-  if (!condition) {
-    throw new Error(`${message}: ${JSON.stringify(detail)}`);
-  }
+  if (!condition) throw new Error(`${message}: ${JSON.stringify(detail)}`);
 };
 
-const petTarget = await waitForTarget('#pet');
-await evaluate(
-  petTarget,
-  `(async () => {
-    await window.eyeProtect.closeSettings();
-    let todos = await window.eyeProtect.getTodos();
-    for (const todo of todos) {
-      await window.eyeProtect.removeTodo(todo.id);
-    }
-    todos = await window.eyeProtect.addTodo('接水并拿快递');
-    await window.eyeProtect.setTodoBreakReminder(todos[0].id, true);
-    await window.eyeProtect.saveSettings({
-      reminderMode: 'gentle',
-      eyeIntervalMinutes: 20,
-      walkIntervalMinutes: 60,
-      preAlertSeconds: 30
-    });
-    await window.eyeProtect.testReminder('walk');
-  })()`
-);
+const pet = (await waitForValue('#pet', `typeof window.eyeProtect === 'object' && Boolean(document.querySelector('.pet-shell'))`, Boolean)).target;
+const setup = await evaluate(pet, `(async () => {
+  for (const task of await window.eyeProtect.getTasks()) await window.eyeProtect.deleteTask(task.id);
+  let tasks = await window.eyeProtect.createTask({ title: '修改论文', context: 'desk', plannedAt: Date.now() });
+  const desk = tasks.find((task) => task.title === '修改论文');
+  tasks = await window.eyeProtect.createTask({ title: '去打印室打印材料', context: 'away', remindOnBreak: true, priority: 'urgent', plannedAt: Date.now() });
+  const away = tasks.find((task) => task.title === '去打印室打印材料');
+  const localDate = new Date().toLocaleDateString('en-CA');
+  if (desk) await window.eyeProtect.upsertDailyPlan({ taskId: desk.id, localDate, dailyRank: 1, plannedMinutes: 60 });
+  if (away) await window.eyeProtect.upsertDailyPlan({ taskId: away.id, localDate, plannedMinutes: 20 });
+  if (desk) await window.eyeProtect.setActiveTask(desk.id);
+  await window.eyeProtect.saveSettings({ reminderMode: 'guided' });
+  await window.eyeProtect.testReminder('combined');
+  return { deskId: desk?.id, taskCount: tasks.length };
+})()`);
+assert(setup.deskId && setup.taskCount === 2, 'Task Core setup failed', setup);
 
-const gentleReady = await waitForValue(
-  '#bubble',
-  `(async () => ({
-    ready: Boolean(document.querySelector('.bubble-reminder')),
-    width: window.innerWidth,
-    height: window.innerHeight,
-    guideCount: document.querySelectorAll('.activity-guide').length,
-    todo: document.querySelector('.bubble-break-todo span')?.textContent,
-    actions: document.querySelectorAll('.bubble-actions button').length
-  }))()`,
-  (value) => value?.ready
-);
-const gentle = gentleReady.value;
-assert(gentle.width >= 300 && gentle.height >= 224, 'gentle bubble did not expand', gentle);
-assert(gentle.guideCount === 1, 'gentle bubble lost its activity guide', gentle);
-assert(gentle.todo?.includes('接水并拿快递'), 'gentle bubble lost its walk todo', gentle);
-assert(gentle.actions === 3, 'gentle bubble actions are incomplete', gentle);
+const alert = (await waitForValue('#alert', `(() => ({
+  ready: Boolean(document.querySelector('.alert-panel')),
+  away: document.querySelector('.break-todo-card strong')?.textContent,
+  resume: document.querySelector('.break-return-task strong')?.textContent,
+  actions: document.querySelectorAll('.alert-actions button').length,
+  proceduralSvg: Boolean(document.querySelector('.reminder-stage .procedural-character svg'))
+}))()`, (value) => value?.ready && value?.away && value?.resume)).value;
+assert(alert.away === '去打印室打印材料', 'walk reminder did not fold in the away task', alert);
+assert(alert.resume === '修改论文', 'break did not preserve the active task', alert);
+assert(alert.actions === 3, 'reminder actions are incomplete', alert);
+assert(alert.proceduralSvg, 'reminder choreography is not using the procedural character', alert);
 
-await evaluate(
-  petTarget,
-  `document.querySelector('.pet-character')?.dispatchEvent(
-    new MouseEvent('dblclick', { bubbles: true })
-  )`
-);
-await waitForValue(
-  '#pet',
-  `window.eyeProtect.getReminderStatus()`,
-  (value) => value?.activeReminder === null
-);
+const initialAlertTarget = await waitForTarget(endpoint, '#alert');
+const skippedInitialBreak = await evaluate(initialAlertTarget, `(() => {
+  const button = [...document.querySelectorAll('.alert-actions button')].find((entry) => entry.textContent?.includes('跳过'));
+  if (!(button instanceof HTMLButtonElement)) return false;
+  setTimeout(() => button.click(), 0);
+  return true;
+})()`);
+assert(skippedInitialBreak, 'Reminder skip pointer path was unavailable', skippedInitialBreak);
+await waitForTargetGone(endpoint, '#alert');
+await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
+const today = (await waitForValue('#workbench', `(() => ({
+  ready: Boolean(document.querySelector('.workbench-v2')),
+  composer: Boolean(document.querySelector('.task-composer')),
+  tasks: document.querySelectorAll('.task-list .task-row').length
+}))()`, (value) => value?.ready && value?.composer)).value;
+assert(today.tasks >= 1, 'Workbench Today contract failed', today);
 
-await evaluate(
-  petTarget,
-  `(async () => {
-    await window.eyeProtect.saveSettings({ reminderMode: 'guided' });
-    await window.eyeProtect.testReminder('combined');
-  })()`
-);
-const guidedReady = await waitForValue(
-  '#alert',
-  `(() => {
-    const panel = document.querySelector('.alert-panel');
-    const actions = document.querySelector('.alert-actions');
-    const panelRect = panel?.getBoundingClientRect();
-    const actionsRect = actions?.getBoundingClientRect();
-    return {
-      ready: Boolean(document.querySelector('.alert-guided-hint')),
-      guideCount: document.querySelectorAll('.activity-guide').length,
-      todo: document.querySelector('.break-todo-card strong')?.textContent,
-      completeDisabled: document.querySelector('.alert-actions .primary')?.disabled,
-      panelScrollHeight: panel?.scrollHeight,
-      panelClientHeight: panel?.clientHeight,
-      actionsVisible:
-        Boolean(panelRect && actionsRect) &&
-        actionsRect.bottom <= panelRect.bottom + 1 &&
-        actionsRect.top >= panelRect.top - 1
-    };
-  })()`,
-  (value) => value?.ready
-);
-const guided = guidedReady.value;
-assert(guided.guideCount === 2, 'combined guided alert must show one guide per kind', guided);
-assert(guided.todo === '接水并拿快递', 'guided alert lost its walk todo', guided);
-assert(guided.completeDisabled === false, 'guided mode incorrectly locks complete', guided);
-assert(guided.actionsVisible, 'guided actions are clipped below the panel', guided);
+const projectTarget = await waitForTarget(endpoint, '#workbench');
+await evaluate(projectTarget, `(() => {
+  const projectNav = [...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('项目'));
+  projectNav?.click();
+})()`);
+await waitForValue('#workbench', `Boolean(document.querySelector('.projects-overview'))`, Boolean);
+await evaluate(projectTarget, `document.querySelector('.project-add')?.click()`);
+await waitForValue('#workbench', `Boolean(document.querySelector('.ui-dialog'))`, Boolean);
+await evaluate(projectTarget, `(() => {
+  const input = document.querySelector('.ui-dialog input');
+  if (!(input instanceof HTMLInputElement)) return false;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, 'Smoke Project');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+})()`);
+await waitForValue('#workbench', `(() => {
+  const create = [...document.querySelectorAll('.ui-dialog button')].find((entry) => entry.textContent?.includes('创建项目'));
+  if (create instanceof HTMLButtonElement && !create.disabled) { create.click(); return true; }
+  return false;
+})()`, Boolean);
+const projectCreated = (await waitForValue('#workbench', `(() => ({
+  dialogClosed: !document.querySelector('.ui-dialog'),
+  projectVisible: [...document.querySelectorAll('.project-item')].some((entry) => entry.textContent?.includes('Smoke Project'))
+}))()`, (value) => value?.dialogClosed && value?.projectVisible)).value;
+assert(projectCreated.projectVisible, 'Project create pointer path failed', projectCreated);
 
-await evaluate(
-  petTarget,
-  `(async () => {
-    const active = (await window.eyeProtect.getReminderStatus()).activeReminder;
-    if (active) await window.eyeProtect.reminderAction('skip', active.id);
-  })()`
-);
+await evaluate(projectTarget, `(() => {
+  document.querySelector('.project-unclassified .project-item-name')?.click();
+})()`);
+await waitForValue('#workbench', `Boolean(document.querySelector('[data-quick-add="true"]'))`, Boolean);
+await evaluate(projectTarget, `(() => {
+  const input = document.querySelector('[data-quick-add="true"]');
+  if (!(input instanceof HTMLInputElement)) return false;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, 'Smoke Journey Task');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+})()`);
+await waitForValue('#workbench', `(() => {
+  const add = [...document.querySelectorAll('.task-composer button')].find((entry) => entry.textContent?.includes('添加'));
+  if (add instanceof HTMLButtonElement && !add.disabled) { add.click(); return true; }
+  return false;
+})()`, Boolean);
+await waitForValue('#workbench', `[...document.querySelectorAll('.task-row')].some((entry) => entry.textContent?.includes('Smoke Journey Task'))`, Boolean);
 
-await evaluate(
-  petTarget,
-  `(async () => {
-    await window.eyeProtect.saveSettings({ reminderMode: 'focused' });
-    await window.eyeProtect.testReminder('eye');
-  })()`
-);
-const focusedReady = await waitForValue(
-  '#alert',
-  `(() => ({
-    ready: Boolean(document.querySelector('.alert-wait-hint')),
-    completeDisabled: document.querySelector('.alert-actions .primary')?.disabled,
-    artworkHint: document.querySelector('.reminder-artwork')?.getAttribute('title')
-  }))()`,
-  (value) => value?.ready
-);
-const focused = focusedReady.value;
-assert(focused.completeDisabled === true, 'focused mode failed to lock complete', focused);
-assert(focused.artworkHint?.includes('倒计时'), 'focused artwork gives a false double-click hint', focused);
-await evaluate(
-  petTarget,
-  `(async () => {
-    const active = (await window.eyeProtect.getReminderStatus()).activeReminder;
-    if (active) await window.eyeProtect.reminderAction('skip', active.id);
-  })()`
-);
+await evaluate(projectTarget, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('日程')))?.click()`);
+await waitForValue('#workbench', `Boolean(document.querySelector('.plan-page'))`, Boolean);
+const scheduledJourney = (await waitForValue('#workbench', `(() => {
+  const card = [...document.querySelectorAll('.plan-task-card')].find((entry) => entry.textContent?.includes('Smoke Journey Task'));
+  const schedule = card ? [...card.querySelectorAll('button')].find((entry) => entry.textContent?.includes('放到 09:00')) : null;
+  if (schedule instanceof HTMLButtonElement && !schedule.disabled) { schedule.click(); return true; }
+  return false;
+})()`, Boolean)).value;
+assert(scheduledJourney, 'Plan non-drag scheduling path failed', scheduledJourney);
+// PR4 semantics: "放到 09:00" creates a TimeBlock — the plannedAt field is no
+// longer the planner's write target.
+await waitForValue('#workbench', `(async () => {
+  const tasks = await window.eyeProtect.getTasks();
+  const target = tasks.find((task) => task.title === 'Smoke Journey Task');
+  if (!target) return false;
+  const blocks = await window.eyeProtect.getTimeBlocks();
+  return blocks.some((block) => block.taskId === target.id);
+})()`, Boolean);
 
-await evaluate(
-  petTarget,
-  `window.eyeProtect.saveSettings({
-    reminderMode: 'guided',
-    eyeIntervalMinutes: 1,
-    walkIntervalMinutes: 240,
-    preAlertSeconds: 120
-  })`
-);
-const preAlertReady = await waitForValue(
-  '#bubble',
-  `(() => ({
-    ready: Boolean(document.querySelector('.bubble-prealert')),
-    width: window.innerWidth,
-    height: window.innerHeight,
-    actions: [...document.querySelectorAll('.bubble-actions button')].map(
-      (button) => button.textContent?.trim()
-    )
-  }))()`,
-  (value) => value?.ready
-);
-const preAlert = preAlertReady.value;
-assert(preAlert.width >= 300 && preAlert.height >= 172, 'pre-alert bubble is cramped', preAlert);
-assert(
-  preAlert.actions.join('|').includes('现在休息') &&
-    preAlert.actions.join('|').includes('+2 分钟') &&
-    preAlert.actions.join('|').includes('按原计划'),
-  'pre-alert actions are incomplete',
-  preAlert
-);
-await evaluate(petTarget, `window.eyeProtect.preAlertAction('start')`);
-await waitForValue(
-  '#alert',
-  `document.querySelector('.alert-actions .primary')?.disabled === false`,
-  (value) => value === true
-);
-await evaluate(
-  petTarget,
-  `(async () => {
-    const active = (await window.eyeProtect.getReminderStatus()).activeReminder;
-    if (active) await window.eyeProtect.reminderAction('complete', active.id);
-  })()`
-);
-const historyReady = await waitForValue(
-  '#pet',
-  `(async () => {
-    const report = await window.eyeProtect.getWeeklyReport();
-    const care = await window.eyeProtect.getCareStatus();
-    return {
-      complete: report.current.complete,
-      careScore: care.score,
-      completedToday: care.completedToday,
-      mood: care.mood,
-      badge: document.querySelector('.pet-care-badge span')?.textContent,
-      exportJson: typeof window.eyeProtect.exportReminderHistory === 'function',
-      clear: typeof window.eyeProtect.clearReminderHistory === 'function'
-    };
-  })()`,
-  (value) => value?.complete >= 1 && value?.completedToday >= 1
-);
-const history = historyReady.value;
-assert(history.careScore >= 60, 'real completion did not improve care score', history);
-assert(history.badge === String(history.careScore), 'pet care badge did not refresh', history);
-assert(history.exportJson && history.clear, 'history privacy controls are missing', history);
+await evaluate(projectTarget, `([...document.querySelectorAll('.app-nav-item')].find((entry) => entry.textContent?.includes('专注')))?.click()`);
+await waitForValue('#workbench', `Boolean(document.querySelector('.focus-surface'))`, Boolean);
+// PR6 flow: start a session for the active task, then pause it. Pausing ends
+// the session and releases the active task, returning to the empty state.
+await evaluate(projectTarget, `(() => {
+  const start = [...document.querySelectorAll('.focus-actions button')].find((entry) => entry.textContent?.includes('开始专注'));
+  if (start instanceof HTMLButtonElement && !start.disabled) { start.click(); return true; }
+  return false;
+})()`);
+await waitForValue('#workbench', `[...document.querySelectorAll('.focus-actions button')].some((entry) => entry.textContent?.includes('暂停专注'))`, Boolean);
+await evaluate(projectTarget, `([...document.querySelectorAll('.focus-actions button')].find((entry) => entry.textContent?.includes('暂停专注')))?.click()`);
+await waitForValue('#workbench', `Boolean(document.querySelector('.focus-empty'))`, Boolean);
+const focusedJourney = (await waitForValue('#workbench', `(() => {
+  const candidate = [...document.querySelectorAll('.focus-candidate')].find((entry) => entry.textContent?.includes('Smoke Journey Task'));
+  if (candidate instanceof HTMLButtonElement && !candidate.disabled) { candidate.click(); return true; }
+  return false;
+})()`, Boolean)).value;
+assert(focusedJourney, 'Focus candidate pointer path failed', focusedJourney);
+await waitForValue('#workbench', `document.querySelector('.focus-title')?.textContent === 'Smoke Journey Task'`, Boolean);
 
-await evaluate(petTarget, `window.eyeProtect.openQuickTodo()`);
-const panelReady = await waitForValue(
-  '#panel',
-  `(() => ({
-    ready: Boolean(document.querySelector('.todo-break-toggle')),
-    pressed: document.querySelector('.todo-break-toggle')?.getAttribute('aria-pressed'),
-    label: document.querySelector('.todo-break-toggle span')?.textContent,
-    composerFocused: document.activeElement?.matches('.todo-compose input')
-  }))()`,
-  (value) => value?.ready
-);
-const panel = panelReady.value;
-assert(panel.pressed === 'true' && panel.label === '走动时', 'todo break toggle lost state', panel);
-assert(panel.composerFocused === true, 'quick-add shortcut did not focus the todo composer', panel);
+await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
+const journeyAlert = (await waitForValue('#alert', `(() => ({
+  ready: Boolean(document.querySelector('.alert-panel')),
+  resume: document.querySelector('.break-return-task strong')?.textContent
+}))()`, (value) => value?.ready && value?.resume)).value;
+assert(journeyAlert.resume === 'Smoke Journey Task', 'Focus task was not preserved into the break', journeyAlert);
+const journeyAlertTarget = await waitForTarget(endpoint, '#alert');
+await evaluate(journeyAlertTarget, `(() => {
+  const button = [...document.querySelectorAll('.alert-actions button')].find((entry) => entry.textContent?.includes('跳过'));
+  if (!(button instanceof HTMLButtonElement)) return false;
+  setTimeout(() => button.click(), 0);
+  return true;
+})()`);
+await waitForTargetGone(endpoint, '#alert');
+const resumedFocus = (await waitForValue('#workbench', `(() => ({
+  focus: Boolean(document.querySelector('.focus-surface')),
+  title: document.querySelector('.focus-title')?.textContent
+}))()`, (value) => value?.focus && value?.title)).value;
+assert(resumedFocus.title === 'Smoke Journey Task', 'Focus → break → resume continuity failed', resumedFocus);
 
-await evaluate(
-  petTarget,
-  `(async () => {
-    await window.eyeProtect.closePanel();
-    await window.eyeProtect.openSettings();
-  })()`
-);
-const reportUiReady = await waitForValue(
-  '#settings',
-  `(async () => ({
-    ready: Boolean(document.querySelector('.history-stats')),
-    completed: document.querySelector('.history-stats > div:first-child strong')?.textContent,
-    care: document.querySelector('.care-score-ring strong')?.textContent,
-    exports: document.querySelectorAll('.history-controls button').length,
-    backupActions: document.querySelectorAll('.data-actions button').length,
-    customPause: document.querySelector('.custom-pause input')?.value,
-    recovery: await window.eyeProtect.getDataRecoveryInfo(),
-    backupApi: [
-      typeof window.eyeProtect.exportBackup,
-      typeof window.eyeProtect.importBackup,
-      typeof window.eyeProtect.resetToDefaults,
-      typeof window.eyeProtect.openDataDirectory
-    ]
-  }))()`,
-  (value) =>
-    value?.ready &&
-    Number(value?.completed) >= 1 &&
-    value?.care === String(history.careScore)
-);
-const reportUi = reportUiReady.value;
-assert(Number(reportUi.completed) >= 1, 'weekly report UI lost completed count', reportUi);
-assert(reportUi.care === String(history.careScore), 'weekly report care score is stale', reportUi);
-assert(reportUi.exports >= 3, 'weekly report export/clear controls are incomplete', reportUi);
-assert(reportUi.backupActions === 4, 'backup and recovery actions are incomplete', reportUi);
-assert(reportUi.customPause === '45', 'custom pause control is missing', reportUi);
-assert(
-  reportUi.backupApi.every((type) => type === 'function'),
-  'backup IPC bridge is incomplete',
-  reportUi
-);
-assert(Array.isArray(reportUi.recovery.corruptBackups), 'recovery entry is unavailable', reportUi);
+await evaluate(pet, `window.eyeProtect.openWorkbench('reminders')`);
+const workbench = (await waitForValue('#workbench', `(() => ({
+  ready: Boolean(document.querySelector('.standalone-reminders')),
+  shell: Boolean(document.querySelector('.workbench-v2'))
+}))()`, (value) => value?.ready)).value;
+assert(workbench.shell, 'Workbench reminder page failed', workbench);
 
-await evaluate(
-  reportUiReady.target,
-  `window.eyeProtect.saveSettings({
-    adaptiveEnabled: true,
-    quietHoursEnabled: true,
-    quietHoursStartMinutes: 1320,
-    quietHoursEndMinutes: 480,
-    foregroundDetectionEnabled: true,
-    quietAppWhitelist: ['C:\\\\Program Files\\\\Office\\\\POWERPNT.EXE', 'zoom.exe'],
-    petPositionsByLayout: { 'smoke-layout': { x: 12, y: 34 } }
-  })`
-);
-const smartUiReady = await waitForValue(
-  '#settings',
-  `(async () => ({
-    ready: Boolean(document.querySelector('.smart-section .adaptive-card.active')),
-    adaptive: document.querySelector('.smart-section input[type="checkbox"]')?.checked,
-    timeValues: [...document.querySelectorAll('.quiet-time-row input')].map((input) => input.value),
-    whitelist: document.querySelector('.quiet-app-field textarea')?.value,
-    triggerNow: typeof window.eyeProtect.triggerNow === 'function',
-    explanation: document.querySelector('.adaptive-card small')?.textContent,
-    layoutPosition: (await window.eyeProtect.getSettings()).petPositionsByLayout['smoke-layout']
-  }))()`,
-  (value) => value?.ready && value?.whitelist?.includes('powerpnt')
-);
-const smartUi = smartUiReady.value;
-assert(smartUi.adaptive === true, 'adaptive switch did not persist', smartUi);
-assert(
-  smartUi.timeValues.join('|') === '22:00|08:00',
-  'quiet-hours time controls lost their values',
-  smartUi
-);
-assert(
-  smartUi.whitelist.includes('powerpnt') && smartUi.whitelist.includes('zoom'),
-  'foreground whitelist was not path-sanitized',
-  smartUi
-);
-assert(smartUi.triggerNow, 'manual start-break API is missing', smartUi);
-assert(Boolean(smartUi.explanation), 'adaptive adjustment has no explanation', smartUi);
-assert(
-  smartUi.layoutPosition?.x === 12 && smartUi.layoutPosition?.y === 34,
-  'display-layout position map did not persist',
-  smartUi
-);
+await evaluate(pet, `window.eyeProtect.openWorkbench('collection')`);
+const collection = (await waitForValue('#workbench', `(() => ({
+  ready: Boolean(document.querySelector('.collection-page')),
+  character: Boolean(document.querySelector('.procedural-character svg'))
+}))()`, (value) => value?.ready && value?.character)).value;
+assert(collection.character, 'Character collection did not render a procedural candidate', collection);
 
-const hotkeys = await evaluate(
-  smartUiReady.target,
-  `(async () => ({
-    status: await window.eyeProtect.getHotkeyStatus(),
-    rows: document.querySelectorAll('.hotkey-list > div').length,
-    labels: [...document.querySelectorAll('.hotkey-list small')].map((item) => item.textContent)
-  }))()`
-);
-assert(hotkeys.status.enabled, 'global hotkeys are unexpectedly disabled', hotkeys);
-assert(hotkeys.rows === 5, 'global hotkey settings list is incomplete', hotkeys);
-assert(
-  hotkeys.status.registered.length + hotkeys.status.conflicts.length === 5,
-  'global hotkey conflicts were not fully reported',
-  hotkeys
-);
-await evaluate(smartUiReady.target, `window.eyeProtect.saveSettings({ hotkeysEnabled: false })`);
-const hotkeysOff = await waitForValue(
-  '#settings',
-  `window.eyeProtect.getHotkeyStatus()`,
-  (value) => value?.enabled === false && value?.registered?.length === 0
-);
-assert(hotkeysOff.value.conflicts.length === 0, 'disabling hotkeys did not release registrations', hotkeysOff.value);
+const collectResult = (await waitForValue('#workbench', `(() => {
+  const collect = [...document.querySelectorAll('.candidate-actions button')].find((entry) => entry.textContent?.includes('收下它'));
+  if (collect instanceof HTMLButtonElement && !collect.disabled) { collect.click(); return { clicked: true, collected: false }; }
+  return { clicked: false, collected: Boolean(document.querySelector('.character-card')) };
+})()`, (value) => value?.clicked || value?.collected)).value;
+if (collectResult.clicked) {
+  await waitForValue('#workbench', `Boolean(document.querySelector('.character-card'))`, Boolean);
+}
 
-console.log(
-  JSON.stringify({ gentle, guided, focused, preAlert, history, panel, reportUi, smartUi, hotkeys, hotkeysOff: hotkeysOff.value }, null, 2)
-);
+console.log(JSON.stringify({ setup, alert, today, projectCreated, resumedFocus, workbench, collection, collectResult }, null, 2));

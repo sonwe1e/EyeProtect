@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   BrainCircuit,
+  CalendarDays,
   Clock3,
   Compass,
   DatabaseBackup,
@@ -26,11 +27,13 @@ import {
 } from 'lucide-react';
 import {
   SETTINGS_LIMITS,
+  type CommandResult,
   type DataActionResult,
   type DataRecoveryInfo,
   type HotkeyAction,
   type HotkeyStatus,
   type ReminderMode,
+  type ReminderStatus,
   type RuntimeInfo,
   type Settings
 } from '../../../shared/types';
@@ -41,6 +44,7 @@ import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 import { useWeeklyReport } from '../hooks/useWeeklyReport';
 import { formatClock, minutesLeft } from '../lib/time';
+import { commands } from '../lib/commands';
 
 const REMINDER_MODE_COPY: Array<{
   value: ReminderMode;
@@ -114,7 +118,7 @@ const minutesUntilClockTime = (value: string, now: number): number => {
   return Math.max(1, Math.ceil((target.getTime() - now) / 60_000));
 };
 
-export default function SettingsView(): JSX.Element {
+export default function SettingsView({ embedded = false }: { embedded?: boolean }): JSX.Element {
   const { settings, setSettings } = useSettings();
   const status = useReminderStatus();
   const care = useCareStatus();
@@ -123,6 +127,7 @@ export default function SettingsView(): JSX.Element {
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [quietAppsDraft, setQuietAppsDraft] = useState('');
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus>({
@@ -176,9 +181,16 @@ export default function SettingsView(): JSX.Element {
     async (patch: Partial<Settings>) => {
       setSaving(true);
       try {
-        const next = await window.eyeProtect.saveSettings(patch);
-        setSettings(next);
-        setSavedAt(Date.now());
+        const result = await commands.settings.save(patch);
+        if (result.ok) {
+          setSettings(result.data);
+          setSavedAt(Date.now());
+          setSaveError(null);
+        } else {
+          // Keep the stale value and surface the failure (e.g. disk-full) instead
+          // of silently reverting with the spinner.
+          setSaveError(result.message);
+        }
       } finally {
         setSaving(false);
       }
@@ -225,12 +237,59 @@ export default function SettingsView(): JSX.Element {
       report.recommendedWalkMinutes !== settings.walkIntervalMinutes);
 
   const runDataAction = useCallback(
-    async (action: () => Promise<DataActionResult>) => {
-      const result = await action();
-      setDataMessage(result.message);
-      if (result.success) {
-        setRecoveryInfo(await window.eyeProtect.getDataRecoveryInfo());
+    async (action: () => Promise<CommandResult<DataActionResult> | DataActionResult>) => {
+      try {
+        const result = await action();
+        // The command layer normalises rejections into {ok:false}; legacy callers
+        // may still return the raw DataActionResult. Handle both shapes so a
+        // failure never vanishes into an unhandled promise.
+        const ok = 'ok' in result ? result.ok : result.success;
+        const message =
+          'ok' in result
+            ? result.ok
+              ? result.data.message
+              : result.message
+            : result.message;
+        setDataMessage(message);
+        if (ok) {
+          setRecoveryInfo(await window.eyeProtect.getDataRecoveryInfo());
+        }
+      } catch (err) {
+        setDataMessage(err instanceof Error ? err.message : String(err));
       }
+    },
+    []
+  );
+
+  // History export/clear and scheduler test/pause controls used to fire
+  // commands with the result discarded, so a failure (disk error, rejected
+  // IPC) vanished silently. Surface every outcome through the same
+  // data-message line the backup actions use.
+  const runHistoryExport = useCallback((format: 'json' | 'csv') => {
+    void commands.data.exportHistory(format).then((result) => {
+      if (!result.ok) {
+        setDataMessage(result.message);
+      } else if (result.data) {
+        setDataMessage(format === 'csv' ? '已导出 CSV 记录' : '已导出 JSON 记录');
+      } else {
+        setDataMessage('已取消导出');
+      }
+    });
+  }, []);
+
+  const runClearHistory = useCallback(() => {
+    void commands.data.clearHistory().then((result) => {
+      setDataMessage(result.ok ? '已清除本地提醒记录' : result.message);
+    });
+  }, []);
+
+  const runSchedulerAction = useCallback(
+    (action: () => Promise<CommandResult<ReminderStatus>>) => {
+      void action().then((result) => {
+        if (!result.ok) {
+          setDataMessage(result.message);
+        }
+      });
     },
     []
   );
@@ -242,14 +301,25 @@ export default function SettingsView(): JSX.Element {
           <span className="eyebrow">EyeProtect</span>
           <h1>提醒设置</h1>
         </div>
-        <button
-          className="icon-button"
-          title="关闭设置"
-          onClick={() => void window.eyeProtect.closeSettings()}
-        >
-          <X size={20} />
-        </button>
+        {!embedded ? (
+          <button
+            className="icon-button"
+            title="关闭设置"
+            onClick={() => void window.eyeProtect.closeWorkbench()}
+          >
+            <X size={20} />
+          </button>
+        ) : null}
       </header>
+
+      {saveError ? (
+        <p className="settings-save-error" role="alert">
+          <span>保存失败：{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)}>
+            忽略
+          </button>
+        </p>
+      ) : null}
 
       <section className="status-strip">
         {nextItems.map((item) => (
@@ -274,7 +344,7 @@ export default function SettingsView(): JSX.Element {
               最多自动推迟 3 次
             </small>
           </span>
-          <button onClick={() => void window.eyeProtect.triggerNow()}>现在休息</button>
+          <button onClick={() => void commands.scheduler.triggerNow()}>现在休息</button>
         </div>
       ) : null}
 
@@ -327,6 +397,54 @@ export default function SettingsView(): JSX.Element {
           icon={<Clock3 size={18} />}
           onCommit={(value) => void update({ snoozeMinutes: value })}
         />
+        <NumberField
+          label="自然休息阈值"
+          value={settings.naturalBreakMinutes}
+          min={SETTINGS_LIMITS.naturalBreakMinutes.min}
+          max={SETTINGS_LIMITS.naturalBreakMinutes.max}
+          suffix="分钟"
+          icon={<Footprints size={18} />}
+          onCommit={(value) => void update({ naturalBreakMinutes: value })}
+        />
+        <NumberField
+          label="每日可工作容量"
+          value={settings.dailyCapacityMinutes}
+          min={SETTINGS_LIMITS.dailyCapacityMinutes.min}
+          max={SETTINGS_LIMITS.dailyCapacityMinutes.max}
+          suffix="分钟"
+          icon={<Clock3 size={18} />}
+          onCommit={(value) => void update({ dailyCapacityMinutes: value })}
+        />
+        <div className="quiet-time-row">
+          <CalendarDays size={17} />
+          <span>计划时间线工作时段</span>
+          <label>
+            从
+            <input
+              type="time"
+              value={timeValue(settings.workStartMinutes)}
+              onChange={(event) => {
+                const value = parseTimeValue(event.currentTarget.value);
+                if (value !== null) {
+                  void update({ workStartMinutes: value });
+                }
+              }}
+            />
+          </label>
+          <span>到</span>
+          <label>
+            <input
+              type="time"
+              value={timeValue(settings.workEndMinutes)}
+              onChange={(event) => {
+                const value = parseTimeValue(event.currentTarget.value);
+                if (value !== null) {
+                  void update({ workEndMinutes: value });
+                }
+              }}
+            />
+          </label>
+        </div>
         <NumberField
           label="提前预告"
           value={settings.preAlertSeconds}
@@ -509,6 +627,8 @@ export default function SettingsView(): JSX.Element {
 
       <section className="settings-section">
         <h2>桌宠</h2>
+        <label className="settings-inline-field"><span>主题</span><select value={settings.theme} onChange={(event) => void update({ theme: event.currentTarget.value as typeof settings.theme })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        <label className="settings-inline-field"><span>信息密度</span><select value={settings.density} onChange={(event) => void update({ density: event.currentTarget.value as typeof settings.density })}><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
         <NumberField
           label="桌宠缩放"
           value={Math.round(settings.petScale * 100)}
@@ -518,6 +638,17 @@ export default function SettingsView(): JSX.Element {
           icon={<RotateCcw size={18} />}
           onCommit={(value) => void update({ petScale: value / 100 })}
         />
+        <label className="switch-row">
+          <span>
+            <strong>显示待办气泡</strong>
+            <small>在桌宠旁显示未完成任务预览；护眼、走动和预提醒不受影响。</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={settings.todoBubbleEnabled}
+            onChange={(event) => void update({ todoBubbleEnabled: event.currentTarget.checked })}
+          />
+        </label>
         <label className="switch-row">
           <span>
             <strong>提醒时置黑桌面</strong>
@@ -650,11 +781,11 @@ export default function SettingsView(): JSX.Element {
                   <option value={90}>最近 90 天</option>
                 </select>
               </label>
-              <button onClick={() => void window.eyeProtect.exportReminderHistory('csv')}>
+              <button onClick={() => runHistoryExport('csv')}>
                 <Download size={14} />
                 CSV
               </button>
-              <button onClick={() => void window.eyeProtect.exportReminderHistory('json')}>
+              <button onClick={() => runHistoryExport('json')}>
                 <Download size={14} />
                 JSON
               </button>
@@ -666,7 +797,7 @@ export default function SettingsView(): JSX.Element {
                     return;
                   }
                   setConfirmClearHistory(false);
-                  void window.eyeProtect.clearReminderHistory();
+                  runClearHistory();
                 }}
               >
                 <Trash2 size={14} />
@@ -685,7 +816,7 @@ export default function SettingsView(): JSX.Element {
                   return;
                 }
                 setConfirmClearHistory(false);
-                void window.eyeProtect.clearReminderHistory();
+                runClearHistory();
               }}
             >
               <Trash2 size={14} />
@@ -699,41 +830,47 @@ export default function SettingsView(): JSX.Element {
         <div className="section-heading-row">
           <div>
             <h2>备份与迁移</h2>
-            <small>一个文件包含设置、待办、闹钟和本地提醒历史；导入前会再次确认。</small>
+            <small>一个文件包含设置、任务、独立提醒和本地提醒历史；导入前会再次确认。</small>
           </div>
           <DatabaseBackup size={20} />
         </div>
         <div className="data-actions">
-          <button onClick={() => void runDataAction(window.eyeProtect.exportBackup)}>
+          <button onClick={() => void runDataAction(commands.data.exportBackup)}>
             <Download size={15} />
             导出完整备份
           </button>
-          <button onClick={() => void runDataAction(window.eyeProtect.importBackup)}>
+          <button onClick={() => void runDataAction(commands.data.importBackup)}>
             <Upload size={15} />
             导入备份
           </button>
-          <button onClick={() => void runDataAction(window.eyeProtect.openDataDirectory)}>
+          <button onClick={() => void runDataAction(commands.data.openDataDirectory)}>
             <FolderOpen size={15} />
             打开数据目录
           </button>
           <button
             className="danger-soft"
-            onClick={() => void runDataAction(window.eyeProtect.resetToDefaults)}
+            onClick={() => void runDataAction(commands.data.resetToDefaults)}
           >
             <RotateCcw size={15} />
             恢复默认
           </button>
         </div>
         {dataMessage ? <div className="data-message" role="status">{dataMessage}</div> : null}
-        {recoveryInfo && recoveryInfo.corruptBackups.length > 0 ? (
+        {recoveryInfo?.taskDatabase.readOnly ? (
+          <div className="recovery-notice" role="alert">
+            <strong>任务数据库正在恢复模式运行</strong>
+            <span>原数据库未被覆盖；本次会话中的任务修改不会写回磁盘。请先导出诊断信息或打开数据目录保留快照。</span>
+            <small>{recoveryInfo.taskDatabase.snapshotPath ?? recoveryInfo.taskDatabase.reason ?? '数据库恢复快照不可用'}</small>
+          </div>
+        ) : recoveryInfo && recoveryInfo.corruptBackups.length > 0 ? (
           <div className="recovery-notice">
-            <strong>检测到 {recoveryInfo.corruptBackups.length} 个损坏配置备份</strong>
-            <span>原文件已隔离保留，可打开数据目录手动取回或导入其他备份。</span>
+            <strong>检测到 {recoveryInfo.corruptBackups.length} 个恢复快照</strong>
+            <span>原文件或副本已保留，可打开数据目录手动取回或导入其他备份。</span>
             <small>{recoveryInfo.corruptBackups.slice(-3).join(' · ')}</small>
           </div>
         ) : (
           <small className="data-path-note">
-            配置损坏时会自动隔离原文件，并在这里显示恢复入口。
+            配置或数据库异常时会保留原文件快照，并在这里显示恢复入口。
           </small>
         )}
       </section>
@@ -741,40 +878,40 @@ export default function SettingsView(): JSX.Element {
       <section className="settings-section compact">
         <h2>提醒控制</h2>
         <div className="test-actions">
-          <button onClick={() => void window.eyeProtect.testReminder('eye')}>
+          <button onClick={() => runSchedulerAction(() => commands.scheduler.test('eye'))}>
             <Eye size={18} />
             护眼提醒
           </button>
-          <button onClick={() => void window.eyeProtect.testReminder('walk')}>
+          <button onClick={() => runSchedulerAction(() => commands.scheduler.test('walk'))}>
             <Footprints size={18} />
             走动提醒
           </button>
           {paused ? (
             <>
-              <button onClick={() => void window.eyeProtect.resume()}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.resume())}>
                 <Play size={18} />
                 恢复提醒
               </button>
-              <button onClick={() => void window.eyeProtect.restartCycle()}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.restartCycle())}>
                 <RotateCcw size={18} />
                 重新开始计时
               </button>
             </>
           ) : (
             <>
-              <button onClick={() => void window.eyeProtect.pause(10)}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(10))}>
                 <Pause size={18} />
                 暂停 10 分钟
               </button>
-              <button onClick={() => void window.eyeProtect.pause(30)}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(30))}>
                 <Pause size={18} />
                 会议 30 分钟
               </button>
-              <button onClick={() => void window.eyeProtect.pause(minutesUntilNextHour(now))}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(minutesUntilNextHour(now)))}>
                 <Clock3 size={18} />
                 到下一整点
               </button>
-              <button onClick={() => void window.eyeProtect.pause(minutesUntilMidnight(now))}>
+              <button onClick={() => runSchedulerAction(() => commands.scheduler.pause(minutesUntilMidnight(now)))}>
                 <MoonStar size={18} />
                 今天不再提醒
               </button>
@@ -793,7 +930,7 @@ export default function SettingsView(): JSX.Element {
                 <span>分钟</span>
                 <button
                   type="button"
-                  onClick={() => void window.eyeProtect.pause(customPauseMinutes)}
+                  onClick={() => runSchedulerAction(() => commands.scheduler.pause(customPauseMinutes))}
                 >
                   自定义暂停
                 </button>
@@ -807,7 +944,9 @@ export default function SettingsView(): JSX.Element {
                 <button
                   type="button"
                   onClick={() =>
-                    void window.eyeProtect.pause(minutesUntilClockTime(meetingEndTime, now))
+                    runSchedulerAction(() =>
+                      commands.scheduler.pause(minutesUntilClockTime(meetingEndTime, now))
+                    )
                   }
                 >
                   暂停到会议结束

@@ -1,0 +1,4 @@
+# Historical credential in deleted 1.py. It must be revoked externally; these
+# fingerprints keep the no-history-rewrite policy from blocking every CI run.
+41172e07cf457b05390a1330df2b46827647878a:1.py:generic-api-key:16
+cc53a89b6bb1fb20e27b2a8dab00a5159db2ad21:1.py:generic-api-key:16
