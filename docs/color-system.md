@@ -1,24 +1,24 @@
 # EyeProtect 配色系统
 
-EyeProtect 使用“暖纸面 + 墨色文字 + 少量鼠尾草绿”的配色方向。背景、侧栏、面板和选中态以低饱和中性色建立层级；品牌色只用于当前状态、主要操作、专注与健康语义，避免整个界面被绿色覆盖。
+EyeProtect 使用“暖纸面 + 墨色文字 + 低饱和雾蓝灰”的配色方向。背景、侧栏、面板和选中态以低饱和中性色建立层级；品牌色只用于当前状态、主要操作和专注语义，避免整个界面被高饱和颜色覆盖。
 
 ## 核心色板
 
 | 语义 | Light | Dark | 用途 |
 | --- | --- | --- | --- |
-| App Background | `#F5F6F4` | `#111614` | 主工作区 |
-| Sidebar | `#ECEFEB` | `#0B100E` | 左侧导航 |
-| Surface | `#FFFFFF` | `#171E1B` | 面板、输入框 |
-| Raised Surface | `#FBFCFA` | `#1D2722` | 浮层、强调卡片 |
-| Hover | `#EEF2EF` | `#222D27` | 悬停状态 |
-| Selected | `#E5ECE8` | `#29372F` | 中性选中背景 |
-| Border subtle | `#DDE4DF` | `#29352F` | 普通分隔 |
-| Border strong | `#C5D0C8` | `#3A4840` | 输入框等强调边界 |
-| Primary text | `#18201D` | `#EEF5F1` | 主文字 |
-| Secondary text | `#505D56` | `#B6C2BB` | 次文字 |
-| Tertiary text | `#65736C` | `#8D9B93` | 辅助文字 |
-| Brand | `#2E6B5A` | `#82C5AF` | 主操作、当前和健康状态 |
-| Brand subtle | `#E6F0EB` | `#1A342C` | 少量品牌背景 |
+| App Background | `#F5F6F7` | `#111518` | 主工作区 |
+| Sidebar | `#ECEFF1` | `#0B1013` | 左侧导航 |
+| Surface | `#FFFFFF` | `#171E23` | 面板、输入框 |
+| Raised Surface | `#FBFCFD` | `#1D262C` | 浮层、强调卡片 |
+| Hover | `#EEF1F3` | `#222D34` | 悬停状态 |
+| Selected | `#E5ECEF` | `#293942` | 中性选中背景 |
+| Border subtle | `#DCE3E7` | `#29353C` | 普通分隔 |
+| Border strong | `#C4D0D6` | `#3A4852` | 输入框等强调边界 |
+| Primary text | `#182024` | `#EEF4F7` | 主文字 |
+| Secondary text | `#505D63` | `#B6C2C8` | 次文字 |
+| Tertiary text | `#65737A` | `#8D9AA1` | 辅助文字 |
+| Brand | `#526B78` | `#9DBFC9` | 主操作、当前和专注状态 |
+| Brand subtle | `#E7EEF2` | `#1B323A` | 少量品牌背景 |
 
 实际 CSS 值以 `src/renderer/src/styles/theme.css` 中的语义令牌为唯一权威。本页说明设计意图，不应在组件中复制硬编码色值。
 
@@ -27,7 +27,7 @@ EyeProtect 使用“暖纸面 + 墨色文字 + 少量鼠尾草绿”的配色方
 - 导航和任务选中态使用中性背景；品牌色只落在图标、小型指示器或主操作上。
 - 普通任务行默认透明，悬停与选中分别使用中性 hover/selected surface。
 - 普通面板使用一层 surface 和 subtle border；只有对话框、侧滑层、Toast 等浮层使用 `shadow-overlay`。
-- 绿色表示当前、执行、成功或健康；琥珀色表示警告与临近截止；红色表示逾期、破坏性操作或失败。
+- 雾蓝灰表示当前、执行或专注；绿色只表示成功或健康；琥珀色表示警告与临近截止；红色表示逾期、破坏性操作或失败。
 - Task Detail 使用平面属性行和轻量 neutral pill，避免表单控件层层叠加品牌色背景。
 - 动效只服务于浮层进出、命令反馈、选中/拖拽反馈；不为装饰加入持续循环动画。
 - Workbench、Task、Project 与 Plan 样式不得直接写 `#hex`、`rgb()` 或 `rgba()`；颜色必须来自语义令牌。
@@ -39,26 +39,26 @@ EyeProtect 使用“暖纸面 + 墨色文字 + 少量鼠尾草绿”的配色方
 
 | 组合 | 对比度 |
 | --- | ---: |
-| Light primary / background | 15.34:1 |
-| Light secondary / background | 6.37:1 |
-| Light tertiary / background | 4.59:1 |
-| Light primary / surface | 16.62:1 |
-| Light secondary / surface | 6.91:1 |
-| Light selected text / background | 13.85:1 |
-| Light selected metadata / background | 5.75:1 |
-| Light brand / brand-subtle | 5.35:1 |
-| White / Light primary button | 6.24:1 |
+| Light primary / background | 15.27:1 |
+| Light secondary / background | 6.29:1 |
+| Light tertiary / background | 4.53:1 |
+| Light primary / surface | 16.52:1 |
+| Light secondary / surface | 6.80:1 |
+| Light selected text / background | 13.83:1 |
+| Light selected metadata / background | 5.69:1 |
+| Light brand / brand-subtle | 4.80:1 |
+| White / Light primary button | 5.63:1 |
 | Light danger / danger-subtle | 5.26:1 |
 | Light warning / warning-subtle | 5.26:1 |
-| Dark primary / background | 16.51:1 |
-| Dark secondary / background | 9.94:1 |
-| Dark tertiary / background | 6.30:1 |
-| Dark primary / surface | 15.32:1 |
-| Dark secondary / surface | 9.23:1 |
-| Dark selected text / background | 11.28:1 |
-| Dark selected metadata / background | 6.79:1 |
-| Dark brand / brand-subtle | 6.72:1 |
-| Dark primary button | 8.48:1 |
+| Dark primary / background | 16.53:1 |
+| Dark secondary / background | 10.08:1 |
+| Dark tertiary / background | 6.35:1 |
+| Dark primary / surface | 15.18:1 |
+| Dark secondary / surface | 9.26:1 |
+| Dark selected text / background | 10.76:1 |
+| Dark selected metadata / background | 6.56:1 |
+| Dark brand / brand-subtle | 6.86:1 |
+| Dark primary button | 8.46:1 |
 | Dark danger / danger-subtle | 6.60:1 |
 | Dark warning / warning-subtle | 7.12:1 |
 
