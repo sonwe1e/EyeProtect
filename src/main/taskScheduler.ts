@@ -55,7 +55,7 @@ export class TaskScheduler extends EventEmitter {
     const tasks = this.getTasks();
     const events: ScheduledEvent[] = [];
     for (const task of tasks) {
-      if (task.status === 'done' || task.status === 'archived') {
+      if (task.parentId || task.status === 'done' || task.status === 'archived') {
         continue;
       }
       // Narrow the reminderAt locally so the comparison and capture are typed.
@@ -130,7 +130,7 @@ export class TaskScheduler extends EventEmitter {
     const latestFireAt = events.reduce((max, event) => Math.max(max, fireAtOf(event)), now);
     const due = this.getTasks().filter(
       (task) =>
-        task.status !== 'done' &&
+        !task.parentId && task.status !== 'done' &&
         task.status !== 'archived' &&
         typeof task.reminderAt === 'number' &&
         task.reminderAt <= latestFireAt &&

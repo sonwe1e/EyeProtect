@@ -12,6 +12,7 @@ test('task creation transport coerces title and preserves valid fields', () => {
     tags: ['a', ''],
     plannedAt: undefined,
     dueAt: 1000,
+    dueDate: undefined,
     reminderAt: undefined,
     recurrence: undefined,
     context: undefined,
@@ -51,8 +52,8 @@ test('task update transport drops unsupported field shapes', () => {
   assert.equal(asTaskUpdateInput({ dueAt: Infinity }).dueAt, undefined);
   assert.equal(asTaskUpdateInput({ context: 'anywhere' }).context, undefined);
   assert.equal(asTaskUpdateInput({ remindOnBreak: 'yes' }).remindOnBreak, undefined);
-  assert.deepEqual(asTaskUpdateInput({ dueAt: null, projectId: null }), {
-    dueAt: null,
+  assert.deepEqual(asTaskUpdateInput({ dueAt: null, dueDate: null, projectId: null }), {
+    dueAt: null, dueDate: null,
     projectId: null
   });
 });

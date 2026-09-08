@@ -402,7 +402,7 @@ test('schema v4 sanitizers reject malformed input', () => {
 
 // ── Backup round-trip ──────────────────────────────────────────────────────────
 
-test('backup v6 round-trips planning, checkpoints and reflections', () => {
+test('backup v7 preserves planning, checkpoints and reflections', () => {
   withStore((store) => {
     const project = store.createProject({ name: 'Research', status: 'onHold' }, NOW);
     const task = store.createTask({ title: 'Paper', projectId: project.id }, NOW);
@@ -432,7 +432,7 @@ test('backup v6 round-trips planning, checkpoints and reflections', () => {
       dailyReflections: store.getDailyReflections()
     });
     const backup = parseBackup(text);
-    assert.equal(backup.version, 6);
+    assert.equal(backup.version, 7);
     assert.equal(backup.dailyTaskPlans.length, 1);
     assert.equal(backup.dailyTaskPlans[0].dailyRank, 1);
     assert.equal(backup.timeBlocks.length, 1);

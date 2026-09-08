@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { taskSteps } from '../shared/simpleTasks';
+import { TASK_STALE_WRITE_MESSAGE } from '../shared/types';
+import { isProjectWritable } from '../shared/projectPolicy';
 import { nextRecurrenceFireAt } from '../shared/types';
 import type { TaskStore } from './taskStore';
 import type {
@@ -24,7 +27,7 @@ import type {
  * rescheduling in place (an audit-friendly, append-only history of instances).
  */
 export class TaskService extends EventEmitter {
-  constructor(private readonly store: TaskStore) {
+  constructor(private readonly store: TaskStore, private readonly legacyRecurrence = true) {
     super();
     // Delta stream pass-through (USERPLAN PR2): single-entity mutations travel
     // as task/project upsert+remove events; bulk operations (undo, import,
@@ -76,6 +79,7 @@ export class TaskService extends EventEmitter {
   // ── Task operations ─────────────────────────────────────────────────────────
 
   createTask(input: TaskInput, now: number = Date.now()): Task[] {
+    if (!this.legacyRecurrence && !input.title.trim()) throw new Error('请输入任务名称');
     this.store.createTask(input, now);
     this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
@@ -88,11 +92,15 @@ export class TaskService extends EventEmitter {
       const beforeIds = new Set(this.store.getTasks().map((entry) => entry.id));
       const previousActive = this.store.getActiveTaskId();
       const { status, ...fields } = input;
+      if (!this.legacyRecurrence && before?.projectId && !isProjectWritable(this.store.getProject(before.projectId))) throw new Error('清单只读');
       this.store.updateTask(id, fields, now);
+      if (!this.legacyRecurrence && before && !before.parentId && Object.prototype.hasOwnProperty.call(fields, 'projectId')) {
+        for (const step of taskSteps(id, this.store.getTasks())) this.store.updateTask(step.id, { projectId: fields.projectId }, now);
+      }
       const updated = this.store.getTask(id);
       if (status !== undefined && updated && status !== before?.status) {
         this.store.setTaskStatus(id, status, now);
-        if (status === 'done' && updated.recurrence) {
+        if (this.legacyRecurrence && status === 'done' && updated.recurrence) {
           this.rolloverRecurrence(updated, now);
         }
         if (status === 'done' && before) {
@@ -120,6 +128,11 @@ export class TaskService extends EventEmitter {
       return this.store.getTasks();
     }
 
+    if (!this.legacyRecurrence && status === 'done' && !task.parentId && taskSteps(id, this.store.getTasks()).some((step) => step.status === 'open')) throw new Error('请确认连同步骤完成主任务');
+    if (task.projectId && !isProjectWritable(this.store.getProject(task.projectId))) {
+      throw new Error('项目已完成、归档或不存在，无法修改任务状态');
+    }
+
     let undoOperation: UndoState | null = null;
     this.store.runInTransaction(() => {
       const wasDone = task.status === 'done';
@@ -130,7 +143,7 @@ export class TaskService extends EventEmitter {
       // Rollover fires exactly once on the non-done -> done transition edge. A
       // done -> done re-trigger (double-click, IPC retry, stale UI) must not
       // spawn a duplicate next occurrence.
-      if (status === 'done' && !wasDone && task.recurrence) {
+      if (this.legacyRecurrence && status === 'done' && !wasDone && task.recurrence) {
         this.rolloverRecurrence(task, now);
       }
       if (status === 'done' && !wasDone) {
@@ -144,6 +157,42 @@ export class TaskService extends EventEmitter {
     this.emit('active-task-changed', this.store.getActiveTaskId());
     this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
+  }
+
+  completeTaskTree(id: string, revisions: Record<string, number>, now = Date.now()): Task[] {
+    const operation = this.store.runInTransaction(() => {
+      const root = this.store.getTask(id);
+      if (!root || root.parentId || root.status !== 'open') throw new Error('任务已变更，请刷新后重试');
+      if (root.projectId && !isProjectWritable(this.store.getProject(root.projectId))) throw new Error('清单只读');
+      const affected = [root, ...taskSteps(id, this.store.getTasks()).filter((step) => step.status === 'open')];
+      if (Object.keys(revisions).length !== affected.length || affected.some((task) => revisions[task.id] !== task.revision)) throw new Error(TASK_STALE_WRITE_MESSAGE);
+      const previousActive = this.store.getActiveTaskId();
+      for (const task of affected) this.store.updateTask(task.id, { status: 'done', baseRevision: task.revision }, now);
+      return this.store.createUndoOperation('complete', root.title, affected, [], previousActive, now);
+    });
+    this.emit('undo-changed', operation);
+    this.emit('tasks-changed', this.store.getTasks());
+    return this.store.getTasks();
+  }
+
+  moveStep(id: string, direction: -1 | 1): Task[] {
+    const step = this.store.getTask(id);
+    if (!step?.parentId) throw new Error('只能调整步骤顺序');
+    if (step.projectId && !isProjectWritable(this.store.getProject(step.projectId))) throw new Error('清单只读');
+    const siblings = this.store.getTasks().filter((task) => task.parentId === step.parentId).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+    const index = siblings.findIndex((task) => task.id === id);
+    const other = index + direction;
+    if (other < 0 || other >= siblings.length) return this.store.getTasks();
+    [siblings[index], siblings[other]] = [siblings[other], siblings[index]];
+    this.store.runInTransaction(() => siblings.forEach((task, order) => this.store.updateTask(task.id, { sortOrder: order * 10 })));
+    return this.store.getTasks();
+  }
+
+  createStep(rootId: string, title: string): Task[] {
+    const root = this.store.getTask(rootId);
+    if (!root || root.parentId || root.status !== 'open') throw new Error('只能为未完成主任务添加步骤');
+    if (root.projectId && !isProjectWritable(this.store.getProject(root.projectId))) throw new Error('清单只读');
+    return this.createTask({ title, parentId: rootId, projectId: root.projectId });
   }
 
   deleteTask(id: string, now: number = Date.now()): Task[] {

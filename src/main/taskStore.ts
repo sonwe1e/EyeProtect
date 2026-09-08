@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { localDateKey } from '../shared/calendar';
 import { randomUUID } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -52,7 +53,7 @@ import {
 
 const DATABASE_FILE = 'eyeprotect.db';
 const LEGACY_TASKS_FILE = 'tasks.json';
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export interface TaskReminderOccurrence {
   taskId: string;
@@ -116,6 +117,12 @@ export class TaskStore extends EventEmitter {
   private readonly allowTaskModelReset: boolean;
   private db: DatabaseSync;
   private transactionDepth = 0;
+  private pendingEvents: Array<[string | symbol, unknown[]]> = [];
+
+  override emit(event: string | symbol, ...args: unknown[]): boolean {
+    if (this.transactionDepth > 0) { this.pendingEvents.push([event, args]); return this.listenerCount(event) > 0; }
+    return super.emit(event, ...args);
+  }
   private recovery: TaskDatabaseRecovery = { readOnly: false, snapshotPath: null, reason: null };
 
   /**
@@ -138,7 +145,13 @@ export class TaskStore extends EventEmitter {
     this.allowTaskModelReset = options.allowTaskModelReset !== false;
     this.db = this.openDatabase();
     try {
+      const oldColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
+      if (oldColumns.length && !oldColumns.some((column) => column.name === 'due_date')) {
+        this.db.exec('PRAGMA wal_checkpoint(FULL)');
+        if (!this.snapshotDatabase()) throw new Error('无法创建升级前快照');
+      }
       this.migrateSchema();
+      this.migrateSimplifiedSchema();
     } catch (error) {
       // SQLite may accept the file handle before discovering malformed pages.
       // Preserve the complete database family, then run an ephemeral recovery
@@ -154,6 +167,7 @@ export class TaskStore extends EventEmitter {
       };
       this.db = new DatabaseSync(':memory:', { enableForeignKeyConstraints: true });
       this.migrateSchema();
+      this.migrateSimplifiedSchema();
     }
     const stores = TaskStore.openStores.get(this.filePath) ?? new Set<TaskStore>();
     stores.add(this);
@@ -224,7 +238,7 @@ export class TaskStore extends EventEmitter {
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
              remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at,
-             revision
+             revision, due_date
       FROM tasks
       ORDER BY sort_order, created_at, id
     `).all() as SqlRow[];
@@ -245,7 +259,7 @@ export class TaskStore extends EventEmitter {
       SELECT id, title, notes, status, priority, project_id, parent_id,
              planned_at, due_at, reminder_at, recurrence_json, context,
              remind_on_break, estimate_minutes, section_id, sort_order, created_at, updated_at, completed_at,
-             revision
+             revision, due_date
       FROM tasks WHERE id = ?
     `).get(id) as SqlRow | undefined;
     if (!row) {
@@ -300,6 +314,7 @@ export class TaskStore extends EventEmitter {
       tags: input.tags,
       plannedAt: input.plannedAt,
       dueAt: input.dueAt,
+      dueDate: input.dueDate,
       reminderAt: input.reminderAt,
       recurrence: input.recurrence,
       context: input.context,
@@ -347,9 +362,9 @@ export class TaskStore extends EventEmitter {
         UPDATE tasks SET title = ?, notes = ?, status = ?, priority = ?, project_id = ?,
           parent_id = ?, planned_at = ?, due_at = ?, reminder_at = ?, recurrence_json = ?,
           context = ?, remind_on_break = ?, estimate_minutes = ?, sort_order = ?, updated_at = ?, completed_at = ?,
-          section_id = ?, revision = tasks.revision + 1
+          section_id = ?, due_date = ?, revision = tasks.revision + 1
         WHERE id = ?
-      `).run(...taskSqlValues(next).slice(1, 15), next.updatedAt, next.completedAt, next.sectionId, id);
+      `).run(...taskSqlValues(next).slice(1, 15), next.updatedAt, next.completedAt, next.sectionId, next.dueDate, id);
       this.writeTaskTags(id, next.tags);
       if (next.status === 'done' || next.status === 'archived') {
         this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(id);
@@ -1049,6 +1064,11 @@ export class TaskStore extends EventEmitter {
     `).run(String(Math.max(0, Math.round(value))));
   }
 
+  disableLegacyDeliveries(): void {
+    this.db.prepare("UPDATE reminder_delivery SET state = 'dismissed' WHERE (source IN ('standalone', 'timebox') OR (source = 'task' AND source_id IN (SELECT id FROM tasks WHERE parent_id IS NOT NULL OR status IN ('done', 'archived') OR project_id IN (SELECT id FROM projects WHERE status IN ('completed', 'archived'))))) AND state IN ('due', 'presenting', 'failed')").run();
+    this.db.prepare("DELETE FROM scheduled_events WHERE owner IN ('standalone', 'timebox')").run();
+  }
+
   getNextDeliveryAt(): number | null {
     const row = this.db.prepare(`
       SELECT MIN(CASE WHEN state = 'presenting' THEN last_attempt_at + 30000 ELSE next_attempt_at END) AS value
@@ -1132,6 +1152,24 @@ export class TaskStore extends EventEmitter {
       }
     }
     return snapshotPath;
+  }
+
+  private migrateSimplifiedSchema(): void {
+    const migrated = this.db.prepare('SELECT 1 FROM schema_migrations WHERE version = 5001').get();
+    if (migrated) return;
+    this.transaction(() => {
+      const columns = this.db.prepare('PRAGMA table_info(tasks)').all() as SqlRow[];
+      if (!columns.some((column) => column.name === 'due_date')) this.db.exec('ALTER TABLE tasks ADD COLUMN due_date TEXT');
+      const rows = this.db.prepare('SELECT id, due_at FROM tasks WHERE due_date IS NULL AND due_at IS NOT NULL').all() as SqlRow[];
+      for (const row of rows) {
+        const value = Number(row.due_at);
+        if (Number.isFinite(value) && !Number.isNaN(new Date(value).getTime())) {
+          this.db.prepare('UPDATE tasks SET due_date = ? WHERE id = ?').run(localDateKey(value), row.id);
+        }
+      }
+      this.db.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (5001, ?)').run(Date.now());
+      this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(SCHEMA_VERSION, Date.now());
+    });
   }
 
   private migrateSchema(): void {
@@ -1372,7 +1410,7 @@ export class TaskStore extends EventEmitter {
       this.db.exec('ALTER TABLE focus_sessions ADD COLUMN on_break INTEGER NOT NULL DEFAULT 0 CHECK(on_break IN (0,1))');
     }
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
-      .run(SCHEMA_VERSION, Date.now());
+      .run(4, Date.now());
     const defensiveDb = this.db as DatabaseSync & { enableDefensive?: (active: boolean) => void };
     defensiveDb.enableDefensive?.(true);
   }
@@ -1445,21 +1483,24 @@ export class TaskStore extends EventEmitter {
   }
 
   private transaction<T>(action: () => T): T {
-    if (this.transactionDepth > 0) {
-      return action();
-    }
+    if (this.transactionDepth > 0) return action();
     this.db.exec('BEGIN IMMEDIATE');
     this.transactionDepth += 1;
+    let result: T;
     try {
-      const result = action();
+      result = action();
       this.db.exec('COMMIT');
-      return result;
     } catch (error) {
       this.db.exec('ROLLBACK');
+      this.pendingEvents = [];
       throw error;
     } finally {
       this.transactionDepth -= 1;
     }
+    const events = this.pendingEvents;
+    this.pendingEvents = [];
+    for (const [event, args] of events) super.emit(event, ...args);
+    return result;
   }
 
   getFailedDeliveries(): FailedDeliveryNotice[] {
@@ -2173,8 +2214,8 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
         planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
-        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id, revision, due_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(...taskSqlValues(task));
     if (task.reminderAt !== null) {
       this.db.prepare('INSERT OR IGNORE INTO task_reminders(task_id, fire_at, consumed_at) VALUES (?, ?, NULL)')
@@ -2186,8 +2227,8 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO tasks(id, title, notes, status, priority, project_id, parent_id,
         planned_at, due_at, reminder_at, recurrence_json, context, remind_on_break,
-        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        estimate_minutes, sort_order, created_at, updated_at, completed_at, section_id, revision, due_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET title = excluded.title, notes = excluded.notes,
         status = excluded.status, priority = excluded.priority,
         project_id = excluded.project_id, parent_id = excluded.parent_id,
@@ -2197,7 +2238,7 @@ export class TaskStore extends EventEmitter {
         estimate_minutes = excluded.estimate_minutes,
         sort_order = excluded.sort_order, created_at = excluded.created_at,
         updated_at = excluded.updated_at, completed_at = excluded.completed_at,
-        section_id = excluded.section_id, revision = excluded.revision
+        section_id = excluded.section_id, revision = excluded.revision, due_date = excluded.due_date
     `).run(...taskSqlValues(task));
   }
 
@@ -2256,7 +2297,8 @@ const taskSqlValues = (task: Task): SqlValue[] => [
   task.updatedAt,
   task.completedAt,
   task.sectionId,
-  task.revision
+  task.revision,
+  task.dueDate
 ];
 
 const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
@@ -2270,6 +2312,7 @@ const rowToTask = (row: SqlRow, tags: string[]): Task => sanitizeTask({
   tags,
   plannedAt: nullableNumber(row.planned_at),
   dueAt: nullableNumber(row.due_at),
+  dueDate: typeof row.due_date === 'string' ? row.due_date : null,
   reminderAt: nullableNumber(row.reminder_at),
   recurrence: parseJson(row.recurrence_json),
   context: String(row.context),

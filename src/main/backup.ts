@@ -1,3 +1,4 @@
+import { localDateKey } from '../shared/calendar';
 import { sanitizeReminderEvent } from './reminderHistory';
 import { sanitizeSettings } from './settings';
 import {
@@ -25,7 +26,7 @@ import {
 } from '../shared/types';
 import type { TaskReminderOccurrence } from './taskStore';
 
-const BACKUP_SCHEMA_VERSION = 6;
+const BACKUP_SCHEMA_VERSION = 7;
 type PreferenceSettings = Omit<Settings, 'todos' | 'alarms' | 'activeTaskId'>;
 
 export interface BackupDomainData {
@@ -45,7 +46,7 @@ export interface BackupDomainData {
 }
 
 export interface EyeProtectBackup extends BackupDomainData {
-  version: 6;
+  version: 7;
   createdAt: number;
   appVersion: string;
   settings: PreferenceSettings;
@@ -107,7 +108,7 @@ export const createBackup = (
 export const parseBackup = (text: string): EyeProtectBackup => {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (
-    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
+    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
     !Number.isFinite(parsed.createdAt) ||
     typeof parsed.appVersion !== 'string' ||
     !parsed.settings || typeof parsed.settings !== 'object' ||
@@ -123,6 +124,9 @@ export const parseBackup = (text: string): EyeProtectBackup => {
   const importedTasks = Array.isArray(parsed.tasks)
     ? parsed.tasks.map((entry) => sanitizeTask(entry)).filter((entry): entry is Task => Boolean(entry))
     : [];
+  if (parsed.version !== 7) for (const task of importedTasks) {
+    task.dueDate = task.dueAt === null ? null : localDateKey(task.dueAt);
+  }
   const projects = Array.isArray(parsed.projects)
     ? parsed.projects.map((entry) => sanitizeProject(entry)).filter((entry): entry is Project => Boolean(entry))
     : [];

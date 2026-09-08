@@ -495,3 +495,18 @@ test('deleteProject also emits tasks-changed when it detaches tasks', () => {
     assert.equal(service.getTasks()[0].projectId, null);
   });
 });
+
+
+test('task completion rechecks project writability after a renderer snapshot becomes stale', () => {
+  withService((service, store) => {
+    const project = store.createProject({ name: 'Read-only race' }, NOW);
+    const tasks = service.createTask({ title: 'pending', projectId: project.id }, NOW);
+    const task = tasks.find((entry) => entry.title === 'pending')!;
+    store.updateProject(project.id, { status: 'completed' }, NOW);
+    assert.throws(() => service.setTaskStatus(task.id, 'done', NOW), /无法修改任务状态/);
+    assert.equal(store.getTask(task.id)?.status, 'open');
+    store.updateProject(project.id, { status: 'active' }, NOW);
+    service.setTaskStatus(task.id, 'done', NOW);
+    assert.equal(store.getTask(task.id)?.status, 'done');
+  });
+});
