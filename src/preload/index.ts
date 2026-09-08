@@ -214,9 +214,9 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review'>,
+    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks'>,
   onWorkbenchNavigate: (callback) =>
-    on<'today' | 'settings' | 'reminders' | 'collection' | 'review'>('workbench:navigate', callback),
+    on<'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks'>('workbench:navigate', callback),
   getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
   getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
   clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,

@@ -1003,10 +1003,10 @@ export interface EyeProtectApi {
   reportBubbleHeight: (height: number) => Promise<void>;
   onBubbleLayout: (callback: (layout: { placement: 'above' | 'below'; tailX: number }) => void) => () => void;
   movePetWindow: (position: PetPosition) => Promise<PetPosition | null>;
-  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection' | 'review') => Promise<void>;
+  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks') => Promise<void>;
   closeWorkbench: () => Promise<void>;
-  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review'>;
-  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'collection' | 'review') => void) => () => void;
+  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks'>;
+  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks') => void) => () => void;
   getWeeklyReport: () => Promise<WeeklyReport>;
   getCareStatus: () => Promise<CareStatus>;
   clearReminderHistory: () => Promise<WeeklyReport>;

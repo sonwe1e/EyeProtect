@@ -10,6 +10,7 @@ import type {
   FocusStatus,
   HotkeyStatus,
   Project,
+  PomodoroState,
   ReminderStatus,
   RuntimeInfo,
   Settings,
@@ -23,13 +24,14 @@ import type {
 import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
-import { getAlertBounds, getPetMoveBounds } from './windowBounds';
+import { selectPetTasks } from '../shared/petTasks';
+import { getAlertBounds, getPetMoveBounds, getPetBubbleLayout } from './windowBounds';
 import { getWorkbenchBackgroundColor } from './workbenchTheme';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(moduleDir, '../preload/index.cjs');
 const IDLE_SIZE = 160;
-const TODO_BUBBLE_SIZE = { width: 220, height: 150 } as const;
+const TODO_BUBBLE_SIZE = { width: 260, height: 180 } as const;
 const PRE_ALERT_BUBBLE_SIZE = { width: 300, height: 172 } as const;
 const GENTLE_BUBBLE_SIZE = { width: 300, height: 224 } as const;
 const GENTLE_COMBINED_BUBBLE_SIZE = { width: 320, height: 292 } as const;
@@ -107,6 +109,11 @@ export class AppWindows {
   private bubbleWindow: BrowserWindow | null = null;
   private bubbleLoading: Promise<void> | null = null;
   private bubbleShouldShow = false;
+  private bubbleHeight: number | null = null;
+  private bubbleSurface = '';
+  private getPomodoro: () => PomodoroState | null = () => null;
+  private petArtworkBounds = { top: 8 / 64, bottom: 60 / 64 };
+  private previousSelectedPending: string[] = [];
   private allDoneTimer: NodeJS.Timeout | null = null;
   private alertWindow: BrowserWindow | null = null;
   private alertLoading: Promise<boolean> | null = null;
@@ -118,6 +125,7 @@ export class AppWindows {
     | 'settings'
     | 'reminders'
     | 'collection'
+    | 'pet-tasks'
     | 'review' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
@@ -126,7 +134,8 @@ export class AppWindows {
   constructor(
     private readonly settingsStore: SettingsStore,
     private readonly scheduler: ReminderScheduler,
-    private readonly getTasks: () => Task[] = () => []
+    private readonly getTasks: () => Task[] = () => [],
+    private readonly getProjects: () => Project[] = () => []
   ) {
     const onDisplaysChanged = (): void => this.handleDisplaysChangedSoon();
     screen.on('display-added', onDisplaysChanged);
@@ -205,6 +214,8 @@ export class AppWindows {
     // reading native bounds after each move can feed rounding drift back into
     // the next setBounds call and make the transparent pet grow over time.
     this.petWindow.setBounds(nextBounds, false);
+    this.positionBubbleWindow();
+    this.persistPetPositionSoon();
     return { x: nextBounds.x, y: nextBounds.y };
   }
 
@@ -269,6 +280,7 @@ export class AppWindows {
       | 'settings'
       | 'reminders'
       | 'collection'
+      | 'pet-tasks'
       | 'review' = 'today'
   ): void {
     this.workbenchSection = section;
@@ -362,7 +374,7 @@ export class AppWindows {
     }
   }
 
-  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'collection' | 'review' {
+  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks' {
     return this.workbenchSection;
   }
 
@@ -476,13 +488,25 @@ export class AppWindows {
     }
   }
 
+  setPomodoroProvider(provider: () => PomodoroState): void { this.getPomodoro = provider; }
+
+  broadcastPomodoro(state: PomodoroState): void {
+    this.refreshBubble();
+    this.sendTo([this.petWindow, this.bubbleWindow, this.workbenchWindow, this.alertWindow], 'pomodoro:changed', state);
+  }
+
   refreshBubble(): void {
     const status = this.scheduler.getStatus();
     const active = status.activeReminder;
     const tasks = this.getTasks();
-    const pending = tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length;
+    const settings = this.settingsStore.get();
+    const selected = selectPetTasks(settings.todoBubbleTaskIds, tasks, this.getProjects());
+    const justCompleted = this.previousSelectedPending.length > 0 && selected.length === 0 &&
+      this.previousSelectedPending.every((id) => settings.todoBubbleTaskIds.includes(id) && tasks.some((task) => task.id === id && task.status === 'done'));
+    this.previousSelectedPending = selected.map((task) => task.id);
+    const pending = selected.length;
     // The always-resident pet window subscribes to the count channel only.
-    this.sendTo([this.petWindow], 'task:pending-count:changed', pending);
+    this.sendTo([this.petWindow], 'task:pending-count:changed', tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length);
     const petAlive = Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
 
     // Gentle reminders and soft pre-alerts use the bubble as their surface
@@ -502,6 +526,7 @@ export class AppWindows {
       return;
     }
 
+    if (this.getPomodoro()?.phase && this.getPomodoro()?.phase !== 'idle') { this.showBubble(); return; }
     if (!this.settingsStore.get().todoBubbleEnabled) {
       this.hideBubble();
       return;
@@ -512,7 +537,7 @@ export class AppWindows {
       return;
     }
 
-    if (tasks.length === 0) {
+    if (settings.todoBubbleTaskIds.length === 0 || (!justCompleted && !this.allDoneTimer)) {
       // Nothing left at all: no reason to keep the window around.
       this.destroyBubble();
       return;
@@ -767,7 +792,7 @@ export class AppWindows {
   }
 
   private updateDimWindows(active: boolean, settings: Settings): void {
-    if (!active || !settings.dimDesktop) {
+    if (!active) {
       this.destroyDimWindows();
       return;
     }
@@ -867,39 +892,59 @@ export class AppWindows {
     const display = screen.getDisplayMatching(anchor);
     const workArea = display.workArea;
 
-    // Anchor the bubble above the pet's top-left, like a speech bubble. Fall
-    // back below the pet if there is not enough room above, then clamp inside
-    // the work area.
-    const gap = 8;
-    let y = anchor.y - height - gap;
-    if (y < workArea.y) {
-      y = anchor.y + anchor.height + gap;
-    }
-    y = clamp(y, workArea.y, workArea.y + workArea.height - height);
-    const x = clamp(anchor.x, workArea.x, workArea.x + workArea.width - width);
+    return getPetBubbleLayout(anchor, workArea, { width, height }, this.petArtworkBounds).bounds;
+  }
 
-    return { x, y, width, height };
+  isSurfaceSender(surface: 'pet' | 'bubble', webContentsId: number): boolean {
+    const window = surface === 'pet' ? this.petWindow : this.bubbleWindow;
+    return Boolean(window && !window.isDestroyed() && window.webContents.id === webContentsId);
+  }
+
+  reportPetArtworkBounds(value: unknown): void {
+    if (!value || typeof value !== 'object') return;
+    const { top, bottom } = value as { top?: unknown; bottom?: unknown };
+    if (typeof top !== 'number' || typeof bottom !== 'number' || !Number.isFinite(top) || !Number.isFinite(bottom) || top < 0 || bottom > 1 || top >= bottom) return;
+    this.petArtworkBounds = { top, bottom };
+    this.positionBubbleWindow();
+  }
+
+  reportBubbleHeight(height: unknown): void {
+    if (typeof height !== 'number' || !Number.isFinite(height) || height < 40 || height > 600) return;
+    const next = Math.ceil(height);
+    if (this.bubbleHeight === next) return;
+    this.bubbleHeight = next;
+    this.positionBubbleWindow();
   }
 
   private getBubbleSize(): { width: number; height: number } {
     const status = this.scheduler.getStatus();
+    const surface = status.preAlert ? 'prealert' : status.activeReminder?.mode === 'gentle' ? `gentle-${status.activeReminder.id}` : 'todo';
+    if (surface !== this.bubbleSurface) {
+      this.bubbleSurface = surface;
+      this.bubbleHeight = null;
+    }
     if (status.preAlert) {
-      return PRE_ALERT_BUBBLE_SIZE;
+      return { ...PRE_ALERT_BUBBLE_SIZE, height: this.bubbleHeight ?? PRE_ALERT_BUBBLE_SIZE.height };
     }
     const active = status.activeReminder;
     if (active?.mode === 'gentle') {
-      return active.kind === 'combined' || Boolean(active.breakTask)
+      const size = active.kind === 'combined' || Boolean(active.breakTask)
         ? GENTLE_COMBINED_BUBBLE_SIZE
         : GENTLE_BUBBLE_SIZE;
+      return { ...size, height: this.bubbleHeight ?? size.height };
     }
-    return TODO_BUBBLE_SIZE;
+    return { ...TODO_BUBBLE_SIZE, height: this.bubbleHeight ?? TODO_BUBBLE_SIZE.height };
   }
 
   private positionBubbleWindow(): void {
     if (!this.bubbleWindow || this.bubbleWindow.isDestroyed()) {
       return;
     }
-    this.bubbleWindow.setBounds(this.getBubbleBounds());
+    const pet = this.petWindow?.getBounds();
+    if (!pet) return;
+    const layout = getPetBubbleLayout(pet, screen.getDisplayMatching(pet).workArea, this.getBubbleSize(), this.petArtworkBounds);
+    this.bubbleWindow.setBounds(layout.bounds, false);
+    this.sendTo([this.bubbleWindow], 'bubble:layout', { placement: layout.placement, tailX: layout.tailX });
   }
 
   private handleDisplaysChangedSoon(): void {
@@ -1064,7 +1109,8 @@ export class AppWindows {
   }
 
   broadcastProjects(projects: Project[]): void {
-    this.sendTo([this.workbenchWindow], 'project:changed', projects);
+    this.sendTo([this.workbenchWindow, this.bubbleWindow], 'project:changed', projects);
+    this.refreshBubble();
   }
 
   // Delta stream (USERPLAN 1.2 PR2): single-entity mutations no longer
@@ -1082,11 +1128,13 @@ export class AppWindows {
   }
 
   broadcastProjectUpserted(project: Project): void {
-    this.sendTo([this.workbenchWindow], 'project:upserted', project);
+    this.sendTo([this.workbenchWindow, this.bubbleWindow], 'project:upserted', project);
+    this.refreshBubble();
   }
 
   broadcastProjectRemoved(projectId: string): void {
-    this.sendTo([this.workbenchWindow], 'project:removed', projectId);
+    this.sendTo([this.workbenchWindow, this.bubbleWindow], 'project:removed', projectId);
+    this.refreshBubble();
   }
 
   /** Focus session state push (USERPLAN 1.2 PR6). */
