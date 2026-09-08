@@ -1,3 +1,4 @@
+import { getPetBubbleLayout } from '../src/main/windowBounds';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ALERT_LAYOUT, getAlertBounds, getPetMoveBounds, type WindowRectangle } from '../src/main/windowBounds';
@@ -84,4 +85,34 @@ test('pet move bounds clamp against the work area using the fixed configured siz
     getPetMoveBounds({ x: -200, y: 900 }, workArea, { width: 288, height: 288 }),
     { x: 0, y: 432, width: 288, height: 288 }
   );
+});
+
+
+test('bubble follows every move with fixed artwork gap and content-dependent height', () => {
+  const workArea = { x: 0, y: 0, width: 1920, height: 1040 };
+  for (const height of [92, 124, 156]) {
+    for (let x = 300; x < 1100; x += 7) {
+      const layout = getPetBubbleLayout({ x, y: 500, width: 160, height: 160 }, workArea, { width: 260, height });
+      assert.equal(layout.placement, 'above');
+      assert.equal(layout.bounds.x + layout.bounds.width / 2, x + 80);
+      assert.equal(layout.bounds.y + height, 520);
+    }
+  }
+});
+
+test('bubble flips below and clamps on negative-origin displays and small work areas', () => {
+  for (const area of [{ x: -1920, y: 0, width: 1920, height: 1080 }, { x: 0, y: 0, width: 240, height: 240 }]) {
+    const layout = getPetBubbleLayout({ x: area.x, y: area.y, width: 160, height: 160 }, area, { width: 260, height: 156 });
+    assert.equal(layout.placement, 'below');
+    assertInsideWorkArea(layout.bounds, area);
+    assert.ok(layout.tailX >= 18 && layout.tailX <= layout.bounds.width - 30);
+  }
+});
+
+
+test('legacy artwork uses its reported silhouette rather than a fixed pixel-animal head', () => {
+  const pet = { x: 300, y: 500, width: 160, height: 160 };
+  const area = { x: 0, y: 0, width: 1920, height: 1080 };
+  const result = getPetBubbleLayout(pet, area, { width: 260, height: 140 }, { top: .25, bottom: .8 });
+  assert.equal(result.bounds.y + result.bounds.height, 540);
 });

@@ -5,6 +5,26 @@ export interface WindowRectangle {
   height: number;
 }
 
+/** Coordinates are DIP; artwork uses the same normalized 64px canvas. */
+export const getPetBubbleLayout = (
+  pet: WindowRectangle,
+  workArea: WindowRectangle,
+  size: { width: number; height: number },
+  artwork = { top: 8 / 64, bottom: 60 / 64 }
+): { bounds: WindowRectangle; placement: 'above' | 'below'; tailX: number } => {
+  const width = Math.min(size.width, workArea.width);
+  const height = Math.min(size.height, workArea.height);
+  const center = pet.x + pet.width / 2;
+  const head = pet.y + pet.height * artwork.top;
+  const feet = pet.y + pet.height * artwork.bottom;
+  // The window has a 6 DIP transparent safety inset. The visible tail is
+  // another 6 DIP from the artwork, so the two offsets cancel here.
+  const placement = head - height >= workArea.y ? 'above' : 'below';
+  const x = Math.round(clamp(center - width / 2, workArea.x, workArea.x + workArea.width - width));
+  const y = Math.round(clamp(placement === 'above' ? head - height : feet, workArea.y, workArea.y + workArea.height - height));
+  return { bounds: { x, y, width, height }, placement, tailX: clamp(center - x - 6, 18, width - 30) };
+};
+
 export const ALERT_LAYOUT = {
   edgeGapRatio: 0.05,
   edgeGapMin: 16,
