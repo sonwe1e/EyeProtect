@@ -113,3 +113,5 @@
 @media (max-width: 760px) {
   .workbench-v2 .candidate-card { grid-template-columns: 1fr; }
 }
+
+.builtin-animal-grid .character-card-stage { height: 180px; }

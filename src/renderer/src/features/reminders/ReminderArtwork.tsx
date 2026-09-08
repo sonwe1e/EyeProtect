@@ -1,6 +1,6 @@
 import type { ActiveReminder, ReminderKind } from '../../../../shared/types';
 import { ProceduralCharacter } from '../characters/ProceduralCharacter';
-import { activeCharacterFrom, useCharacterCollection } from '../../hooks/useCharacterCollection';
+import { useActiveCharacter } from '../../hooks/useCharacterCollection';
 
 export const reminderCopy: Record<ReminderKind, { title: string; detail: string }> = {
   eye: { title: '眼睛休息时间', detail: '跟它一起看向远处，慢慢眨几次眼。' },
@@ -9,7 +9,7 @@ export const reminderCopy: Record<ReminderKind, { title: string; detail: string 
 };
 
 export function ReminderArtwork({ active, canComplete, onDoubleClick }: { active: ActiveReminder; canComplete: boolean; onDoubleClick: () => void }): JSX.Element {
-  const character = activeCharacterFrom(useCharacterCollection());
+  const character = useActiveCharacter();
   return (
     <div className={`reminder-artwork reminder-stage kind-${active.kind}`} title={canComplete ? '双击完成提醒' : '倒计时结束后可双击完成'} onDoubleClick={onDoubleClick}>
       <div className="reminder-atmosphere" aria-hidden="true"><i /><i /><i /><i /></div>

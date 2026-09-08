@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { createPixelAnimal } from '../../../shared/pixelAnimals';
+import { useSettings } from './useSettings';
 import { createStarterCharacter } from '../../../shared/characters';
 import type { CharacterCollectionState, CollectibleCharacter } from '../../../shared/types';
 
@@ -25,3 +27,9 @@ export const useCharacterCollection = (): CharacterCollectionState => {
 
 export const activeCharacterFrom = (state: CharacterCollectionState): CollectibleCharacter =>
   state.characters.find((entry) => entry.id === state.activeCharacterId) ?? createStarterCharacter();
+
+export const useActiveCharacter = (): CollectibleCharacter => {
+  const collection = useCharacterCollection();
+  const { settings } = useSettings();
+  return settings.petAppearance === 'collection' ? activeCharacterFrom(collection) : createPixelAnimal(settings.petAppearance);
+};

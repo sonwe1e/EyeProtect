@@ -1,4 +1,6 @@
 import { memo, useMemo } from 'react';
+import { pixelAnimalFromId } from '../../../../shared/pixelAnimals';
+import { PixelAnimal } from './PixelAnimal';
 import type {
   CollectibleCharacter,
   PetAccessory,
@@ -48,6 +50,9 @@ export const ProceduralCharacter = memo(function ProceduralCharacter({
     () => ({ '--character-base': base, '--character-light': light, '--character-ink': ink }) as React.CSSProperties,
     [base, light, ink]
   );
+
+  const animal = pixelAnimalFromId(character.id);
+  if (animal) return <PixelAnimal animal={animal} action={action} label={label ?? character.name} />;
 
   return (
     <div

@@ -61,7 +61,7 @@ export function PetCharacter({
       aria-label={character.name}
       title={`单击互动，${doubleClickHint}`}
     >
-      <ProceduralCharacter character={character} mood={mood} action={reaction ? 'react' : 'idle'} accessory={accessory} />
+      <ProceduralCharacter character={character} mood={mood} action={reaction || isAnimating ? 'react' : 'idle'} accessory={accessory} />
     </div>
   );
 }

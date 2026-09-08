@@ -1,3 +1,5 @@
+import { PIXEL_ANIMALS, PIXEL_ANIMAL_NAMES, createPixelAnimal } from '../../../../shared/pixelAnimals';
+import { useSettings } from '../../hooks/useSettings';
 import { memo, useMemo, useState } from 'react';
 import { Dice5, Gift, Heart, Pin, Sparkles, Trash2 } from 'lucide-react';
 import { CHARACTER_MATERIALS } from '../../../../shared/characters';
@@ -24,6 +26,8 @@ const ACCESSORIES: Array<{ value: PetAccessory; label: string }> = [
 
 export function CharacterCollectionView(): JSX.Element {
   const state = useCharacterCollection();
+  const { settings } = useSettings();
+  const appearance = useCommand((petAppearance: typeof settings.petAppearance) => commands.settings.save({ petAppearance }));
   const candidate = state.candidate?.decision === 'pending' ? state.candidate.character : null;
   const characters = useMemo(
     () =>
@@ -41,10 +45,20 @@ export function CharacterCollectionView(): JSX.Element {
     <div className="collection-page">
       <header className="collection-header">
         <div><span className="eyebrow">每日随机生成</span><h1>公仔收藏</h1><p>角色形状、材质和动作相互独立。每天的新朋友只在本机生成与保存。</p></div>
-        <CommandButton className={state.appearanceMode === 'daily-random' ? 'primary' : ''} type="button" state={setDailyRandom.state} errorReason={setDailyRandom.error?.message} onClick={() => void setDailyRandom.run()}>
+        <CommandButton className={settings.petAppearance === 'collection' && state.appearanceMode === 'daily-random' ? 'primary' : ''} type="button" state={setDailyRandom.state} errorReason={setDailyRandom.error?.message} onClick={() => void setDailyRandom.run()}>
           <Dice5 size={16} /> 每日随机出场
         </CommandButton>
       </header>
+      <section className="collection-section">
+        <h2>像素伙伴</h2><p>安静陪伴，偶尔回应。选择一位固定出场。</p>
+        <div className="character-grid builtin-animal-grid">{PIXEL_ANIMALS.map((animal) => <article className="character-card" key={animal}>
+          <div className="character-card-stage"><ProceduralCharacter character={createPixelAnimal(animal)} /></div>
+          <div className="character-card-body"><h3>{PIXEL_ANIMAL_NAMES[animal]}</h3>
+            <CommandButton type="button" className={settings.petAppearance === animal ? 'primary' : ''} state={appearance.state} errorReason={appearance.error?.message} onClick={() => void appearance.run(animal)}>{settings.petAppearance === animal ? '正在出场' : '选择出场'}</CommandButton>
+          </div>
+        </article>)}</div>
+        <CommandButton type="button" state={appearance.state} errorReason={appearance.error?.message} onClick={() => void appearance.run('collection')}>{settings.petAppearance === 'collection' ? '正在使用收藏角色' : '使用原有收藏角色'}</CommandButton>
+      </section>
       {candidate ? (
         <section className="candidate-card">
           <div className="candidate-stage"><ProceduralCharacter character={candidate} mood="happy" action="react" /></div>
@@ -58,7 +72,7 @@ export function CharacterCollectionView(): JSX.Element {
       ) : <div className="candidate-empty"><Gift size={18} /><span>今天的来访已经处理，明天会出现新的随机公仔。</span></div>}
       <section className="collection-section">
         <div className="collection-section-heading"><h2>我的角色</h2><span>{characters.length} 位</span></div>
-        {characters.length ? <div className="character-grid">{characters.map((character) => <CharacterCard key={character.id} character={character} active={state.activeCharacterId === character.id} pinned={state.appearanceMode === 'pinned' && state.pinnedCharacterId === character.id} />)}</div> : (
+        {characters.length ? <div className="character-grid">{characters.map((character) => <CharacterCard key={character.id} character={character} active={settings.petAppearance === 'collection' && state.activeCharacterId === character.id} pinned={settings.petAppearance === 'collection' && state.appearanceMode === 'pinned' && state.pinnedCharacterId === character.id} />)}</div> : (
           <div className="collection-empty"><Sparkles size={28} /><h3>收藏还是空的</h3><p>桌面上会先住着默认小家伙，收下每日来访后就能切换。</p></div>
         )}
       </section>

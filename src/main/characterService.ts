@@ -18,7 +18,8 @@ import type { TaskStore } from './taskStore';
 export class CharacterService extends EventEmitter {
   constructor(
     private readonly store: TaskStore,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly dailyVisitors = true
   ) {
     super();
   }
@@ -29,12 +30,12 @@ export class CharacterService extends EventEmitter {
     const stored = this.store.getCharacterCollectionState();
     const state = this.sanitizeState(stored);
     let changed = stored === null;
-    if (!state.candidate || state.candidate.localDate !== date) {
+    if (this.dailyVisitors && (!state.candidate || state.candidate.localDate !== date)) {
       const character = this.uniqueDailyCharacter(state, date, now);
       state.candidate = { localDate: date, character, decision: 'pending' };
       changed = true;
     }
-    const active = chooseDailyActiveCharacter(state, date);
+    const active = this.dailyVisitors ? chooseDailyActiveCharacter(state, date) : state.characters.find((character) => character.id === state.activeCharacterId) ?? createStarterCharacter();
     if (state.activeCharacterId !== active.id) {
       state.activeCharacterId = active.id;
       changed = true;
