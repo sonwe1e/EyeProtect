@@ -1,0 +1,175 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { getAvailablePort, call, delay, evaluate, waitFor, waitForTarget, waitForTargetGone } from './lib/cdp.mjs';
+
+const scale = Number(process.argv[2] ?? 1);
+const output = resolve(process.argv[3] ?? `artifacts/simple-${scale}`);
+const emergency = process.argv.includes('--emergency');
+const phase = process.argv.includes('--ui-only') ? 'ui' : 'all';
+const runtime = resolve(output, `run-${Date.now()}`);
+const port = await getAvailablePort();
+const endpoint = `http://127.0.0.1:${port}`;
+mkdirSync(output, { recursive: true });
+const launch = () => spawn(resolve('release/win-unpacked/EyeProtect.exe'), [
+  `--remote-debugging-port=${port}`, `--force-device-scale-factor=${scale}`, `--user-data-dir=${resolve(runtime, 'profile')}`, ...(emergency ? ['--eyeprotect-smoke-emergency'] : [])
+], { windowsHide: true, env: { ...process.env, EYEPROTECT_SMOKE: '1', EYEPROTECT_DATA_DIR: resolve(runtime, 'data') } });
+let child = launch();
+let log = '';
+child.stderr.on('data', (data) => { log += data; });
+const capture = async (target, name) => {
+  const frame = await call(target, 'Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  writeFileSync(resolve(output, `${name}.png`), Buffer.from(frame.data, 'base64'));
+};
+const fill = async (target, selector, value) => evaluate(target, `(() => {
+  const input = document.querySelector(${JSON.stringify(selector)});
+  if (!input) throw new Error('Missing field: ' + ${JSON.stringify(selector)});
+  const prototype = input.tagName === 'SELECT' ? HTMLSelectElement.prototype : input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, ${JSON.stringify(value)});
+  input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
+})()`);
+const click = async (target, text, deferred = false) => evaluate(target, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!button) throw new Error('Missing button ' + ${JSON.stringify(text)}); if (${deferred}) setTimeout(() => button.click(), 50); else button.click(); })()`);
+const metrics = { scale, phase };
+try {
+  const pet = await waitForTarget(endpoint, '#pet');
+  await waitFor(pet, `Boolean(document.querySelector('.pet-drag-surface'))`);
+  await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light', eyeIntervalMinutes: 240, walkIntervalMinutes: 240, eyeRestSeconds: 5, todoBubbleTaskIds: [] })`);
+  await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
+  const workbench = await waitForTarget(endpoint, '#workbench');
+  await waitFor(workbench, `document.querySelector('.simple-add') !== null`);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.app-sidebar, .ui-side-sheet').length`), 0);
+  await fill(workbench, '[aria-label="添加任务"]', '整理今天的工作');
+  await evaluate(workbench, `document.querySelector('[aria-label="添加任务"]').focus()`);
+  await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r', unmodifiedText: '\r' });
+  await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 1`);
+  const root = (await evaluate(pet, 'window.eyeProtect.getTasks()'))[0];
+  assert.equal(root.dueDate, null); assert.equal(root.reminderAt, null);
+  await evaluate(workbench, `document.querySelector('.simple-task-name').click()`);
+  await waitFor(workbench, `document.querySelector('.simple-task-fields') !== null`);
+  const date = await evaluate(pet, `(() => { const d = new Date(); return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-'); })()`);
+  await fill(workbench, '.simple-task-fields input[type="date"]', date);
+  await fill(workbench, '.simple-task-fields textarea', '只记录需要做的事，减少来回切换。');
+  await click(workbench, '保存修改');
+  await waitFor(pet, `(async () => (await window.eyeProtect.getTasks())[0].dueDate === ${JSON.stringify(date)})()`);
+  await fill(workbench, '[aria-label="添加步骤"]', '整理反馈');
+  await click(workbench, '添加步骤');
+  await waitFor(workbench, `document.querySelectorAll('.simple-step').length === 1`);
+  assert.equal(await evaluate(workbench, 'document.querySelectorAll(".simple-task").length'), 1, 'steps must not duplicate into main list');
+  await capture(workbench, 'task-expanded');
+  await evaluate(workbench, `document.querySelector('[aria-label="放到浮窗"]').click()`);
+  let bubble = await waitForTarget(endpoint, '#bubble');
+  await waitFor(bubble, `document.querySelectorAll('.bubble-task-row').length === 1`);
+  await capture(bubble, 'manual-task-bubble');
+  await evaluate(workbench, `document.querySelector('.simple-step input[type="checkbox"]').click()`);
+  await waitFor(workbench, `document.querySelector('.simple-step input').checked === true`);
+  await evaluate(workbench, `document.querySelector('.simple-task-row > input').click()`);
+  await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 0`);
+  await click(workbench, '完成记录');
+  await waitFor(workbench, `document.querySelectorAll('.simple-history-row').length === 1`);
+  await capture(workbench, 'completion-history');
+  await click(workbench, '撤销');
+  await click(workbench, '待办');
+  await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 1`);
+  const restored = await evaluate(pet, 'window.eyeProtect.getTasks()');
+  assert.equal(restored.find(t => t.parentId)?.status, 'done', 'undo must preserve the previously completed step');
+  await click(workbench, '＋清单');
+  await fill(workbench, '[aria-label="清单名称"]', '工作');
+  await click(workbench, '保存清单');
+  await waitFor(workbench, `document.querySelector('[aria-label="清单筛选"]').selectedOptions[0].textContent === '工作'`);
+  await fill(workbench, '[aria-label="添加任务"]', '完成设计初稿'); await click(workbench, '添加');
+  await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 1`);
+  await fill(workbench, '[aria-label="清单筛选"]', 'all');
+  await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 2`);
+  await evaluate(workbench, `document.querySelector('[aria-expanded="true"]')?.click()`);
+  await capture(workbench, 'task-home');
+  await evaluate(workbench, `document.querySelector('[aria-label="设置"]').click()`);
+  await waitFor(workbench, `document.querySelector('.simple-settings') !== null`);
+  assert.deepEqual(await evaluate(workbench, `[...document.querySelectorAll('.simple-settings > section > h2')].map(el => el.textContent)`), ['休息提醒', '桌面外观', '应用']);
+  await capture(workbench, 'settings');
+  console.log('Task UI, completion, undo and settings passed.');
+  if (phase === 'all') {
+    await evaluate(pet, `window.eyeProtect.closeWorkbench()`);
+    await evaluate(pet, `window.eyeProtect.movePetWindow({ x: 550, y: 470 })`);
+    await evaluate(pet, `window.eyeProtect.preparePomodoro(${JSON.stringify(root.id)}, false)`);
+    bubble = await waitForTarget(endpoint, '#bubble');
+    await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]') !== null`);
+    await fill(bubble, '[aria-label="专注分钟数"]', '1');
+    await click(bubble, '开始计时');
+    assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).phase, 'focus');
+    await waitFor(bubble, `document.querySelector('.pomodoro-clock') !== null`);
+    await capture(bubble, 'pomodoro-running');
+    await delay(1100);
+    assert.ok((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).remainingMs < 59500);
+    const reminder = await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
+    const alert = emergency ? await waitForTarget(endpoint, (page) => page.url.startsWith('data:text/html'), 'emergency') : await waitForTarget(endpoint, '#alert');
+    await waitFor(alert, emergency ? `document.querySelector('#start') !== null` : `document.querySelector('.simple-rest') !== null`);
+    await capture(alert, 'rest-ready');
+    assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).running, true, 'pending prompt alone must not pause focus');
+    await click(alert, '开始休息');
+    await waitFor(pet, `(async () => !(await window.eyeProtect.getPomodoro()).running)()`);
+    const paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
+    await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '${emergency ? '完成' : '完成休息'}' && !b.disabled)`);
+    await capture(alert, 'rest-finished');
+    await click(alert, emergency ? '完成' : '完成休息', true);
+    await waitFor(pet, `(async () => !(await window.eyeProtect.getReminderStatus()).activeReminder)()`);
+    assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).remainingMs, paused.remainingMs);
+    bubble = await waitForTarget(endpoint, '#bubble');
+    await waitFor(bubble, `document.body?.textContent.includes('继续')`);
+    await capture(bubble, 'pomodoro-paused');
+    await click(bubble, '继续');
+    metrics.drag = [];
+    const start = await evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+    await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 80, button: 'left', buttons: 1, clickCount: 1 });
+    for (let step = 1; step <= 50; step += 1) {
+      const current = await evaluate(pet, '({ x: screenX, y: screenY })');
+      const dx = Math.round(Math.sin(step / 50 * Math.PI * 2) * 180);
+      await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x + 80 + dx - current.x, y: 80, button: 'left', buttons: 1 });
+      await delay(25);
+      const p = await evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+      const b = await evaluate(bubble, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+      assert.equal(p.width, start.width); assert.equal(p.height, start.height);
+      assert.ok(Math.abs(b.x + b.width / 2 - p.x - p.width / 2) <= 2);
+      metrics.drag.push({ p, b });
+    }
+    await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 80, button: 'left', buttons: 0, clickCount: 1 });
+    assert.ok(new Set(metrics.drag.map(entry => entry.p.x)).size > 15);
+    console.log('Health pause/resume and continuous drag passed.');
+    if (process.argv.includes('--wait-finish')) {
+      console.log('Waiting for the real one-minute timer to finish.');
+      await waitFor(pet, `(async () => (await window.eyeProtect.getPomodoro()).phase === 'focus-finished')()`, 90000);
+      await waitFor(bubble, `document.body?.textContent.includes('本轮专注结束')`);
+      await capture(bubble, 'pomodoro-finished');
+      writeFileSync(resolve(output, 'real-timer-end.json'), JSON.stringify(await evaluate(pet, 'window.eyeProtect.getPomodoro()'), null, 2));
+      await click(bubble, '开始休息 5 分钟');
+      assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).phase, 'break');
+      await capture(bubble, 'pomodoro-short-rest');
+    }
+    await evaluate(pet, `window.eyeProtect.pomodoroAction('pause')`);
+    metrics.paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+    await delay(500); child = launch(); child.stderr.on('data', (data) => { log += data; });
+    const restarted = await waitForTarget(endpoint, '#pet');
+    await waitFor(restarted, `Boolean(window.eyeProtect)`);
+    metrics.restarted = await evaluate(restarted, 'window.eyeProtect.getPomodoro()');
+    assert.equal(metrics.restarted.running, false); assert.equal(metrics.restarted.remainingMs, metrics.paused.remainingMs);
+    await evaluate(restarted, `window.eyeProtect.pomodoroAction('stop')`);
+    await waitFor(restarted, `document.querySelector('[title="开始番茄钟"]') !== null`);
+    await evaluate(restarted, `document.querySelector('[title="开始番茄钟"]').click()`);
+    bubble = await waitForTarget(endpoint, '#bubble');
+    await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]') !== null`);
+    assert.equal((await evaluate(restarted, 'window.eyeProtect.getPomodoro()')).taskId, null);
+    await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]')?.value === '1'`);
+    await capture(bubble, 'pomodoro-ready');
+    await click(bubble, '返回待办');
+  }
+  writeFileSync(resolve(output, 'metrics.json'), JSON.stringify(metrics, null, 2));
+  console.log(`Simple experience ${phase} passed at ${scale * 100}%`);
+} catch (error) {
+  try { const page = await waitForTarget(endpoint, '#workbench', 1000); await capture(page, 'failure'); console.log(await evaluate(page, 'document.body.innerText')); } catch {}
+  throw error;
+} finally {
+  writeFileSync(resolve(output, 'app.log'), log);
+  if (child.exitCode === null) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+}

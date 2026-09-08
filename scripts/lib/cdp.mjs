@@ -19,6 +19,20 @@
 //   openSession(target, timeoutMs)                              — persistent socket
 //   callSequence(target, steps, stepDelayMs)                    — ordered calls
 
+import { createServer } from 'node:net';
+
+// Ask Windows for an available port instead of assuming a fixed port is not
+// reserved by Hyper-V/WSL or already owned by another acceptance run.
+export const getAvailablePort = () => new Promise((resolve, reject) => {
+  const server = createServer();
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address();
+    if (!address || typeof address === 'string') { server.close(); reject(new Error('No TCP port assigned')); return; }
+    server.close((error) => error ? reject(error) : resolve(address.port));
+  });
+});
+
 export const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -54,7 +68,12 @@ export const waitForTarget = async (
         (candidate) => candidate.type === 'page' && predicate(candidate)
       );
       if (target) {
-        return target;
+        // A destroyed transparent window can briefly remain in /json while
+        // its replacement is loading. Never hand callers its stale socket.
+        const probe = await call(target, 'Runtime.evaluate', {
+          expression: 'document.readyState', returnByValue: true
+        }, 1000);
+        if (probe.result?.value === 'interactive' || probe.result?.value === 'complete') return target;
       }
     } catch {
       // The packaged application can take a moment to expose CDP.

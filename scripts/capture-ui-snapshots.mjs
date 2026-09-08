@@ -614,7 +614,7 @@ const bubbleSkipped = await evaluate(bubble, `(() => {
   return true;
 })()`);
 if (!bubbleSkipped) throw new Error('Dark bubble skip action was not available');
-await waitFor(bubble, `!document.querySelector('.bubble-actions')`);
+await waitFor(pet, `(async () => !(await window.eyeProtect.getReminderStatus()).activeReminder)()`);
 
 await evaluate(workbench, `window.eyeProtect.saveSettings({ theme: 'light', reminderMode: 'gentle' })`);
 await waitFor(pet, `document.documentElement.dataset.theme === 'light'`);

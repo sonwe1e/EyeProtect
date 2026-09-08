@@ -43,7 +43,8 @@ await waitFor(pet, `Boolean(window.eyeProtect) && typeof window.eyeProtect.saveS
 if (mode === 'exercise') {
   await evaluate(pet, `(async () => {
     await window.eyeProtect.saveSettings({ todoBubbleEnabled: true });
-    await window.eyeProtect.createTask({ title: 'Bubble opt-out smoke task' });
+    const tasks = await window.eyeProtect.createTask({ title: 'Bubble opt-out smoke task' });
+    await window.eyeProtect.saveSettings({ todoBubbleTaskIds: tasks.filter(task => task.title === 'Bubble opt-out smoke task').map(task => task.id) });
   })()`);
 
   const bubble = await waitForVisibleBubble('.bubble-list');
