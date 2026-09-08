@@ -1,68 +1,49 @@
 # EyeProtect
 
-EyeProtect 是一个 local-first 的 Windows 护眼与工作节奏助手。应用常驻托盘并显示透明桌宠；统一工作台负责今日任务、项目、独立提醒、健康节奏和设置。
+Windows 桌面的休息提醒与待办助手。Electron + React + TypeScript，本地保存数据，提供安装版和便携版。
 
-[MIT License](LICENSE) · 变更历史见 [CHANGELOG](CHANGELOG.md)
+## 日常使用
 
-## 当前功能
+- **待办**：输入名称、回车保存。默认按逾期、今天、未来 7 天、更晚、无日期分组；顶部切换清单与搜索。
+- 点击任务名称原地展开，填写截止日期、单次提醒、备注和一层步骤。截止日期只表示哪一天，几点通知由“提醒我”单独决定。
+- 勾选完成主任务时，如有未完成步骤，会确认是否一起完成；撤销只恢复本次改动。
+- **完成记录**：查看何时完成了什么，支持搜索和日期筛选，不将步骤重复算作独立成果。
+- 悬停任务行，使用图钉选择放到桌宠气泡的任务；最多显示三行，更多内容滚动查看。更多操作中可调整浮窗顺序。
+- 从桌宠时钟按钮或任务行开始专注，在同一个气泡里选择时长并启动番茄钟。可不关联任务，默认 25 分钟。
+- 护眼或走动到时显示遮罩。点击开始休息后暂停专注，休息结束后手动继续。番茄钟结束会建议休息，默认 5 分钟，不自动循环或完成任务。
+- 锁屏、休眠、退出或重启时，番茄钟保留剩余时间并暂停；异常退出最多恢复到最近 10 秒检查点。
 
-- 护眼与走动提醒使用统一调度内核，接近到期时合并展示；支持完成、稍后、跳过、暂停和重新开始周期。
-- 护眼周期按“活跃使用时间”推进。系统空闲、锁屏或休眠时冻结；达到可配置的自然离开阈值（默认 5 分钟）后，返回时重新开始两个周期。
-- 系统时钟调整不会提前或延后活跃时间提醒；日历时间的独立提醒仍遵循本地墙钟。
-- 提醒界面由一个 Surface Manager 管理；主提醒渲染器异常时会依次降级到应急窗口和系统通知。
-- 桌宠由本地种子实时生成 SVG 结构，不再把固定姿势图片当作皮肤。每天会有一位随机访客，可收集、改名、收藏、固定出场，并独立切换材质与配饰。
-- 护眼、走动与合并提醒复用当前公仔的程序化动作；gentle 气泡使用精简动作，guided/focused 卡片使用完整舞台，reduced-motion 下停在静态关键姿势。
-- 工作台包含 今天、日程、专注、项目 四个主视图；未归类任务固定在项目区顶部。另有 今日复盘、独立提醒、公仔收藏、设置 四个工具视图，支持任务/项目搜索、临时筛选、自动保存、拖放/键盘排序和 10 秒持久撤销。
-- 当前任务与任务状态分离。Rhythm 条同时显示连续活跃时间和当前任务活跃时间；任务达到预估时长时只轻提示一次。
-- 重复父任务完成后会创建下一周期的完整子任务树；子任务重置为未完成并保留相对日期。
-- 任务、独立提醒和 timebox 共用持久化通知队列。只有系统通知 `show()` 成功后才消费 occurrence，失败按 30 秒、2 分钟、5 分钟重试。
-- 设置支持跟随系统/浅色/深色主题、舒适/紧凑密度、免打扰、前台应用白名单、自适应节奏、全局快捷键和本地健康周报。
-- 完整 JSON 备份包含设置、任务、项目、独立提醒、公仔收藏和提醒历史。导入前创建回滚快照；数据库升级前需确认并创建快照，失败时原数据库不会被覆盖。
+## 设置
 
-## 数据与架构
+右上角设置仅包含休息提醒、桌面外观、应用三组。默认每 20 分钟护眼、每 60 分钟走动；初始休息时长分别为 30 秒、60 秒，可调整并单独关闭。
 
-- 安装版数据目录：`%APPDATA%/eye-protect-pet/data/`；升级时会从旧安装目录安全迁移。
-- portable 数据目录：EXE 同目录的 `data/`。
-- `settings.json`：偏好设置。
-- `runtime-state.json`：护眼周期和暂停状态。
-- `reminder-history.json`：本地健康趋势。
-- `eyeprotect.db`：SQLite Task Core、独立提醒、公仔收藏、通知投递、任务工时、检查点、每日反思和撤销状态。
+桌宠可选橘猫、小狗、白兔或已有收藏角色，调整大小和主题。保留开机启动、备份导出与恢复。稍后提醒的时长在提醒出现时选择。
 
-Renderer 不直接访问 Node/Electron；窗口能力统一经 sandboxed preload 和主进程 IPC。桌宠是唯一常驻 renderer，且只订阅轻量计数通道（待办数、护理状态等），不接收全量任务数据；工作台按需创建；提醒窗口在结束后销毁。
+## 旧数据兼容
 
-若 SQLite 打开或迁移失败，EyeProtect 会保留数据库文件族快照，并以内存恢复会话启动。恢复会话不写回原数据库，设置页会显示快照路径和数据目录入口。
+数据库升级到 v5 前自动保存快照。旧项目保留同名清单及任务归属；已完成/归档项目与归档任务可在设置的“旧资料与恢复”中恢复。
 
-## 开发与验证
+旧截止时间转换为本地日历日期，原时间仍保留；清空新日期不会回退到旧值。原计划时间不当作截止日期。旧多层子任务平铺为步骤，原层级与附加资料保留。
+
+旧重复规则、独立提醒和旧专注/规划运行逻辑停止执行。旧数据随 v7 备份保留，可导入 v1–v6 备份；导入前有回滚快照，失败恢复原数据。
+
+## 开发与验收
 
 ```powershell
-npm install
+npm ci
 npm run dev
 npm run typecheck
 npm test
 npm run verify:ui-contract
 npm run build
-```
-
-提醒体验 smoke test 需要先以 `--remote-debugging-port=9333` 启动隔离实例：
-
-```powershell
-npm run smoke:experience -- 9333
-npm run smoke:emergency -- 9333
-npm run smoke:running -- 9333
-npm run smoke:bubble-opt-out -- 9333 exercise
-# 重启同一数据目录的应用后：
-npm run smoke:bubble-opt-out -- 9333 verify
-npm run smoke:focus-runtime -- 9333
-npm run smoke:project-lifecycle -- 9333
-npm run capture:pet-scale -- 9333 artifacts/pet-scale
-```
-
-工作台交互 smoke（`smoke:workbench-interactions`、`smoke:plan-interactions`）以 `exercise` 阶段写入数据、`verify` 阶段重启后校验持久化，见 `.github/workflows/windows.yml`。所有 smoke/capture 脚本共用 `scripts/lib/cdp.mjs` 的 DevTools 连接工具，改动 CDP 交互只需改一处。
-
-## 打包
-
-```powershell
 npm run package
+npm run smoke:simple -- 1 artifacts/simple-100
+npm run smoke:simple -- 1.25 artifacts/simple-125
+npm run smoke:simple -- 1.5 artifacts/simple-150
+npm run smoke:simple -- 1 artifacts/simple-emergency --emergency
+npm run smoke:pet-failure
 ```
 
-默认在 `release/` 生成 Windows 10/11 x64 的 NSIS 安装包和 portable exe。发行前按[发布检查表](docs/release-checklist.md)完成实体机验证；界面配色和验收约束见[配色系统](docs/color-system.md)；历史审计与加固记录见[加固记录](docs/hardening-notes.md)。
+冒烟脚本启动独立数据目录和独立 profile 的打包进程，验证 UI、气泡、休息、番茄钟与重启恢复，并输出实际窗口截图。`--ui-only` 仅验证第一阶段界面；`--wait-finish` 验证真实一分钟专注到点，不加该参数时到点状态由确定性时钟单测覆盖。
+
+源码规范见 [RULES.md](RULES.md)，当前架构见 [docs/architecture.md](docs/architecture.md)，交付验收见 [docs/release-checklist.md](docs/release-checklist.md)。`data/`、`out/`、`release/`、`artifacts/` 为运行或生成目录，不提交。

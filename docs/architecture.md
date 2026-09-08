@@ -1,225 +1,45 @@
-# Architecture Quick-Reference
+# EyeProtect 精简版架构
 
-This document maps each feature area to its source files, tests, and related documentation. Use it to locate code quickly without searching the entire codebase.
+## 活跃执行链
 
-## Process Split
+- 主进程：`src/main/index.ts` 负责单实例、托盘、安全 IPC、窗口、系统生命周期及服务绑定。
+- `ReminderScheduler` 管理护眼/走动间隔与休息动作；`SchedulerKernel` 是唯一计时队列，处理 wall/elapsed 时钟、休眠和系统时间变化。
+- `PomodoroService` 管理可选关联任务的桌面计时。旧 FocusRuntime、FocusSessionService、TaskWorkTracker 和 StandaloneReminderService 不在新版启动流程中实例化。
+- `TaskService`/`TaskStore` 管理主任务、步骤、清单、完成及撤销；`TaskScheduler` 仅为可写清单中的未完成主任务注册单次提醒。旧的待发送独立提醒、时间盒和步骤通知在启动时停用。
+- Renderer 通过 sandboxed preload 的 `window.eyeProtect` 访问主进程；任务使用增量推送，桌宠仅订阅轻量数据。
 
-EyeProtect uses a classic Electron 3-process architecture, each built by its own electron-vite target:
+## 界面
 
-| Process | Entry | Key Directories | Responsibility |
-| --- | --- | --- | --- |
-| Main | `src/main/index.ts` | `src/main/` | App lifecycle, single-instance lock, tray, IPC handlers, power lifecycle, scheduler, settings, SQLite store, backup, windows |
-| Preload | `src/preload/index.ts` | `src/preload/` | `contextBridge` exposing `window.eyeProtect: EyeProtectApi` — the only way the renderer touches Electron/Node |
-| Renderer | `src/renderer/src/main.tsx` | `src/renderer/src/` | React UI: hash router in `App.tsx`, window views in `views/`, domain UI in `features/`, IPC hooks in `hooks/` |
+`WorkbenchView` 仅展示待办、完成记录和设置；导航权威为 `workbenchNavigation.ts`。顶部筛选清单，任务原地展开，一次展开一项。日程、看板、规划、独立专注、复盘和养成页不再加载。
 
-Data crosses process boundaries only through typed IPC channels defined in `src/shared/types.ts` (`EyeProtectApi`). Task/project payloads are sanitized in `src/main/ipcTaskInput.ts` and `src/main/ipcProjectInput.ts`.
+`SimpleSettings` 只展示休息、外观、应用三组。旧资料入口只读展示旧规则和历史资料，并允许恢复归档项目/任务；完整原数据通过备份保存。
 
-## Feature → Source Map
+`BubbleView` 复用同一个窗口显示手选待办、番茄钟设置或计时。优先级为健康提醒 > 番茄钟 > 手选待办。遮罩健康提醒使用独立 Alert 窗口；原主界面故障时，Emergency HTML 和原生通知继续兜底。
 
-### Reminder Scheduling & Rest Rhythm
+`PetView` 的时钟按钮开启自由专注；任务行可以关联主任务启动。像素动物或既有角色使用统一入口渲染，不再生成每日访客或展示养成分数。
 
-| File | Role |
-| --- | --- |
-| `src/main/reminders.ts` | `ReminderScheduler` — one-shot deadline timers, pause/resume, action locks, persisted break sessions |
-| `src/main/scheduling/kernel.ts` | `SchedulerKernel` — shared deadline queue, single timer + watchdog |
-| `src/main/scheduling/emergencyTemplate.ts` | Emergency fallback template |
-| `src/main/scheduling/reminderTrace.ts` | Rolling diagnostic trace log |
-| `src/main/scheduling/surfaceFallback.ts` | Renderer-crash fallback chain |
-| `src/main/sceneAwareness.ts` | Foreground app detection + deferral |
-| `src/main/activityMonitor.ts` | Idle/lock detection, natural-break threshold |
-| `src/main/standaloneReminders.ts` | Standalone reminder CRUD + scheduling |
-| `src/main/taskScheduler.ts` | Task reminder arming + consumption |
-| `src/main/reminderHistory.ts` | Local health history + weekly reports |
-| `tests/reminders.test.ts` | Reminder scheduling tests |
-| `tests/scheduler-kernel.test.ts` | Kernel deadline queue tests |
-| `tests/reminder-action-lock.test.ts` | Action lock timing tests |
-| `tests/scheduler-persistence.test.ts` | Persistence across restart |
-| `tests/scheduler-power.test.ts` | Power lifecycle tests |
+## 数据与迁移
 
-### Settings & Configuration
+数据库 v5 为任务新增 `due_date`，对外字段 `dueDate` 为有效 `YYYY-MM-DD` 或 null。升级前 checkpoint WAL 并复制原数据库及旁文件；新增列和日期转换在同一事务完成，5001 标记防止重复转换。迁移失败进入只读恢复模式。旧 `dueAt` 保留，日常分组不再读取它；新日期被清空后不会复活旧日期。
 
-| File | Role |
-| --- | --- |
-| `src/shared/types.ts` | `Settings`, `DEFAULT_SETTINGS`, `SETTINGS_LIMITS` |
-| `src/main/settings.ts` | `SettingsStore` — atomic writes, domain-scoped events |
-| `src/renderer/src/views/SettingsView.tsx` | Settings UI (embedded in Workbench) |
-| `tests/settings-write.test.ts` | Atomic write + sanitization tests |
+主任务 `parentId=null`。新步骤通过 `task:create-step` 创建，父级必须是未完成主任务。旧多层关系只在展示时按既有顺序平铺，不重写关系。清单复用 Project ID，active/onHold 可用，completed/archived 仅在旧资料和完成历史中显示。
 
-### Task / Project / Plan / Focus Data Model
+`task:complete-tree` 接收主任务及所有待完成步骤的 revision 映射。主进程在事务中验证集合与版本、完成并记录撤销快照。事务提交前不向 renderer 发送增量事件，回滚不泄漏部分状态。撤销保留此前已经完成的步骤。
 
-| File | Role |
-| --- | --- |
-| `src/shared/types.ts` | All domain types: `Task`, `Project`, `DailyTaskPlan`, `TimeBlock`, `FocusSession`, `ProjectSection` |
-| `src/main/taskStore.ts` | `TaskStore` — SQLite-backed CRUD, migrations, undo, recurrence rollover |
-| `src/main/taskService.ts` | Service layer wrapping `TaskStore` for IPC |
-| `src/main/focusSession.ts` | `FocusSessionService` — session lifecycle, break sub-state |
-| `src/main/focusRuntime.ts` | `FocusRuntime` — coordinates sessions + work tracker |
-| `src/main/taskWorkTracker.ts` | Work tracking, timebox notification |
-| `src/main/dailyReview.ts` | Daily review aggregation |
-| `tests/task-store.test.ts` | Store CRUD + migration tests |
-| `tests/task-service.test.ts` | Service layer tests |
-| `tests/schema-v4.test.ts` | Schema v4 planning domain tests |
-| `tests/focus-session.test.ts` | Focus session lifecycle tests |
-| `tests/focus-runtime.test.ts` | Focus runtime coordination tests |
-| `tests/daily-planning.test.ts` | Daily planning tests |
-| `tests/daily-review.test.ts` | Daily review tests |
+重复生成在生产 TaskService 中关闭，包括 set-status 和 update-status 两条路径；旧规则字段保留。备份版本为 v7，导入 v1–v6 时转换旧日期，v7 显式 null 不回退。旧规划、时间块、步骤层级、提醒和专注表继续参与导出/恢复。
 
-### Today View & Planning
+## 番茄钟
 
-| File | Role |
-| --- | --- |
-| `src/renderer/src/features/tasks/todaySections.ts` | `deriveTodaySections` — Today's 3 / Scheduled / Flexible from DailyTaskPlan + TimeBlock |
-| `src/renderer/src/features/tasks/todayViewModel.ts` | `deriveTodayExecutionModel` — unique ordered union for nav count + Focus candidates |
-| `src/renderer/src/features/tasks/FocusSurface.tsx` | Focus session UI |
-| `src/renderer/src/features/tasks/PlanWorkspace.tsx` | Plan timeline UI |
-| `src/renderer/src/features/tasks/DailyPlanningFlow.tsx` | Daily planning flow |
-| `tests/today-sections.test.ts` | Today sections derivation tests |
-| `tests/today-view-model.test.ts` | Today execution model tests |
+`pomodoro:prepare` 进入气泡设置阶段；`pomodoro:start` 接收可空任务 ID、分钟数和替换确认。状态阶段为 idle、ready、focus、break、focus-finished、break-finished，另有 running、remainingMs 和 revision。
 
-### Project Lifecycle
+服务用单调时钟计算剩余时间，并向 Kernel 注册结束与 10 秒检查点。`pomodoro-state.json` 原子写入成功后才发布状态和注册新期限。renderer 仅插值显示，不能自行完成计时。锁屏/休眠/退出暂停；重启一律恢复为暂停，失效关联任务使计时结束。
 
-| File | Role |
-| --- | --- |
-| `src/shared/projectPolicy.ts` | Pure lifecycle rules: `isProjectAssignable`, `isProjectWritable`, `isTaskAvailableForPlanning` |
-| `src/renderer/src/features/tasks/ProjectWorkspace.tsx` | Project detail page — read-only for completed/archived |
-| `src/renderer/src/features/tasks/ProjectList.tsx` | Sidebar project list with lifecycle actions |
-| `tests/project-policy.test.ts` | Lifecycle rule tests |
+健康提醒初次出现时不自动暂停专注；`reminder:begin-rest` 才启动实际休息并暂停 focus。休息结束不恢复番茄钟，必须手动继续。专注到点或短休息与健康提醒重叠时，开始健康休息会合并为一次展示，使用健康时长与短休息剩余时长的较大值；结束短休息绝不自动记录护眼或走动完成。
 
-### Window Management & Surfaces
+## 窗口、安全与测试
 
-| File | Role |
-| --- | --- |
-| `src/main/windows.ts` | `AppWindows` — creates/destroys Alert, Bubble, Workbench, dim-overlay windows |
-| `src/main/reminderSurface.ts` | `ReminderSurface` — manages reminder presentation + fallback chain |
-| `src/main/windowBounds.ts` | Window bounds persistence + display-change restore |
-| `src/main/displayLayout.ts` | Display topology key generation |
-| `src/renderer/src/views/PetView.tsx` | Pet window view |
-| `src/renderer/src/views/AlertView.tsx` | Alert/reminder window view |
-| `src/renderer/src/views/BubbleView.tsx` | Bubble window view |
-| `src/renderer/src/views/WorkbenchView.tsx` | Workbench window view |
-| `tests/reminder-surface.test.ts` | Surface presentation tests |
+气泡观察卡片自然高度，通过仅限真实 Bubble WebContents 的 `window:bubble:height` 上报。桌宠用同样的发送方限制上报 SVG 可见轮廓；主进程计算上下避让与尾巴位置，每次拖动都同步更新气泡并重申固定桌宠尺寸。
 
-### Renderer UI — Workbench
+Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态，不暴露一般应用 API 或由页面指定提醒 ID。
 
-| File | Role |
-| --- | --- |
-| `src/renderer/src/views/WorkbenchView.tsx` | Main workbench: Today / Plan / Focus / Projects / Search / Review / Settings / Reminders / Collection |
-| `src/renderer/src/features/workbench/WorkbenchSidebar.tsx` | Sidebar navigation |
-| `src/renderer/src/features/workbench/WorkbenchToolbar.tsx` | Toolbar with search + pause/resume |
-| `src/renderer/src/features/workbench/workbenchNavigation.ts` | Section config, order, shortcuts |
-| `tests/workbench-navigation.test.ts` | Navigation config tests |
-
-### Renderer UI — Tasks & Projects
-
-| File | Role |
-| --- | --- |
-| `src/renderer/src/features/tasks/TaskComposer.tsx` | Quick-add form (Today / Inbox / Project placement) |
-| `src/renderer/src/features/tasks/TaskDetail.tsx` | Task detail side-sheet with autosave |
-| `src/renderer/src/features/tasks/TaskList.tsx` | Task list with drag-reorder |
-| `src/renderer/src/features/tasks/PlanWorkspace.tsx` | Plan timeline with drag-drop scheduling |
-| `src/renderer/src/features/tasks/ProjectWorkspace.tsx` | Project detail with board/list views |
-| `src/renderer/src/features/tasks/ProjectList.tsx` | Sidebar project list |
-| `src/renderer/src/features/tasks/FocusSurface.tsx` | Focus session surface |
-| `tests/task-drag-reorder.test.ts` | Drag-reorder tests |
-| `tests/task-row-metadata.test.ts` | Row metadata tests |
-| `tests/plan-layout.test.ts` | Plan layout tests |
-| `tests/project-sections.test.ts` | Project sections tests |
-
-### Renderer UI — Reminders & Characters
-
-| File | Role |
-| --- | --- |
-| `src/renderer/src/features/reminders/ActivityGuide.tsx` | Activity guide during reminders |
-| `src/renderer/src/features/reminders/ReminderArtwork.tsx` | Procedural SVG artwork |
-| `src/renderer/src/features/reminders/StandaloneReminderSection.tsx` | Standalone reminders UI |
-| `src/renderer/src/features/characters/CharacterCollectionView.tsx` | Character collection UI |
-| `src/renderer/src/features/characters/ProceduralCharacter.tsx` | Procedural character SVG |
-| `src/renderer/src/features/pet/PetCharacter.tsx` | Pet character rendering |
-| `src/renderer/src/features/review/DailyReview.tsx` | Daily review UI |
-| `tests/characters.test.ts` | Character generation tests |
-| `tests/character-service.test.ts` | Character service tests |
-
-### Command Layer (Renderer IPC Bridge)
-
-| File | Role |
-| --- | --- |
-| `src/renderer/src/lib/commands.ts` | `commands` — typed IPC wrappers returning `CommandResult<T>` |
-| `src/renderer/src/hooks/useCommand.ts` | `useCommand` hook — state, pending, error, double-submit protection |
-| `src/renderer/src/components/CommandButton.tsx` | Button that reflects command state |
-| `src/renderer/src/components/CommandPalette.tsx` | Command palette |
-| `tests/command-layer.test.ts` | Command layer tests |
-
-### IPC Input Sanitization
-
-| File | Role |
-| --- | --- |
-| `src/main/ipcTaskInput.ts` | Task create/update sanitization + `baseRevision` passthrough |
-| `src/main/ipcProjectInput.ts` | Project create/update sanitization |
-| `tests/ipc-task-input.test.ts` | Task input sanitization tests |
-| `tests/ipc-project-input.test.ts` | Project input sanitization tests |
-
-### Styling & Design Tokens
-
-| File | Role |
-| --- | --- |
-| `src/renderer/src/styles/tokens.css` | Non-color foundations (spacing, radius, typography, motion) |
-| `src/renderer/src/styles/theme.css` | Semantic colors (light/dark) |
-| `src/renderer/src/styles.css` | Legacy window styles (pet, reminder, bubble, embedded settings) |
-| `tests/design-system-contract.test.ts` | Color/token ownership tests |
-| `tests/theme-authority.test.ts` | Theme authority tests |
-| `docs/color-system.md` | Color system design intent + contrast baselines |
-
-### Backup, Recovery & Data
-
-| File | Role |
-| --- | --- |
-| `src/main/backup.ts` | JSON backup import/export, snapshot creation |
-| `src/main/runtimeState.ts` | Runtime state persistence (scheduler pause, eye/walk cycle) |
-| `src/main/notificationDelivery.ts` | Notification delivery queue, retry, dead-letter |
-| `tests/backup.test.ts` | Backup round-trip tests |
-| `tests/runtime-state.test.ts` | Runtime state persistence tests |
-| `tests/notification-delivery.test.ts` | Delivery queue tests |
-
-### Security & Hardening
-
-| File | Role |
-| --- | --- |
-| `src/main/security.ts` | Renderer URL trust check, IPC origin validation |
-| `docs/hardening-notes.md` | Audit findings + fixes |
-| `tests/security.test.ts` | Security tests |
-
-## Key Patterns
-
-### Adding a New IPC Capability
-
-1. Add the method signature to `EyeProtectApi` in `src/shared/types.ts`
-2. Add the preload bridge in `src/preload/index.ts`
-3. Add the IPC handler in `src/main/index.ts` (keep the sender URL trust check)
-4. Add the command wrapper in `src/renderer/src/lib/commands.ts`
-5. If the input crosses the process boundary with new fields, whitelist them in `src/main/ipcTaskInput.ts` or `src/main/ipcProjectInput.ts`
-
-### Adding a New Settings Field
-
-1. Add the field to `Settings` interface in `src/shared/types.ts`
-2. Add the default value to `DEFAULT_SETTINGS`
-3. Add the limit to `SETTINGS_LIMITS` if applicable
-4. Update `SettingsView.tsx` with the UI control
-5. Add tests in `tests/settings-write.test.ts`
-
-### Adding a New Task Field
-
-1. Add the field to `Task` interface in `src/shared/types.ts`
-2. Add it to `TaskInput` if the renderer can supply it
-3. Add it to `sanitizeTask()` in `src/shared/types.ts`
-4. Whitelist it in `src/main/ipcTaskInput.ts`
-5. Add a column migration in `src/main/taskStore.ts` (`migrateSchema()`)
-6. Update `rowToTask` and `taskSqlValues` in `src/main/taskStore.ts`
-7. Update `tests/task-store.test.ts`
-
-## Generated / Runtime Directories
-
-Do not edit or commit:
-- `data/` — `settings.json`, `runtime-state.json`, `reminder-history.json`, `eyeprotect.db`, `reminder-trace.log`
-- `out/` — build output
-- `release/` — packaged installers
-- `node_modules/` — dependencies
+`simple-experience.test.ts` 覆盖迁移、日期/DST、备份、原子完成及回滚；`pomodoro.test.ts` 覆盖时钟、暂停恢复、休息和结束阶段。保留旧存储/备份测试作为兼容验证。`smoke-simple-experience.mjs` 与 `smoke-simple-pet-failure.mjs` 是当前打包验收入口；旧 UI 专项脚本不再用于当前 CI。

@@ -1,57 +1,14 @@
-# EyeProtect 发布检查表
+# 精简版发布验收
 
-本清单以 `package.json` 中的当前版本和构建目标为准，不在文档中固定具体版本号。
-
-## 自动验证
-
-- [ ] `npm ci`
-- [ ] `npm run typecheck`
-- [ ] `npm test`
-- [ ] `npm run verify:ui-contract`
-- [ ] `npm run build`
-- [ ] `npm run package`
-- [ ] packaged app：`npm run smoke:running -- <port>`
-- [ ] reminder journey：`npm run smoke:experience -- <port>`
-- [ ] Workbench 交互与重启持久化：分别运行 `npm run smoke:workbench-interactions -- <port> exercise` 和 `verify`
-- [ ] Plan 交互与重启持久化：分别运行 `npm run smoke:plan-interactions -- <port> exercise` 和 `verify`
-- [ ] emergency fallback：`npm run smoke:emergency -- <port>`
-- [ ] pet renderer isolation：`npm run smoke:pet-failure -- <port>`
-- [ ] 待办气泡 opt-out：运行 `exercise`，重启同一数据目录的应用，再运行 `verify`
-- [ ] Focus runtime 协调：`npm run smoke:focus-runtime -- <port>`
-- [ ] 项目生命周期、上下文新建与项目搜索：`npm run smoke:project-lifecycle -- <port>`
-- [ ] 桌宠 50/60/69/70/100%：`npm run capture:pet-scale -- <port> <output-dir>`
-- [ ] `npm run capture:ui -- <port> <output-dir> --repeat 3` 生成三轮一致的布局指标
-
-GitHub Actions 中的 Windows CI 会执行上述自动门禁，并额外生成 100%、125%、150% 和 200% scale-factor 截图。
-
-## Windows 实体机矩阵
-
-在 Windows 10 x64 和 Windows 11 x64 上分别验证 NSIS 与 portable：
-
-- [ ] 首次启动、单实例、托盘退出、开机自启。
-- [ ] 单屏与双屏（含缩放、旋转、拔插）下的桌宠、提醒卡片和暗色遮罩。
-- [ ] idle 不足阈值后继续原周期；idle、锁屏、休眠超过阈值后重置周期。
-- [ ] 系统时间前拨/后拨不改变活跃时间提醒；独立日历提醒仍在正确本地时间触发。
-- [ ] 暂停后修改间隔，恢复仍使用冻结的当前周期；显式“重新开始”使用新设置。
-- [ ] 主提醒 renderer 崩溃后应急 surface 可见；GPU 子进程异常不会误判无关窗口。
-- [ ] 禁用系统通知后进入重试；重启后 occurrence 不重复消费，失败计数可见。
-- [ ] 自动保存、切换任务不丢稿、Inbox/项目拖放、10 秒撤销、重复父任务树 rollover。
-- [ ] Plan 拖放/resize、Project Board 分组、专注会话和重启持久化均正确。
-- [ ] 主题（系统/浅色/深色）和密度（舒适/紧凑）在工作台、设置、桌宠与提醒 surface 中一致。
-- [ ] Today、Task Detail、Command Palette、Plan、Project List/Board 在 960×600 及常见桌面尺寸下无页面级横向滚动或控件裁切。
-- [ ] 每日公仔候选在同一天保持一致；收下/丢弃、固定/每日随机、改名、收藏、材质和配饰均在重启后保留。
-- [ ] 桌宠单击互动、双击工作台、右键收藏互不冲突；护眼/走动/合并动作在三种提醒模式中正确显示。
-- [ ] forced-colors 和 reduced-motion 下界面仍可操作，动画停在清晰的静态关键姿势。
-- [ ] 导出后导入完整备份；故意导入无效文件时现有数据不变且回滚快照保留。
-- [ ] 从旧 NSIS 版本升级时，`$INSTDIR\data` 在旧应用退出后、旧卸载器运行前完整迁移到 `%APPDATA%\eye-protect-pet\data`；已有稳定目录不被覆盖。
-- [ ] 从旧任务状态库升级时先确认并生成 `pre-model-reset` 快照；取消进入恢复模式。
-
-## 发行产物
-
-设 `version` 为 `package.json` 中的版本：
-
-- [ ] `release/EyeProtect-Setup-<version>-win-x64.exe`
-- [ ] `release/EyeProtect-<version>-win-x64-portable.exe`
-- [ ] 两个产物均包含应用图标和 `public/assets/tray-icon.png`；公仔与提醒视觉不依赖旧固定 PNG。
-- [ ] PR/Release notes 记录用户可见变化、数据迁移策略、验证命令和 UI 截图。
-- [ ] 不提交 `data/`、`out/`、`release/`、`artifacts/`、`node_modules/` 或本机工具缓存。
+- [ ] TypeScript、完整 Node 测试、UI contract、build contract 通过。
+- [ ] NSIS 与 portable 包均生成，版本一致，生成物不提交。
+- [ ] 旧 v4 数据升级前有快照，日期只转换一次；v7 备份保留显式空日期及旧领域数据。
+- [ ] 输入名称按回车即可创建；搜索、清单筛选与日期分组一致；没有侧边栏或右侧任务详情。
+- [ ] 步骤不进入首页、完成记录和浮窗候选；完成主任务确认剩余步骤，撤销只恢复本次更改。
+- [ ] 设置仅有三组；已完成/归档项目和任务可恢复，旧规则只读且不继续运行。
+- [ ] 桌宠/任务行开启气泡时长选择；自由专注和关联任务均可用。
+- [ ] 开始健康休息时暂停专注，结束后不自动继续；短休息到点不自动完成任务或记走动完成。
+- [ ] 锁屏/休眠/重启恢复暂停剩余时间；关联任务完成或删除会结束计时。
+- [ ] 打包进程在 100%、125%、150% 设备缩放参数下运行 smoke:simple，保存实际截图与窗口度量。
+- [ ] --emergency 验证开始休息、完成和遮罩兜底；smoke:pet-failure 验证独立控制流程。
+- [ ] 物理显示器拔插及跨 DPI 显示器拖动单独记录；仅单元测试覆盖时不要写成实机已通过。

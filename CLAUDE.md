@@ -1,83 +1,37 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+EyeProtect 是本地优先的 Windows 休息提醒与待办助手，使用 Electron、electron-vite、React、严格 TypeScript。所有工作遵循 [RULES.md](RULES.md)；项目当前架构以 [docs/architecture.md](docs/architecture.md) 为准。
 
-## Project
+## 当前产品边界
 
-EyeProtect — a local-first Windows eye-care and work-rhythm assistant. It runs in the system tray with a transparent, draggable pet, merges nearby eye/walk reminders, and provides a unified workbench for tasks, projects, daily planning, TimeBlocks, focus sessions, and review. Settings and task data stay local; releases include Windows x64 NSIS and portable executables.
+主界面只有待办、完成记录、设置。任务按截止日期分组，使用简单清单；点击任务原地展开备注、日期、单次提醒与一层步骤。桌宠旁气泡展示手选任务或番茄钟。休息统一用遮罩，点击开始休息暂停专注，手动继续恢复。
 
-**Stack:** Electron 43 + electron-vite 2.3 + React 18 + Vite 5, strict TypeScript and ESM application code. Sandboxed preload bundles are emitted as CommonJS `.cjs` files for Electron compatibility.
+旧项目/规划/工时/独立提醒/养成界面不在当前主流程。旧数据保留供备份、只读查看与恢复，不重新启用旧自动规则。
 
-## Default Engineering Rules
+## 查找位置
 
-All coding work must follow the engineering craft rules in `RULES.md`. Those 20 rules are the default coding standard — covering understanding before changing, choosing the simplest good solution, preserving scope, evidence before architecture, explicitness over cleverness, and verification. This file (CLAUDE.md) provides project-specific architecture and conventions; `RULES.md` provides the universal engineering philosophy. When they conflict, `RULES.md` wins.
+| 领域 | 入口 |
+| --- | --- |
+| 主任务、清单、步骤 | src/main/taskService.ts、src/main/taskStore.ts、src/shared/simpleTasks.ts |
+| 日期与 IPC | src/shared/types.ts、src/main/ipcTaskInput.ts、src/preload/index.ts、src/main/index.ts |
+| 休息节奏与生命周期 | src/main/reminders.ts、src/main/scheduling/kernel.ts、src/main/activityMonitor.ts |
+| 番茄钟 | src/main/pomodoro.ts、src/renderer/src/features/simple/PomodoroCard.tsx |
+| 主界面与设置 | src/renderer/src/views/WorkbenchView.tsx、src/renderer/src/features/simple/SimpleSettings.tsx |
+| 窗口与兜底 | src/main/windows.ts、src/main/windowBounds.ts、src/main/reminderSurface.ts |
+| 数据兼容 | src/main/backup.ts；数据库 v5、备份 v7 |
 
-## Documentation Map
+## 开发约定
 
-When starting any task, use this table to find the relevant docs and source files quickly:
+- 严格 TypeScript、两空格、单引号、分号；共享接口定义在 src/shared/types.ts。
+- Renderer 不访问 Node/Electron，仅使用 window.eyeProtect。变更 IPC 同步更新类型、preload、主进程清洗与发送方限制。
+- 变更通过命令层呈现错误；任务并发修改保留 baseRevision；批量完成/撤销先提交事务再推送。
+- 颜色使用语义令牌；simple.css 拥有精简工作台样式，styles.css 拥有桌宠、气泡和休息窗口。
+- 桌宠不订阅全量任务；拖动每次重申固定窗口尺寸，防止 Windows 分数 DPI 尺寸漂移。
+- 所有倒计时由主进程拥有，复用 SchedulerKernel；不要在 renderer 创建计时权威或恢复旧工时追踪。
+- data/、out/、release/、artifacts/、node_modules/ 为本地数据、生成物或依赖，不提交。
 
-| Work Area | Primary Docs | Key Source Files | Tests |
-| --- | --- | --- | --- |
-| Architecture & process split | [CLAUDE.md](CLAUDE.md) §Architecture, [docs/architecture.md](docs/architecture.md) | `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/App.tsx` | — |
-| Engineering craft rules | [RULES.md](RULES.md) | — | — |
-| Task/Project/Plan/Focus data model | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/types.ts` | `tests/task-store.test.ts`, `tests/schema-v4.test.ts` |
-| IPC capability extension | [CLAUDE.md](CLAUDE.md) §IPC convention, [docs/ipc-guide.md](docs/ipc-guide.md) | `src/shared/types.ts`, `src/preload/index.ts`, `src/main/index.ts` | `tests/ipc-task-input.test.ts`, `tests/ipc-project-input.test.ts` |
-| Reminder scheduling & rest rhythm | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/reminders.ts`, `src/main/scheduling/kernel.ts` | `tests/reminders.test.ts`, `tests/scheduler-kernel.test.ts` |
-| Settings & sanitization | [CLAUDE.md](CLAUDE.md) §Default settings | `src/shared/types.ts`, `src/main/settings.ts` | `tests/settings-write.test.ts` |
-| Renderer command layer | [CLAUDE.md](CLAUDE.md) §Command Layer, [docs/coding-guide.md](docs/coding-guide.md) | `src/renderer/src/lib/commands.ts`, `src/renderer/src/hooks/useCommand.ts` | `tests/command-layer.test.ts` |
-| Window management & surfaces | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/windows.ts`, `src/main/reminderSurface.ts` | `tests/reminder-surface.test.ts` |
-| Color system & design tokens | [docs/color-system.md](docs/color-system.md) | `src/renderer/src/styles/tokens.css`, `src/renderer/src/styles/theme.css` | `tests/design-system-contract.test.ts`, `tests/theme-authority.test.ts` |
-| Security hardening | [docs/hardening-notes.md](docs/hardening-notes.md) | `src/main/security.ts`, `src/main/scheduling/emergencyTemplate.ts` | `tests/security.test.ts` |
-| Release & acceptance | [docs/release-checklist.md](docs/release-checklist.md) | `package.json`, `.github/workflows/windows.yml` | — |
-| Backup & recovery | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/backup.ts`, `src/main/taskStore.ts` | `tests/backup.test.ts` |
-| Characters & collection | [CLAUDE.md](CLAUDE.md) §Generated / runtime directories | `src/shared/characters.ts`, `src/main/characterService.ts` | `tests/characters.test.ts`, `tests/character-service.test.ts` |
-| Today view & planning | [CLAUDE.md](CLAUDE.md) §Architecture | `src/renderer/src/features/tasks/todaySections.ts`, `src/renderer/src/features/tasks/todayViewModel.ts` | `tests/today-sections.test.ts`, `tests/today-view-model.test.ts` |
-| Project lifecycle | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/projectPolicy.ts`, `src/renderer/src/features/tasks/ProjectWorkspace.tsx` | `tests/project-policy.test.ts` |
-| Coding patterns & practical guide | [docs/coding-guide.md](docs/coding-guide.md) | — | — |
+## 验证
 
-## Commands
+交付前运行 npm run typecheck、npm test、npm run verify:ui-contract。资源/窗口变化运行 npm run package，并运行 npm run smoke:simple 的 1、1.25、1.5 缩放验收；--emergency 覆盖应急窗口。npm run smoke:pet-failure 验证桌宠失效仍能记任务和休息。
 
-```bash
-npm install        # install from package-lock.json
-npm run dev        # electron-vite dev server with hot reload
-npm run typecheck  # tsc --noEmit (primary quality gate — there is no linter/formatter)
-npm test           # tsx --test tests/*.test.ts  — Node built-in test runner
-npm run verify:ui-contract # semantic colors, CSS ownership, accessibility and contrast
-npm run build      # electron-vite build → out/
-npm run start      # electron-vite preview (runs the built app)
-npm run package    # build + NSIS and portable Windows x64 packages → release/
-```
-
-Before shipping, run `npm run typecheck` and `npm test`. Changes to reminder scheduling must also update `tests/reminders.test.ts`.
-
-## Architecture
-
-Classic Electron 3-process split, each in its own electron-vite build target:
-
-- **`src/main/`** — Main process. Entry in `index.ts` owns the single-instance lock, dynamic tray, sender-validated IPC, power lifecycle, and startup wiring. `ReminderScheduler` uses one-shot deadline timers, frozen pause/resume semantics, action locks, and persisted `runtime-state.json`; `SettingsStore` uses domain-scoped events and atomic `settings.json` writes; all timed events (breaks, task reminders, standalone reminders, pause expiry) share one `SchedulerKernel` deadline queue with a single timer + watchdog; `AppWindows` keeps only the pet resident while creating/destroying Alert, Bubble, Workbench, and dim-overlay windows on demand (there is no separate Panel/Settings window — Settings is a Workbench section).
-- **`src/preload/`** — `contextBridge` exposing `window.eyeProtect: EyeProtectApi`. The renderer must never touch Node or Electron APIs directly.
-- **`src/renderer/`** — `App.tsx` is a small hash router that dynamically imports Pet, Alert, Bubble, and Workbench views; `#settings` is a compatibility route into Workbench (the old `#panel` route was removed with its window). Window-level UI lives in `views/`, reusable domain UI in `features/`, IPC-backed state hooks in `hooks/`, and common controls in `components/`. `styles/tokens.css` owns non-color foundations, `styles/theme.css` owns semantic colors, and the remaining files have explicit surface/feature ownership. `styles.css` is the legacy window stylesheet: pet/reminder/bubble surfaces plus the Workbench-embedded Settings and standalone-reminders pages (the old panel/alarm/todo CSS was removed — it belonged to deleted windows).
-- **`src/shared/types.ts`** — The **cross-process contract**. Types (`ReminderKind`, `Settings`, `ActiveReminder`, `ReminderStatus`, `RuntimeInfo`, `EyeProtectApi`) plus `DEFAULT_SETTINGS` and `SETTINGS_LIMITS`. If you add data that crosses the process boundary, define it here — do not duplicate across main/preload/renderer.
-
-**IPC convention:** request and push channels are scoped by domain, including settings, runtime, reminder, task, project, planning, focus, alarm, character, backup, and window capabilities. To add a capability: extend `EyeProtectApi` in `src/shared/types.ts`, wire it in `src/preload/index.ts`, and register the same channel in `src/main/index.ts`. All invoke handlers must keep the renderer URL trust check. Task/project payload sanitizers live in `src/main/ipcTaskInput.ts` / `src/main/ipcProjectInput.ts` — every new field (including the `baseRevision` stale-write guard) must be whitelisted there.
-
-**Default settings:** eye interval 20 min, walk interval 60 min, snooze 5 min, natural-break threshold 5 min, guided reminders, 30-second pre-alert, system theme, comfortable density, and pet scale 1. Limits remain centralized in `SETTINGS_LIMITS`; do not duplicate them in UI code or documentation.
-
-## Coding conventions
-
-- Strict TypeScript. 2-space indent, single quotes, semicolons, `camelCase` vars/functions, `PascalCase` types and React components.
-- Renderer must not access Node/Electron directly — only `window.eyeProtect`.
-- Cross-process data lives in `src/shared/types.ts`, not triplicated.
-- Window transparency/drag relies on `-webkit-app-region`; interactive elements must stay `no-drag` (`styles.css`).
-- Do not add a catch-all renderer state hook: Pet, Alert, Bubble, and Workbench have intentionally separate IPC subscriptions so hidden or lightweight windows avoid unrelated data and updates. The always-resident pet window subscribes only to lightweight channels (pending-task count, care status, reminder status, character collection) — never the full task list.
-
-## Generated / runtime directories — do not edit or commit
-
-`data/` (created at runtime, holds `settings.json`, `runtime-state.json`, `reminder-history.json`, `eyeprotect.db`, and the rolling `reminder-trace.log`), `out/`, `release/`, `node_modules/`.
-
-## Notes
-
-- Windows CI runs secret scanning, typecheck, all Node tests, UI contract verification, both package targets, packaged smoke tests (running/experience/emergency/pet-failure/workbench-interactions/plan-interactions), deterministic UI captures, and scale-factor captures. Do not commit runtime data or secrets.
-- The tray icon has an inline base64 PNG fallback baked into `src/main/index.ts`. `public/assets/` ships only `tray-icon.png` and `app-icon.ico`; the 965 KB `app-icon.png` source lives under `scripts/assets/` (regenerate the `.ico` with `npm run build:icon`) so it is never packaged.
-- Mascots and reminder choreography are rendered as deterministic inline SVG from `src/shared/characters.ts`; only the tray icon remains a required bitmap asset.
-- A more detailed Chinese-language guide exists in `AGENTS.md` — it aligns with this file.
+修改休息调度必须补 tests/reminders.test.ts 或 tests/pomodoro.test.ts 的对应行为测试；迁移、步骤和数据完整性测试放 tests/simple-experience.test.ts。记录实际通过的验证与未完成的硬件验证。
