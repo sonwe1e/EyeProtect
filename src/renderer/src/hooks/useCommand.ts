@@ -46,7 +46,7 @@ export function useCommand<T, Args extends unknown[]>(
       // arguments is a new intent (second arrow press, a different material
       // selection) and must never be silently dropped — run it concurrently
       // and let the generation guard make the latest outcome win.
-      if (pending && JSON.stringify(pending.args) === JSON.stringify(args)) {
+      if (pending && pending.args.length === args.length && pending.args.every((value, index) => typeof value === 'function' || typeof args[index] === 'function' ? value === args[index] : JSON.stringify(value) === JSON.stringify(args[index]))) {
         return pending.promise;
       }
       setState('pending');

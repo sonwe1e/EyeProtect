@@ -1,131 +1,32 @@
-import { Check, Clock3, X } from 'lucide-react';
-import type { BreakActivity } from '../../../shared/types';
-import { getActivity } from '../../../shared/breakActivities';
-import { CommandButton } from '../components/CommandButton';
-import { ActivityGuide } from '../features/reminders/ActivityGuide';
-import { ReminderArtwork, reminderCopy } from '../features/reminders/ReminderArtwork';
-import { useClock } from '../hooks/useClock';
-import { useActiveTaskId } from '../hooks/useActiveTask';
-import { useCommand } from '../hooks/useCommand';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useTasks } from '../hooks/useTasks';
-import { commands } from '../lib/commands';
+import { usePomodoro } from '../hooks/usePomodoro';
+import { useClock } from '../hooks/useClock';
+import { useSettings } from '../hooks/useSettings';
+import { useCommand } from '../hooks/useCommand';
+import { run } from '../lib/commands';
+import { useActiveCharacter } from '../hooks/useCharacterCollection';
+import { ProceduralCharacter } from '../features/characters/ProceduralCharacter';
 
 export default function AlertView(): JSX.Element {
-  const status = useReminderStatus();
-  const tasks = useTasks();
-  const activeTaskId = useActiveTaskId();
-  const now = useClock(1_000);
-  const active = status.activeReminder;
-  const completeBreakTask = useCommand((id: string) => commands.tasks.setStatus(id, 'done'));
-
-  if (!active) {
-    return <main className="alert-shell" />;
-  }
-
-  const copy = reminderCopy[active.kind];
-  const waiting = now < active.unlockAt;
-  const waitSeconds = Math.max(0, Math.ceil((active.unlockAt - now) / 1000));
-  const snoozeLocked = now < active.snoozeAllowedAt;
-  const activities = active.activityIds
-    .map((id) => getActivity(id))
-    .filter((entry): entry is BreakActivity => Boolean(entry));
-  const suggestedUntil =
-    active.startedAt +
-    Math.max(0, ...activities.map((activity) => activity.durationSeconds * 1_000));
-  const suggestedSeconds = Math.max(0, Math.ceil((suggestedUntil - now) / 1_000));
-  const liveBreakTask = active.breakTask
-    ? tasks.find((task) => task.id === active.breakTask?.id)
-    : null;
-  const activeTask = activeTaskId ? tasks.find((task) => task.id === activeTaskId) : null;
-
-  const handleDoubleClick = (): void => {
-    if (!waiting) {
-      void commands.reminderActions.act('complete', active.id);
-    }
-  };
-
-  return (
-    <main className="alert-shell">
-      <ReminderArtwork active={active} canComplete={!waiting} onDoubleClick={handleDoubleClick} />
-      <section className="alert-panel">
-        <div className="alert-heading">
-          <span className={`kind-badge ${active.kind}`}>
-            {active.kind === 'eye' ? '护眼' : active.kind === 'walk' ? '走动' : '休息'}
-          </span>
-          <h1>{copy.title}</h1>
-          <p>{copy.detail}</p>
-        </div>
-        {activities.length > 0 ? (
-          <div className="alert-activities">
-            {activities.map((activity) => (
-              <ActivityGuide
-                key={activity.id}
-                activity={activity}
-                startedAt={active.startedAt}
-                now={now}
-              />
-            ))}
-          </div>
-        ) : null}
-        {active.mode === 'guided' ? (
-          <div className="alert-guided-hint">
-            <span>
-              {suggestedSeconds > 0
-                ? `建议再休息 ${suggestedSeconds} 秒`
-                : '建议时长已完成'}
-            </span>
-            <small>不强制等待，可随时完成</small>
-          </div>
-        ) : null}
-        {active.breakTask && liveBreakTask && liveBreakTask.status !== 'done' ? (
-          <div className="break-todo-card">
-            <div>
-              <span>这次走动可以顺便</span>
-              <strong>{active.breakTask.title}</strong>
-            </div>
-            <CommandButton
-              type="button"
-              state={completeBreakTask.state}
-              errorReason={completeBreakTask.error?.message}
-              onClick={() => void completeBreakTask.run(active.breakTask?.id ?? '')}
-            >
-              <Check size={14} />
-              做好了
-            </CommandButton>
-          </div>
-        ) : null}
-        {activeTask ? <p className="break-return-task">休息后继续：<strong>{activeTask.title}</strong></p> : null}
-        {waiting ? (
-          <div className="alert-wait-hint">
-            <span className="alert-wait-time">
-              {waitSeconds} 秒后{snoozeLocked ? '可「完成」或「稍后」' : '可「完成」'}
-            </span>
-            <span className="alert-wait-note">「跳过」随时可用</span>
-          </div>
-        ) : null}
-        <div className="alert-actions">
-          <button
-            className="primary"
-            disabled={waiting}
-            onClick={() => void commands.reminderActions.act('complete', active.id)}
-          >
-            <Check size={18} />
-            完成
-          </button>
-          <button
-            disabled={snoozeLocked}
-            onClick={() => void commands.reminderActions.act('snooze', active.id)}
-          >
-            <Clock3 size={18} />
-            稍后
-          </button>
-          <button onClick={() => void commands.reminderActions.act('skip', active.id)}>
-            <X size={18} />
-            跳过
-          </button>
-        </div>
-      </section>
-    </main>
-  );
+  const { activeReminder: active } = useReminderStatus();
+  const now = useClock(1000);
+  const pomodoro = usePomodoro();
+  const { settings } = useSettings();
+  const character = useActiveCharacter();
+  const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  if (!active) return <main className="alert-shell" />;
+  const started = typeof active.restStartedAt === 'number';
+  const remaining = Math.max(0, Math.ceil((active.unlockAt - now) / 1000));
+  return <main className="alert-shell simple-rest">
+    <div className="simple-rest-character"><ProceduralCharacter character={character} action={started ? active.kind : 'idle'} /></div>
+    <h1>{active.kind === 'eye' ? '让眼睛休息一下' : active.kind === 'walk' ? '起来走动一下' : '离开屏幕，起来走动一下'}</h1>
+    <p>{started ? remaining > 0 ? `还有 ${remaining} 秒` : '这次休息时间已到' : pomodoro.phase === 'focus-finished' || pomodoro.phase === 'break' ? '将与本轮番茄休息合并，点击开始休息。' : '准备好后，点击开始休息。'}</p>
+    <div className="bubble-actions">
+      {!started ? <button className="primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息</button> : <button className="primary" disabled={remaining > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>完成休息</button>}
+      <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后提醒</button>
+      <select aria-label="稍后分钟数" value={settings.snoozeMinutes} onChange={(e) => void action.run(() => window.eyeProtect.saveSettings({ snoozeMinutes: Number(e.currentTarget.value) }))}>{[1, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select>
+      <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('skip', active.id))}>跳过</button>
+    </div>
+    {action.error ? <p role="alert">{action.error.message}</p> : null}
+  </main>;
 }

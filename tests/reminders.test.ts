@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ReminderScheduler } from '../src/main/reminders';
+import { SchedulerKernel } from '../src/main/scheduling/kernel';
 import type { ReminderEvent, ReminderStatus, Settings, Task } from '../src/shared/types';
 
 const MINUTE = 60_000;
@@ -719,4 +720,67 @@ test('scene-aware gate defers at most three times, explains each delay, then sho
   assert.equal(checks, 4);
   assert.equal(shown.contextDeferral, null);
   assert.equal(shown.activeReminder?.kind, 'eye');
+});
+
+
+test('simplified manual reminder waits for begin-rest and persists that boundary', () => {
+  let now = T0;
+  const settings = { ...baseSettings, reminderMode: 'focused' as const, eyeRestSeconds: 45 };
+  const scheduler = new ReminderScheduler(settings, { now: () => now, manualStart: true });
+  now += 20 * MINUTE;
+  scheduler.tick();
+  const id = scheduler.getStatus().activeReminder!.id;
+  assert.equal(scheduler.serialize().active?.restStartedAt, null);
+  now += MINUTE;
+  assert.ok(scheduler.handleAction('complete', id).activeReminder);
+  scheduler.beginRest(id);
+  const snapshot = scheduler.serialize();
+  assert.equal(snapshot.active?.restStartedAt, now);
+  assert.equal(snapshot.active?.unlockAt, now + 45000);
+  scheduler.stop();
+  const restored = new ReminderScheduler(settings, { now: () => now, manualStart: true, restore: snapshot });
+  assert.equal(restored.getStatus().activeReminder?.restStartedAt, now);
+  restored.stop();
+});
+
+
+test('merged pomodoro rest extends the health wait without automatically recording completion', () => {
+  let now = T0;
+  const events: ReminderEvent[] = [];
+  const scheduler = new ReminderScheduler({ ...baseSettings, reminderMode: 'focused' }, { manualStart: true, now: () => now, onEvent: (event) => events.push(event) });
+  now += 20 * MINUTE; scheduler.tick();
+  const id = scheduler.getStatus().activeReminder!.id;
+  scheduler.beginRest(id, 5 * MINUTE);
+  assert.equal(scheduler.getStatus().activeReminder?.unlockAt, now + 5 * MINUTE);
+  now += 5 * MINUTE;
+  scheduler.tick();
+  assert.equal(events.length, 0);
+  scheduler.handleAction('complete', id);
+  assert.equal(events.length, 1);
+  scheduler.stop();
+});
+
+
+test('manual health reminder starts its configured rest only after the user begins', () => {
+  let now = 1000;
+  const settings = { ...baseSettings, reminderMode: 'focused' as const, eyeRestSeconds: 45 };
+  const scheduler = new ReminderScheduler(settings, { now: () => now, manualStart: true });
+  const active = scheduler.triggerTest('eye').activeReminder!;
+  now += 60000;
+  assert.ok(scheduler.handleAction('complete', active.id).activeReminder);
+  scheduler.beginRest(active.id); assert.equal(scheduler.getStatus().activeReminder?.unlockAt, now + 45000);
+  now += 45000; assert.equal(scheduler.handleAction('complete', active.id).activeReminder, null);
+  scheduler.stop();
+});
+
+test('disabled health reminders register no deadlines and reenable starts a fresh interval', () => {
+  let now = 1000;
+  const settings = { ...baseSettings, eyeEnabled: false, walkEnabled: false };
+  const kernel = new SchedulerKernel({ clock: { now: () => now, monotonic: () => now } });
+  const scheduler = new ReminderScheduler(settings, { now: () => now, manualStart: true, kernel });
+  scheduler.start(); assert.equal(kernel.peek().length, 0);
+  now += 3600000; scheduler.tick(); assert.equal(scheduler.getStatus().activeReminder, null);
+  scheduler.updateSettings({ ...settings, eyeEnabled: true }, settings);
+  assert.equal(scheduler.getStatus().nextEyeAt, now + 1200000);
+  scheduler.stop(); kernel.stop();
 });

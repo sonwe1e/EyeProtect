@@ -27,7 +27,7 @@ import { runReminderSurfaceFallback } from './scheduling/surfaceFallback';
 const moduleDir = join(fileURLToPath(new URL('.', import.meta.url)));
 const emergencyPreloadPath = join(moduleDir, '../preload/emergency.cjs');
 
-type EmergencyAction = 'complete' | 'snooze' | 'skip';
+type EmergencyAction = 'start' | 'complete' | 'snooze' | 'skip';
 
 export class ReminderSurfaceManager {
   private emergencyWindow: BrowserWindow | null = null;
@@ -187,6 +187,11 @@ export class ReminderSurfaceManager {
     this.presentNotificationFallback(active, 'renderer-gone');
   }
 
+  update(active: ActiveReminder): void {
+    if (active.id !== this.currentReminderId || !this.emergencyWindow || this.emergencyWindow.isDestroyed()) return;
+    this.emergencyWindow.webContents.send('emergency-reminder:state', { started: typeof active.restStartedAt === 'number' || active.restStartedAt === undefined, unlockAt: active.unlockAt });
+  }
+
   private async showEmergency(active: ActiveReminder): Promise<boolean> {
     if (!app.isReady()) {
       return false;
@@ -220,7 +225,7 @@ export class ReminderSurfaceManager {
       if (
         channel !== 'emergency-reminder:action' ||
         event.sender.id !== window.webContents.id ||
-        (action !== 'complete' && action !== 'snooze' && action !== 'skip')
+        (action !== 'start' && action !== 'complete' && action !== 'snooze' && action !== 'skip')
       ) {
         return;
       }
@@ -240,6 +245,7 @@ export class ReminderSurfaceManager {
       if (window.isDestroyed() || this.emergencyWindow !== window) {
         return false;
       }
+      this.update(active);
       window.show();
       window.flashFrame(true);
       // These listeners are attached only after the initial load succeeded;

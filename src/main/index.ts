@@ -579,7 +579,7 @@ app.whenReady().then(async () => {
       process.argv.includes('--eyeprotect-smoke-emergency')
         ? Promise.resolve(false)
         : windows.showReminderOnPrimary(active),
-    (action, reminderId) => scheduler.handleAction(action, reminderId),
+    (action, reminderId) => action === 'start' ? scheduler.beginRest(reminderId) : scheduler.handleAction(action, reminderId),
     () => windows.showWorkbenchWindow('today'),
     (event, data) => reminderTrace.append({ t: Date.now(), src: 'surface', event, data }),
     () => windows.getReminderSurfaceWebContentsId(),
@@ -985,6 +985,7 @@ app.whenReady().then(async () => {
     const normalized = asReminderAction(action);
     return normalized ? scheduler.handleAction(normalized, asString(reminderId)) : scheduler.getStatus();
   });
+  handleIpc('reminder:begin-rest', (id) => scheduler.beginRest(asString(id)));
   handleIpc('reminder:pre-alert', (action) => {
     const normalized = asPreAlertAction(action);
     return normalized ? scheduler.handlePreAlertAction(normalized) : scheduler.getStatus();

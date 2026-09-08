@@ -73,6 +73,7 @@ export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
   </div>
   <div>
     <div class="actions">
+      <button id="start">开始休息</button>
       <button id="complete">完成</button>
       <button id="snooze" class="secondary">稍后</button>
       <button id="skip" class="ghost">跳过</button>
@@ -85,6 +86,17 @@ export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
       window.eyeProtectEmergency.action(action);
     }
   }
+  var state = { started: false, unlockAt: 0 };
+  function paint() {
+    document.getElementById('start').hidden = state.started;
+    document.getElementById('complete').hidden = !state.started;
+    var remaining = Math.max(0, Math.ceil((state.unlockAt - Date.now()) / 1000));
+    document.getElementById('complete').disabled = remaining > 0;
+    document.getElementById('complete').textContent = remaining > 0 ? remaining + ' 秒' : '完成';
+  }
+  if (window.eyeProtectEmergency && window.eyeProtectEmergency.onState) window.eyeProtectEmergency.onState(function(next) { state = next; paint(); });
+  setInterval(paint, 500); paint();
+  document.getElementById('start').onclick = function () { act('start'); };
   document.getElementById('complete').onclick = function () { act('complete'); };
   document.getElementById('snooze').onclick = function () { act('snooze'); };
   document.getElementById('skip').onclick = function () { act('skip'); };

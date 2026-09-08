@@ -48,7 +48,7 @@ import type {
 import { toCommandResult } from '../../../shared/types';
 
 /** Run an IPC command, catching any rejection into a structured result. */
-const run = <T>(ipcCall: () => Promise<T>): Promise<CommandResult<T>> =>
+export const run = <T>(ipcCall: () => Promise<T>): Promise<CommandResult<T>> =>
   ipcCall()
     .then((data): CommandResult<T> => ({ ok: true, data }))
     .catch((err): CommandResult<never> => toCommandResult(err));

@@ -78,6 +78,7 @@ export interface ReminderSnapshot {
 }
 
 export interface SchedulerOptions {
+  manualStart?: boolean;
   /** Injectable clock for deterministic tests. */
   now?: () => number;
   /** Snapshot restored from disk; used when it passes sanity checks. */
@@ -121,6 +122,7 @@ export interface ReminderGateDecision {
 
 export class ReminderScheduler extends EventEmitter {
   private settings: Settings;
+  private readonly manualStart: boolean;
   private status: ReminderStatus;
   private timer: NodeJS.Timeout | null = null;
   private sequence = 0;
@@ -162,6 +164,7 @@ export class ReminderScheduler extends EventEmitter {
 
   constructor(settings: Settings, options: SchedulerOptions = {}) {
     super();
+    this.manualStart = options.manualStart === true;
     this.now = options.now ?? Date.now;
     this.onPersist = options.onPersist ?? null;
     this.onEvent = options.onEvent ?? null;
@@ -224,8 +227,11 @@ export class ReminderScheduler extends EventEmitter {
   }
 
   updateSettings(settings: Settings, previous: Settings): ReminderStatus {
-    void previous;
     this.settings = settings;
+    if (this.manualStart) {
+      if (settings.eyeIntervalMinutes !== previous.eyeIntervalMinutes || (!previous.eyeEnabled && settings.eyeEnabled)) this.scheduleKind('eye', settings.eyeIntervalMinutes, this.now());
+      if (settings.walkIntervalMinutes !== previous.walkIntervalMinutes || (!previous.walkEnabled && settings.walkEnabled)) this.scheduleKind('walk', settings.walkIntervalMinutes, this.now());
+    }
     // A cycle is fixed when it starts. Interval edits are preferences for the
     // next complete cycle; restartCycle() is the explicit "apply now" action.
     // Deadlines may have moved (or the lead time changed): any pending
@@ -267,10 +273,10 @@ export class ReminderScheduler extends EventEmitter {
     this.trace('action', { reminderId, action, kind: active.kind });
     // Main-process enforcement of the rest wait: a renderer that reloads or
     // replays IPC still cannot complete early or spam snooze.
-    if (action === 'complete' && now < active.unlockAt) {
+    if (action === 'complete' && ((this.manualStart && typeof active.restStartedAt !== 'number') || now < active.unlockAt)) {
       return this.getStatus();
     }
-    if (action === 'snooze' && now < active.snoozeAllowedAt) {
+    if (action === 'snooze' && !this.manualStart && now < active.snoozeAllowedAt) {
       return this.getStatus();
     }
 
@@ -478,8 +484,8 @@ export class ReminderScheduler extends EventEmitter {
     const intervals = this.effectiveIntervals();
 
     if (safeInactiveMs >= (this.settings.naturalBreakMinutes ?? 5) * MINUTE) {
-      const eyeDue = this.status.nextEyeAt <= now;
-      const walkDue = this.status.nextWalkAt <= now;
+      const eyeDue = this.settings.eyeEnabled !== false && this.status.nextEyeAt <= now;
+      const walkDue = this.settings.walkEnabled !== false && this.status.nextWalkAt <= now;
       const naturalKind: ReminderKind =
         eyeDue && walkDue
           ? 'combined'
@@ -563,6 +569,17 @@ export class ReminderScheduler extends EventEmitter {
     return this.getStatus();
   }
 
+  beginRest(id: string, minimumMs = 0): ReminderStatus {
+    const active = this.status.activeReminder;
+    if (!active || active.id !== id || typeof active.restStartedAt === 'number') return this.getStatus();
+    active.restStartedAt = this.now();
+    const seconds = active.kind === 'eye' ? this.settings.eyeRestSeconds : active.kind === 'walk' ? this.settings.walkRestSeconds : Math.max(this.settings.eyeRestSeconds, this.settings.walkRestSeconds);
+    active.unlockAt = active.restStartedAt + Math.max(seconds * 1000, Number.isFinite(minimumMs) ? Math.max(0, minimumMs) : 0);
+    active.snoozeAllowedAt = active.restStartedAt;
+    this.emitChanged();
+    return this.getStatus();
+  }
+
   serialize(): ReminderSnapshot {
     return {
       nextEyeAt: this.status.nextEyeAt,
@@ -592,6 +609,7 @@ export class ReminderScheduler extends EventEmitter {
       kind: active.kind,
       kinds: [...active.kinds],
       startedAt: active.startedAt,
+      restStartedAt: active.restStartedAt,
       scheduledAt: active.scheduledAt,
       unlockAt: active.unlockAt,
       snoozeAllowedAt: active.snoozeAllowedAt,
@@ -690,6 +708,7 @@ export class ReminderScheduler extends EventEmitter {
     }
     return {
       ...recovered,
+      mode: this.manualStart ? 'focused' : recovered.mode,
       id: `${now}-${++this.sequence}`
     };
   }
@@ -727,6 +746,7 @@ export class ReminderScheduler extends EventEmitter {
       kind,
       kinds,
       startedAt: value.startedAt,
+      restStartedAt: typeof value.restStartedAt === 'number' && Number.isFinite(value.restStartedAt) ? value.restStartedAt : null,
       scheduledAt: value.scheduledAt,
       unlockAt: value.unlockAt,
       snoozeAllowedAt: value.snoozeAllowedAt,
@@ -803,14 +823,15 @@ export class ReminderScheduler extends EventEmitter {
       // Earliest moment a not-yet-included kind can be absorbed into the alert.
       if (!this.activeIsTest) {
         for (const kind of ['eye', 'walk'] as SingleReminderKind[]) {
-          if (!active.kinds.includes(kind)) {
+          if (!active.kinds.includes(kind) && (kind === 'eye' ? this.settings.eyeEnabled !== false : this.settings.walkEnabled !== false)) {
             candidates.push(this.nextAtFor(kind) - COMBINE_WINDOW_MS);
           }
         }
       }
       // Nothing to absorb: wait for a user action instead of polling.
     } else {
-      candidates.push(this.status.nextEyeAt, this.status.nextWalkAt);
+      if (this.settings.eyeEnabled !== false) candidates.push(this.status.nextEyeAt);
+      if (this.settings.walkEnabled !== false) candidates.push(this.status.nextWalkAt);
       if (this.status.pausedUntil) {
         candidates.push(this.status.pausedUntil);
       } else if (!this.activePreAlert) {
@@ -861,10 +882,10 @@ export class ReminderScheduler extends EventEmitter {
 
     this.markAndMaybeShowPreAlert(now);
 
-    const eyeDue = this.status.nextEyeAt <= now;
-    const walkDue = this.status.nextWalkAt <= now;
-    const eyeNear = this.status.nextEyeAt <= now + COMBINE_WINDOW_MS;
-    const walkNear = this.status.nextWalkAt <= now + COMBINE_WINDOW_MS;
+    const eyeDue = this.settings.eyeEnabled !== false && this.status.nextEyeAt <= now;
+    const walkDue = this.settings.walkEnabled !== false && this.status.nextWalkAt <= now;
+    const eyeNear = this.settings.eyeEnabled !== false && this.status.nextEyeAt <= now + COMBINE_WINDOW_MS;
+    const walkNear = this.settings.walkEnabled !== false && this.status.nextWalkAt <= now + COMBINE_WINDOW_MS;
 
     if ((eyeDue && walkNear) || (walkDue && eyeNear)) {
       this.requestReminder(
@@ -914,6 +935,7 @@ export class ReminderScheduler extends EventEmitter {
   }
 
   private preAlertMs(): number {
+    if (this.manualStart) return 0;
     const seconds = this.settings.preAlertSeconds;
     return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : 0;
   }
@@ -929,6 +951,7 @@ export class ReminderScheduler extends EventEmitter {
       kind,
       kinds: reminderKindsFor(kind),
       startedAt: now,
+      restStartedAt: this.manualStart ? null : now,
       scheduledAt,
       unlockAt,
       // Focused mode: first snooze of a cycle is immediate, later ones wait
@@ -1047,7 +1070,7 @@ export class ReminderScheduler extends EventEmitter {
       return;
     }
     const shouldAbsorb = (['eye', 'walk'] as SingleReminderKind[]).some(
-      (kind) => !active.kinds.includes(kind) && this.nextAtFor(kind) <= now + COMBINE_WINDOW_MS
+      (kind) => (kind === 'eye' ? this.settings.eyeEnabled !== false : this.settings.walkEnabled !== false) && !active.kinds.includes(kind) && this.nextAtFor(kind) <= now + COMBINE_WINDOW_MS
     );
     if (!shouldAbsorb) {
       return;
@@ -1071,7 +1094,7 @@ export class ReminderScheduler extends EventEmitter {
       // Extend the enforced rest to the combined duration (counted from the
       // reminder's start) — this is what the renderer countdown must reflect.
       // Gentle/guided reminders stay unlocked.
-      const unlockAt = active.startedAt + COMPLETE_WAIT_MS.combined;
+      const unlockAt = this.manualStart ? (typeof active.restStartedAt === 'number' ? active.restStartedAt + Math.max(this.settings.eyeRestSeconds, this.settings.walkRestSeconds) * 1000 : active.unlockAt) : active.startedAt + COMPLETE_WAIT_MS.combined;
       if (unlockAt > active.unlockAt) {
         active.unlockAt = unlockAt;
       }
