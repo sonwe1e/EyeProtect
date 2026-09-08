@@ -1,23 +1,39 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
-import { Clock3, Gift, Heart, ListChecks, Settings as SettingsIcon, X } from 'lucide-react';
-import type { PetMood, StandaloneReminder } from '../../../shared/types';
+import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { Clock3, ListChecks, Settings as SettingsIcon } from 'lucide-react';
+import type { PetMood } from '../../../shared/types';
 import { PetCharacter } from '../features/pet/PetCharacter';
-import { useCareStatus } from '../hooks/useCareStatus';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { usePendingTaskCount } from '../hooks/usePendingTaskCount';
 import { useSettings } from '../hooks/useSettings';
+import { createPixelAnimal } from '../../../shared/pixelAnimals';
 import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
-import { commands } from '../lib/commands';
+import { commands, run } from '../lib/commands';
+import { useCommand } from '../hooks/useCommand';
 
 const REACTION_MS = 1_100;
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
-  const care = useCareStatus();
+  const startFocus = useCommand(() => run(async () => {
+    const state = await window.eyeProtect.getPomodoro();
+    if (['focus', 'break'].includes(state.phase) && !window.confirm('结束当前计时，开始新一轮？')) return;
+    return window.eyeProtect.preparePomodoro(null, true);
+  }));
   const pendingCount = usePendingTaskCount();
   const collection = useCharacterCollection();
   const { settings } = useSettings();
-  const [firingAlarms, setFiringAlarms] = useState<StandaloneReminder[]>([]);
+  const character = settings.petAppearance === 'collection' ? activeCharacterFrom(collection) : createPixelAnimal(settings.petAppearance);
+  useLayoutEffect(() => {
+    const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
+    if (!svg) return;
+    const box = svg.getBBox();
+    const viewBox = svg.viewBox.baseVal;
+    if (!viewBox.height) return;
+    void window.eyeProtect.reportPetArtworkBounds({
+      top: Math.max(0, (box.y - viewBox.y) / viewBox.height),
+      bottom: Math.min(1, (box.y + box.height - viewBox.y) / viewBox.height)
+    });
+  }, [character.id]);
   const dragRef = useRef<{
     pointerId: number;
     screenX: number;
@@ -31,9 +47,6 @@ export default function PetView(): JSX.Element {
   const [reaction, setReaction] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  const handleOpenAlarms = useCallback(() => {
-    void window.eyeProtect.openWorkbench('reminders');
-  }, []);
   const handleOpenTodos = useCallback(() => {
     void window.eyeProtect.openWorkbench('today');
   }, []);
@@ -50,7 +63,7 @@ export default function PetView(): JSX.Element {
   }, [reminderStatus.activeReminder]);
   const handleContextMenu = useCallback((event: MouseEvent) => {
     event.preventDefault();
-    void window.eyeProtect.openWorkbench('collection');
+    void window.eyeProtect.openWorkbench('settings');
   }, []);
   const handlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -88,25 +101,10 @@ export default function PetView(): JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
-    return window.eyeProtect.onStandaloneReminderFired((alarm) => {
-      setFiringAlarms((current) => {
-        if (current.some((entry) => entry.id === alarm.id)) {
-          return current;
-        }
-        // Keep only the most recent fired alarms: the badge is dismissed as a
-        // whole, and an unbounded array would grow by one per firing for the
-        // whole window lifetime.
-        return [...current, alarm].slice(-5);
-      });
-    });
-  }, []);
+  const mood: PetMood = 'calm';
 
-  const isFiring = firingAlarms.length > 0;
-  const mood: PetMood = reminderStatus.preAlert ? 'anticipating' : care.mood;
-  const character = activeCharacterFrom(collection);
-  const accessory = character.accessory === 'none' ? care.accessory : character.accessory;
-  const hasGift = collection.candidate?.decision === 'pending';
+  const accessory = character.accessory;
+
   const compactPet = settings.petScale < 0.7;
 
   // Pointer capture on the drag surface retargets the synthesized `click`
@@ -123,7 +121,7 @@ export default function PetView(): JSX.Element {
   }, [character.favoriteActions]);
 
   return (
-    <main className={`pet-shell ${compactPet ? 'pet-compact' : ''} ${isFiring ? 'alarms-active' : ''}`.trim()} onContextMenu={handleContextMenu}>
+    <main className={`pet-shell ${compactPet ? 'pet-compact' : ''}`.trim()} onContextMenu={handleContextMenu}>
       {!compactPet ? <div className="pet-toolbar">
         <button
           className={`pet-todo-tab ${pendingCount > 0 ? 'has-todos' : ''}`.trim()}
@@ -134,7 +132,7 @@ export default function PetView(): JSX.Element {
           <span className="pet-todo-tab-label">待办</span>
           {pendingCount > 0 ? <span className="todo-count">{pendingCount}</span> : null}
         </button>
-        <button className="pet-alarm" title="闹钟" onClick={handleOpenAlarms}>
+        <button className="pet-alarm" title={startFocus.error?.message ?? "开始番茄钟"} disabled={startFocus.isPending} onClick={() => void startFocus.run()}>
           <Clock3 size={18} />
         </button>
         <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openWorkbench('settings')}>
@@ -175,32 +173,6 @@ export default function PetView(): JSX.Element {
         <div className="pet-drag-handle" aria-hidden="true" title="按住拖动桌宠" />
       </div>
 
-      {hasGift ? (
-        <button type="button" className="pet-gift-badge" title="今天有一位新朋友" onClick={() => void window.eyeProtect.openWorkbench('collection')}>
-          <Gift size={15} />
-        </button>
-      ) : null}
-
-      <button
-        type="button"
-        className="pet-care-badge"
-        title={`${care.message} · 点击查看本周趋势`}
-        onClick={() => void window.eyeProtect.openWorkbench('settings')}
-      >
-        <Heart size={12} />
-        <span>{care.score}</span>
-      </button>
-
-      {isFiring ? (
-        <button
-          type="button"
-          className="alarm-dismiss"
-          title="关闭闹钟提醒"
-          onClick={() => setFiringAlarms([])}
-        >
-          <X size={18} />
-        </button>
-      ) : null}
     </main>
   );
 }

@@ -1779,3 +1779,46 @@
     outline: 1px solid ButtonText;
   }
 }
+
+/* Pet task picker and content-sized anchored bubble. */
+.bubble-card { flex: none; }
+.bubble-tail { position: absolute; left: var(--bubble-tail-x, 124px); bottom: 3px; margin: 0 0 0 -7px; }
+:root[data-bubble-placement='below'] .bubble-shell { padding-top: 8px; }
+:root[data-bubble-placement='below'] .bubble-tail { top: 3px; bottom: auto; transform: rotate(225deg); }
+.bubble-todos .bubble-list { max-height: 96px; overflow-y: auto; margin: 0; padding: 0; gap: 0; }
+.bubble-task-row { list-style: none; }
+.bubble-task-line { display: flex; align-items: center; height: 32px; gap: 4px; }
+.bubble-complete { width: 28px; min-width: 28px; height: 28px; padding: 0; display: grid; place-items: center; }
+.bubble-task-title { flex: 1; min-width: 0; height: 28px; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; background: transparent; }
+.bubble-task-error { display: block; color: var(--danger); font-size: 11px; }
+.bubble-select { align-self: flex-start; min-height: 28px; padding: 2px 8px; }
+.bubble-todos .bubble-title { padding-right: 24px; }
+.bubble-close { min-width: 24px; min-height: 24px; }
+.pet-character .procedural-character.pixel-animal { animation: none; filter: none; }
+.pixel-animal svg { image-rendering: pixelated; overflow: hidden; }
+
+
+.bubble-todos button { font-family: inherit; cursor: pointer; }
+.bubble-complete { color: var(--brand); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-small); }
+.bubble-complete:hover { background: var(--brand-subtle); }
+.bubble-task-title { color: var(--fg-primary); font-size: 12px; border-radius: var(--radius-small); }
+.bubble-task-title:hover { background: var(--surface-hover); }
+.bubble-select { color: var(--brand); background: transparent; border: 0; border-radius: var(--radius-small); font-size: 12px; }
+.bubble-select:hover { background: var(--brand-subtle); }
+.bubble-todos button:disabled { opacity: .5; cursor: wait; }
+.bubble-todos button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* Keep the pixel silhouette clear; controls remain available on hover/focus. */
+.pet-shell:has(.pixel-animal) :is(.pet-toolbar, .pet-care-badge, .pet-gift-badge) { opacity: 0; }
+.pet-shell:has(.pixel-animal):is(:hover, :focus-within) :is(.pet-toolbar, .pet-care-badge, .pet-gift-badge) { opacity: 1; }
+.pet-shell:has(.pixel-animal):has(.is-dragging) :is(.pet-toolbar, .pet-care-badge, .pet-gift-badge, .pet-drag-handle) { opacity: 0; pointer-events: none; }
+
+.pomodoro-clock { display: block; text-align: center; font-size: 34px; font-variant-numeric: tabular-nums; padding: 8px 0; }
+.pomodoro-task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; color: var(--fg-secondary); }
+.pomodoro-duration { display: flex; gap: 6px; align-items: center; font-size: 12px; }.pomodoro-duration input { width: 48px; }
+.simple-rest { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 32px; color: var(--fg-primary); background: var(--surface); }
+.simple-rest-character { width: 190px; height: 190px; }.simple-rest h1 { margin: 0; font-size: 28px; text-align: center; }.simple-rest > p { font-size: 19px; }
+.simple-rest .bubble-actions button { min-height: 42px; padding: 8px 18px; font-size: 14px; }.simple-rest select { border: 1px solid var(--border-strong); border-radius: var(--radius-medium); background: var(--surface); color: var(--fg-primary); }
+
+.simple-rest .bubble-actions { width: 100%; max-width: 600px; justify-content: center; align-items: center; }
+.simple-rest .bubble-actions button { flex: 0 0 auto; }
