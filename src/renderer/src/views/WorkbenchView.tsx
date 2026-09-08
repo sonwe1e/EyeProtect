@@ -1,554 +1,116 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Bell,
-  CalendarDays,
-  Eye,
-  FolderKanban,
-  Footprints,
-  Gift,
-  Inbox,
-  Play,
-  Plus,
-  Settings2,
-  Sun,
-  Target,
-  type LucideIcon
-} from 'lucide-react';
-import {
-  matchesTaskView,
-  type FailedDeliveryNotice,
-  type TaskCheckpointDraft,
-  type Task
-} from '../../../shared/types';
-import { addLocalDays, localDateKey, sameLocalDate, startOfLocalDate } from '../../../shared/calendar';
-import { AppHealthBanner } from '../components/AppHealthBanner';
-import { CommandPalette, type PaletteCommand } from '../components/CommandPalette';
-import { DailyPlanningFlow } from '../features/planning/DailyPlanningFlow';
-import { CommandButton } from '../components/CommandButton';
-import { Button, Dialog, Field, ProjectDot, SideSheet, StatusChip, Toast } from '../components/primitives';
-import { CharacterCollectionView } from '../features/characters/CharacterCollectionView';
-import { DailyReview } from '../features/review/DailyReview';
-import { StandaloneReminderSection } from '../features/reminders/StandaloneReminderSection';
-import { ProjectList } from '../features/tasks/ProjectList';
-import { ProjectWorkspace } from '../features/tasks/ProjectWorkspace';
-import { PlanWorkspace } from '../features/tasks/PlanWorkspace';
-import { FocusSurface } from '../features/tasks/FocusSurface';
-import { TaskComposer } from '../features/tasks/TaskComposer';
-import { TaskDetail } from '../features/tasks/TaskDetail';
-import { TaskList } from '../features/tasks/TaskList';
-import { deriveTodayExecutionModel } from '../features/tasks/todayViewModel';
-import { useActiveTaskId } from '../hooks/useActiveTask';
-import { useAppHealth } from '../hooks/useAppHealth';
-import { useClock } from '../hooks/useClock';
-import { useCommand } from '../hooks/useCommand';
-import { useProjects } from '../hooks/useProjects';
-import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useSettings } from '../hooks/useSettings';
+import { useEffect, useState } from 'react';
+import { Settings, Pin, Play } from 'lucide-react';
+import { localDateKey } from '../../../shared/calendar';
+import { groupSimpleTasks, isCurrentTask, isSimpleList, taskSteps } from '../../../shared/simpleTasks';
+import type { Project, Task, TaskUpdateInput } from '../../../shared/types';
 import { useTasks } from '../hooks/useTasks';
-import { useDailyPlans } from '../hooks/useDailyPlans';
-import { useDailyReview } from '../hooks/useDailyReview';
-import { useFocusStatus } from '../hooks/useFocusStatus';
-import { useTimeBlocks } from '../hooks/useTimeBlocks';
-import { useTaskWork } from '../hooks/useTaskWork';
+import { useProjects } from '../hooks/useProjects';
+import { useSettings } from '../hooks/useSettings';
+import { useCommand } from '../hooks/useCommand';
 import { useUndo } from '../hooks/useUndo';
-import { commands } from '../lib/commands';
-import {
-  PRIMARY_SECTION_ORDER,
-  UTILITY_SECTION_ORDER,
-  WORKBENCH_SECTIONS,
-  WORKBENCH_SHORTCUTS,
-  shouldIgnoreWorkbenchShortcut,
-  type WorkbenchSectionId
-} from '../features/workbench/workbenchNavigation';
-import { WorkbenchSidebar, type WorkbenchNavItem } from '../features/workbench/WorkbenchSidebar';
-import { WorkbenchToolbar } from '../features/workbench/WorkbenchToolbar';
-import SettingsView from './SettingsView';
-
-const SECTION_ICON: Record<string, LucideIcon> = {
-  sun: Sun,
-  inbox: Inbox,
-  calendarDays: CalendarDays,
-  target: Target,
-  folderKanban: FolderKanban,
-  bell: Bell,
-  gift: Gift,
-  settings: Settings2
-};
-
-// Module-scope formatter: constructing an Intl.DateTimeFormat on every render
-// is wasteful, and this view re-renders at least once a minute (useClock).
-const reviewDateFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: 'long',
-  day: 'numeric',
-  weekday: 'long'
-});
-
-type WorkbenchSection = WorkbenchSectionId;
-
-const formatMinutes = (value: number): string => `${Math.max(0, Math.floor(value / 60_000))}m`;
+import { useClock } from '../hooks/useClock';
+import { useAppHealth } from '../hooks/useAppHealth';
+import { AppHealthBanner } from '../components/AppHealthBanner';
+import { run } from '../lib/commands';
+import { SimpleSettings } from '../features/simple/SimpleSettings';
+import { PRIMARY_WORKBENCH_SECTIONS, WORKBENCH_SECTIONS, type WorkbenchSectionId } from '../features/workbench/workbenchNavigation';
+import type { FailedDeliveryNotice } from '../../../shared/types';
+import '../styles/simple.css';
 
 export default function WorkbenchView(): JSX.Element {
   const tasks = useTasks();
+  const [failures, setFailures] = useState<FailedDeliveryNotice[]>([]);
+  useEffect(() => { void window.eyeProtect.getFailedDeliveries().then(setFailures); return window.eyeProtect.onFailedDeliveriesChanged(setFailures); }, []);
   const projects = useProjects();
-  const activeTaskId = useActiveTaskId();
-  const reminderStatus = useReminderStatus();
-  const work = useTaskWork();
-  const focusStatus = useFocusStatus();
   const undo = useUndo();
   const health = useAppHealth();
-  const { settings } = useSettings();
-  const now = useClock(60_000);
-  const moveTask = useCommand((input: Parameters<typeof commands.tasks.move>[0]) => commands.tasks.move(input));
-  const undoTask = useCommand((id: string) => commands.tasks.undo(id));
-  const retryDelivery = useCommand((id: string) => commands.deliveries.retry(id));
-  const dismissDelivery = useCommand((id: string) => commands.deliveries.dismiss(id));
-  const pause = useCommand((minutes: number) => commands.scheduler.pause(minutes));
-  const resume = useCommand(() => commands.scheduler.resume());
-  const switchFocus = useCommand((input: { taskId: string; checkpoint: TaskCheckpointDraft | null }) =>
-    commands.focus.switch(input.taskId, input.checkpoint)
-  );
-  const [section, setSection] = useState<WorkbenchSection>('today');
-  const [planningOpen, setPlanningOpen] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  const now = useClock(30_000);
+  const [tab, setTab] = useState<WorkbenchSectionId>('today');
+  const [list, setList] = useState('all');
   const [search, setSearch] = useState('');
-  const [failedDeliveries, setFailedDeliveries] = useState<FailedDeliveryNotice[]>([]);
-  const [reviewDate, setReviewDate] = useState(localDateKey(now));
-  const [pendingFocusTaskId, setPendingFocusTaskId] = useState<string | null>(null);
-  const [switchProgress, setSwitchProgress] = useState('');
-  const [switchNextStep, setSwitchNextStep] = useState('');
-  const [switchFeeling, setSwitchFeeling] = useState('');
-  const reviewDateLabel = reviewDateFormatter.format(new Date(`${reviewDate}T00:00:00`));
-  const { summary: reviewSummary, refresh: refreshReview } = useDailyReview(reviewDate);
-
+  const [date, setDate] = useState('');
+  const [title, setTitle] = useState('');
+  const [listEditor, setListEditor] = useState<'new' | 'rename' | null>(null);
+  const [listName, setListName] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   useEffect(() => {
-    const navigate = (target: WorkbenchSection): void => {
-      setSection(target);
-      if (target === 'today') setSelectedProjectId(null);
-    };
+    const navigate = (section: string): void => { setTab(section === 'settings' || section === 'collection' ? 'settings' : section === 'review' ? 'review' : 'today'); };
     void window.eyeProtect.getWorkbenchSection().then(navigate);
     return window.eyeProtect.onWorkbenchNavigate(navigate);
   }, []);
-
-  useEffect(() => {
-    if (section !== 'review') {
-      setReviewDate(localDateKey(now));
-    }
-  }, [section, now]);
-
-  useEffect(() => {
-    void window.eyeProtect.getFailedDeliveries().then(setFailedDeliveries);
-    return window.eyeProtect.onFailedDeliveriesChanged(setFailedDeliveries);
-  }, []);
-
-  const inboxTasks = useMemo(
-    () => tasks.filter((task) => matchesTaskView(task, 'inbox', now, activeTaskId)),
-    [tasks, now, activeTaskId]
-  );
-  const overdueTasks = useMemo(
-    () => tasks.filter((task) => matchesTaskView(task, 'overdue', now, activeTaskId)),
-    [tasks, now, activeTaskId]
-  );
-  const { blocks: allBlocks } = useTimeBlocks();
-  // Tasks owning a TimeBlock that starts today are scheduled — the block is
-  // the schedule fact, not plannedAt (USERPLAN PR4 / ADR-001).
-  const scheduledTodayIds = useMemo(() => {
-    const todayStart = startOfLocalDate(now);
-    const ids = new Set<string>();
-    for (const block of allBlocks) {
-      if (sameLocalDate(block.startAt, todayStart)) ids.add(block.taskId);
-    }
-    return ids;
-  }, [allBlocks, now]);
-  // ── Today 2.1 (USERPLAN 1.2 §十一): commitments come from DailyTaskPlan,
-  // not from global priority. NOW / TODAY'S 3 / SCHEDULED / FLEXIBLE.
-  const todayKey = localDateKey(now);
-  const { plans: todayPlans } = useDailyPlans(todayKey);
-  const planByTask = useMemo(() => new Map(todayPlans.map((plan) => [plan.taskId, plan])), [todayPlans]);
-  const todayModel = useMemo(
-    () => deriveTodayExecutionModel(tasks, todayPlans, scheduledTodayIds, projects),
-    [tasks, todayPlans, scheduledTodayIds, projects]
-  );
-  const todaysThree = todayModel.todaysThree;
-  const scheduledToday = todayModel.scheduled;
-  const flexibleToday = todayModel.flexible;
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const activeTask = tasks.find((task) => task.id === activeTaskId) ?? null;
-  const focusTask = focusStatus.session
-    ? tasks.find((task) => task.id === focusStatus.session?.taskId) ?? activeTask
-    : activeTask;
-  const isFocusMode = section === 'focus'
-    && focusStatus.session !== null
-    && focusStatus.session.taskId === focusTask?.id;
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  const query = search.trim().toLocaleLowerCase();
-  const taskSearchResults = query
-    ? tasks.filter((task) => `${task.title}\n${task.notes ?? ''}\n${task.tags.join('\n')}`.toLocaleLowerCase().includes(query))
-    : [];
-  const projectSearchResults = query
-    ? projects.filter((project) => `${project.name}\n${project.goal ?? ''}`.toLocaleLowerCase().includes(query))
-    : [];
-  const eyeRemaining = Math.max(0, reminderStatus.nextEyeAt - now);
-  const walkRemaining = Math.max(0, reminderStatus.nextWalkAt - now);
-
-  const selectSection = useCallback((next: WorkbenchSection) => {
-    setSection(next);
-    if (next !== 'projects') setSelectedProjectId(null);
-    setSelectedTaskId(null);
-    setSearchOpen(false);
-    setSearch('');
-  }, []);
-
-  const selectProject = useCallback((id: string | null) => {
-    setSection('projects');
-    setSelectedProjectId(id);
-    setSelectedTaskId(null);
-    setSearchOpen(false);
-    setSearch('');
-  }, []);
-
-  const runFocusSwitch = useCallback((taskId: string, checkpoint: TaskCheckpointDraft | null): void => {
-    void switchFocus.run({ taskId, checkpoint }).then((result) => {
-      if (!result.ok) return;
-      setPendingFocusTaskId(null);
-      setSwitchProgress('');
-      setSwitchNextStep('');
-      setSwitchFeeling('');
-      selectSection('focus');
-    });
-  }, [selectSection, switchFocus.run]);
-
-  const requestFocusStart = useCallback((taskId: string): void => {
-    const live = focusStatus.session;
-    if (live && live.taskId !== taskId) {
-      setPendingFocusTaskId(taskId);
-      return;
-    }
-    runFocusSwitch(taskId, null);
-  }, [focusStatus.session, runFocusSwitch]);
-
-  const startNewTask = useCallback(() => {
-    if (section !== 'projects' || !selectedProjectId) {
-      selectSection('inbox');
-    }
-    requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-quick-add="true"]')?.focus());
-  }, [section, selectedProjectId, selectSection]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null;
-      if (shouldIgnoreWorkbenchShortcut(target, Boolean(document.querySelector('[aria-modal="true"]')))) {
-        return;
-      }
-      const key = event.key.toLocaleLowerCase();
-      const shortcuts = WORKBENCH_SHORTCUTS;
-      if (event.key === 'Escape' && isFocusMode) {
-        event.preventDefault();
-        selectSection('today');
-      } else if ((event.ctrlKey || event.metaKey) && key === shortcuts.command) {
-        event.preventDefault();
-        setPaletteOpen(true);
-      } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-        if (key === shortcuts.newTask) {
-          event.preventDefault();
-          startNewTask();
-        } else if (key === shortcuts.plan) {
-          event.preventDefault();
-          selectSection('plan');
-        } else if (key === shortcuts.focus) {
-          event.preventDefault();
-          selectSection('focus');
-        }
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isFocusMode, selectSection, startNewTask]);
-
-  // Primary navigation is derived from the single-source-of-truth config
-  // (features/workbench/workbenchNavigation.ts). Review intentionally moved to
-  // the utility tier — it is a summary action, not a daily work surface.
-  const primaryNavItems: WorkbenchNavItem[] = useMemo(
-    () =>
-      PRIMARY_SECTION_ORDER.map((id) => {
-        const meta = WORKBENCH_SECTIONS[id];
-        const icon = SECTION_ICON[meta.iconKey] ?? Sun;
-        if (id === 'today') return { id, label: meta.label, description: meta.description, icon, count: todayModel.count };
-        if (id === 'inbox') return { id, label: meta.label, description: meta.description, icon, count: inboxTasks.length };
-        return { id, label: meta.label, description: meta.description, icon };
-      }),
-    [todayModel.count, inboxTasks.length]
-  );
-  const utilityNavItems: WorkbenchNavItem[] = useMemo(
-    () =>
-      UTILITY_SECTION_ORDER.map((id) => {
-        const meta = WORKBENCH_SECTIONS[id];
-        return { id, label: meta.label, description: meta.description, icon: SECTION_ICON[meta.iconKey] ?? Bell };
-      }),
-    []
-  );
-  const paletteCommands = useMemo<PaletteCommand[]>(() => [
-    { id: 'today', label: '前往：今天', keywords: 'today', run: () => selectSection('today') },
-    { id: 'plan-today', label: '每日规划：规划今天', keywords: 'daily planning', run: () => { selectSection('today'); setPlanningOpen(true); } },
-    { id: 'inbox', label: '前往：未归类', keywords: 'inbox unclassified', run: () => selectSection('inbox') },
-    { id: 'plan', label: '前往：日程', hint: 'P', keywords: 'plan schedule', run: () => selectSection('plan') },
-    { id: 'focus', label: '前往：专注', hint: 'F', keywords: 'focus', run: () => selectSection('focus') },
-    { id: 'projects', label: '前往：项目', keywords: 'projects', run: () => selectSection('projects') },
-    { id: 'review', label: '前往：今日复盘', keywords: 'review', run: () => selectSection('review') },
-    { id: 'reminders', label: '前往：独立提醒', run: () => selectSection('reminders') },
-    { id: 'collection', label: '前往：公仔收藏', run: () => selectSection('collection') },
-    { id: 'settings', label: '前往：设置', run: () => selectSection('settings') },
-    { id: 'search-tasks', label: '搜索任务或项目', keywords: 'find', run: () => setSearchOpen(true) },
-    { id: 'new-task', label: '新建任务', hint: 'N', keywords: 'create add', run: startNewTask }
-  ], [selectSection, startNewTask]);
-
-  const taskList = (items: Task[], view: 'today' | 'inbox', scopeProjectId: string | null = null): JSX.Element => (
-    <TaskList
-      tasks={items}
-      view={view}
-      projects={projects}
-      now={now}
-      selectedTaskId={selectedTaskId}
-      scopeProjectId={scopeProjectId}
-      timeBlocks={allBlocks}
-      onMovePending={moveTask.isPending}
-      onSelect={setSelectedTaskId}
-      onStartFocus={requestFocusStart}
-      onMove={view === 'inbox' ? (taskId, beforeTaskId) => {
-        void moveTask.run({
-          taskId,
-          beforeTaskId,
-          scope: scopeProjectId ? { type: 'project', projectId: scopeProjectId } : { type: 'inbox' }
-        });
-      } : undefined}
-    />
-  );
-
-  const advanceReviewDate = (days: number): void => {
-    const base = new Date(`${reviewDate}T00:00:00`).getTime();
-    setReviewDate(localDateKey(addLocalDays(base, days)));
-  };
-
-  const renderWorkspace = (): JSX.Element => {
-    if (section === 'settings') return <div className="workbench-embedded-page"><SettingsView embedded /></div>;
-    if (section === 'reminders') return <div className="workbench-embedded-page"><StandaloneReminderSection /></div>;
-    if (section === 'collection') return <div className="workbench-embedded-page"><CharacterCollectionView /></div>;
-    if (section === 'review') return (
-      <DailyReview
-        dateLabel={reviewDateLabel}
-        summary={reviewSummary}
-        onTomorrow={() => advanceReviewDate(1)}
-        onRearrange={() => selectSection('plan')}
-        onBacklog={() => selectSection('inbox')}
-        onRefresh={refreshReview}
-      />
-    );
-    if (searchOpen) {
-      if (!query) {
-        // Search bar open but nothing typed yet: a dedicated empty state so
-        // the affordance does not silently fall through to the Today page.
-        return (
-          <div className="workspace-page">
-            <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>搜索任务或项目</h1><p className="page-description">输入关键词，查找项目名称、任务标题、备注或标签。</p></div></header>
-          </div>
-        );
-      }
-      return (
-        <div className="workspace-page">
-          <header className="page-header"><div><span className="page-eyebrow">搜索</span><h1>“{search.trim()}”</h1></div><span>{projectSearchResults.length + taskSearchResults.length} 项结果</span></header>
-          {projectSearchResults.length ? <section className="task-section"><h2>项目</h2><div className="project-search-results">{projectSearchResults.map((project) => <button key={project.id} type="button" className="project-overview-card" onClick={() => selectProject(project.id)}><ProjectDot color={project.color} /><span><strong>{project.name}</strong><small>{project.goal || '还没有项目目标'}</small></span></button>)}</div></section> : null}
-          {taskSearchResults.length ? <section className="task-section"><h2>任务</h2>{taskList(taskSearchResults, 'today')}</section> : null}
+  const lists = projects.filter(isSimpleList);
+  const selected = tasks.filter((task) => !task.parentId && (tab === 'review' || isCurrentTask(task, projects)) &&
+    (list === 'all' || (list === 'default' ? !task.projectId : task.projectId === list)) && task.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const history = selected.filter((task) => task.status === 'done' && task.completedAt !== null && (!date || localDateKey(task.completedAt) === date)).sort((a, b) => b.completedAt! - a.completedAt!);
+  const days = [...new Set(history.map((task) => localDateKey(task.completedAt!)))];
+  return <main className="simple-workbench">
+    <header className="simple-header"><strong>EyeProtect</strong><nav aria-label="主导航">
+      {PRIMARY_WORKBENCH_SECTIONS.map((id) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{WORKBENCH_SECTIONS[id].label}</button>)}
+    </nav><button aria-label="设置" aria-current={tab === 'settings' ? 'page' : undefined} onClick={() => setTab('settings')}><Settings size={19} /></button></header>
+    <div className="simple-content"><AppHealthBanner health={health} />
+      {failures.map((failure) => <div role="alert" className="simple-undo" key={failure.id}><span>{failure.title} · {failure.body}</span><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.retryFailedDelivery(failure.id))}>重试</button><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.dismissFailedDelivery(failure.id))}>忽略</button></div>)}
+      {action.error ? <p role="alert">{action.error.message}</p> : null}
+      {undo && tab !== 'settings' ? <div className="simple-undo">{undo.kind === 'complete' ? '已完成：' : '已删除：'}{undo.taskTitle}<button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.undoTaskOperation(undo.operationId))}>撤销</button></div> : null}
+      {tab === 'settings' ? <SimpleSettings /> : <>
+        <div className="simple-filters"><input type="search" aria-label="搜索任务" placeholder="搜索任务" value={search} onChange={(e) => setSearch(e.currentTarget.value)} />
+          <select aria-label="清单筛选" value={list} onChange={(e) => setList(e.currentTarget.value)}><option value="all">全部清单</option><option value="default">默认清单</option>{lists.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          <button onClick={() => { setListName(''); setListEditor('new'); }}>＋清单</button>
+          {list !== 'all' && list !== 'default' ? <button onClick={() => { setListName(lists.find((p) => p.id === list)?.name ?? ''); setListEditor('rename'); }}>重命名</button> : null}
+          {tab === 'review' ? <input type="date" aria-label="完成日期" value={date} onChange={(e) => setDate(e.currentTarget.value)} /> : null}
         </div>
-      );
-    }
-    if (section === 'focus') {
-      return (
-        <FocusSurface
-          activeTask={focusTask}
-          candidates={todayModel.tasks}
-          tasks={tasks}
-          focus={focusStatus}
-          immersive={isFocusMode}
-          liveSegmentMs={work.currentSessionMs}
-          eyeRemaining={eyeRemaining}
-          onOpen={setSelectedTaskId}
-          onBack={() => selectSection('today')}
-          onStartFocus={requestFocusStart}
-        />
-      );
-    }
-    if (section === 'plan') {
-      return <PlanWorkspace tasks={tasks} projects={projects} now={now} nextEyeAt={reminderStatus.nextEyeAt} nextWalkAt={reminderStatus.nextWalkAt} onOpen={setSelectedTaskId} />;
-    }
-    if (section === 'projects') {
-      if (!selectedProject) {
-        return (
-          <div className="workspace-page projects-overview">
-          <header className="page-header"><div><span className="page-eyebrow">组织工作</span><h1>项目</h1><p className="page-description">把需要多步推进、持续数天或更久的目标放进项目。</p></div><div className="page-header-actions"><Button variant="primary" onClick={() => setProjectCreateOpen(true)}><Plus size={15} />新建项目</Button><StatusChip>{projects.length} 个项目</StatusChip></div></header>
-            {projects.length ? (
-              <div className="project-overview-list">
-                {projects.map((project) => {
-                  const projectTasks = tasks.filter((task) => task.projectId === project.id && task.status !== 'archived');
-                  const completed = projectTasks.filter((task) => task.status === 'done').length;
-                  const open = projectTasks.length - completed;
-                  const progress = projectTasks.length ? Math.round(completed / projectTasks.length * 100) : 0;
-                  return (
-                    <button key={project.id} type="button" className="project-overview-card" onClick={() => selectProject(project.id)}>
-                      <ProjectDot color={project.color} />
-                      <span><strong>{project.name}</strong><small>{project.goal || '还没有项目目标'}</small></span>
-                      <em>{open} 个未完成 · {completed} 个已完成</em>
-                      <i aria-label={`完成 ${progress}%`}><span style={{ width: `${progress}%` }} /></i>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="project-overview-empty">
-                <p>项目适合：完成论文、上线一个产品、准备一次旅行，或进行长期学习计划。</p>
-                <p>“买牛奶”这样的单次任务不需要项目，直接放在“未归类”即可。</p>
-              </div>
-            )}
-          </div>
-        );
-      }
-      return <ProjectWorkspace project={selectedProject} tasks={tasks} projects={projects} timeBlocks={allBlocks} activeTaskId={activeTaskId} now={now} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} onStartFocus={requestFocusStart} />;
-    }
-    if (section === 'inbox') {
-      return (
-        <div className="workspace-page">
-          <header className="page-header"><div><span className="page-eyebrow">快速收集</span><h1>未归类</h1><p className="page-description">尚未归入项目的任务；它仍然可以同时属于今天或日程。</p></div><span>{inboxTasks.length} 项任务</span></header>
-          <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'inbox' }} />
-          <section className="task-section">{taskList(inboxTasks, 'inbox')}</section>
-        </div>
-      );
-    }
-    if (planningOpen) {
-      return (
-        <DailyPlanningFlow
-          tasks={tasks}
-          now={now}
-          settings={settings}
-          onOpen={setSelectedTaskId}
-          onClose={() => setPlanningOpen(false)}
-          onGoToPlan={() => {
-            setPlanningOpen(false);
-            selectSection('plan');
-          }}
-        />
-      );
-    }
-    return (
-      <div className="workspace-page today-page">
-        <header className="page-header">
-          <div><span className="page-eyebrow">{reviewDateFormatter.format(new Date(now))}</span><h1>今天</h1><p className="page-description">今天真正承诺完成的工作；安排具体时间是可选的。</p></div>
-          <div className="today-header-actions">
-            <Button onClick={() => setPlanningOpen(true)}><CalendarDays size={15} />规划今天</Button>
-            <div className="rhythm-summary"><span><Eye size={16} />{formatMinutes(eyeRemaining)}</span><span><Footprints size={16} />{formatMinutes(walkRemaining)}</span></div>
-          </div>
-        </header>
-        {activeTask ? (
-          <section className="now-card">
-            <span>NOW</span><h2>{activeTask.title}</h2>
-            <p>
-              本次 {formatMinutes(work.currentSessionMs)} · 今日 {formatMinutes(work.taskActiveMs)}
-              {planByTask.get(activeTask.id)?.plannedMinutes ?? activeTask.estimateMinutes
-                ? ` · 计划 ${planByTask.get(activeTask.id)?.plannedMinutes ?? activeTask.estimateMinutes}m`
-                : ''}
-              {` · 下次护眼 ${formatMinutes(eyeRemaining)}`}
-            </p>
-            <Button variant="primary" onClick={() => requestFocusStart(activeTask.id)}><Play size={16} />继续专注</Button>
-          </section>
-        ) : null}
-        <TaskComposer projects={projects} tasks={tasks} placement={{ type: 'today', localDate: todayKey }} />
-        {todaysThree.length ? (
-          <section className="task-section"><h2>今日目标（Today&apos;s {todaysThree.length}）</h2>{taskList(todaysThree, 'today')}</section>
-        ) : (
-          <section className="task-section today-goals-empty">
-            <div className="today-goals-empty-inner">
-              <p>还没有今日承诺。</p>
-              <Button variant="secondary" onClick={() => setPlanningOpen(true)}>开始每日规划</Button>
-              <p className="empty-hint">选出不超过 3 件真正要做的事。</p>
-            </div>
-          </section>
-        )}
-        {scheduledToday.length ? <section className="task-section"><h2>已安排</h2>{taskList(scheduledToday, 'today')}</section> : null}
-        {flexibleToday.length ? <section className="task-section"><h2>灵活（今天要做，未排时间）</h2>{taskList(flexibleToday, 'today')}</section> : null}
-        {overdueTasks.length ? (
-          <section className="overdue-callout"><div><strong>{overdueTasks.length} 件需要重新安排</strong><span>逐件决定去向：今天、明天，或放回以后。</span></div><Button onClick={() => setPlanningOpen(true)}>重新安排</Button></section>
-        ) : null}
-      </div>
-    );
-  };
+        {listEditor ? <form className="simple-add" onSubmit={(e) => { e.preventDefault(); if (!listName.trim()) return; void action.run(async () => { if (listEditor === 'new') { const result = await window.eyeProtect.createProject({ name: listName.trim() }); const created = result.find((p) => !projects.some((old) => old.id === p.id)); if (created) setList(created.id); } else await window.eyeProtect.updateProject(list, { name: listName.trim() }); setListEditor(null); }); }}><input aria-label="清单名称" autoFocus value={listName} onChange={(e) => setListName(e.currentTarget.value)} /><button disabled={action.isPending}>保存清单</button><button type="button" onClick={() => setListEditor(null)}>取消</button></form> : null}
+        {tab === 'today' ? <>
+          <form className="simple-add" onSubmit={(e) => { e.preventDefault(); if (!title.trim()) return; void action.run(async () => { await window.eyeProtect.createTask({ title: title.trim(), projectId: list === 'all' || list === 'default' ? null : list }); setTitle(''); }); }}>
+            <input aria-label="添加任务" placeholder="添加任务，回车保存…" value={title} onChange={(e) => setTitle(e.currentTarget.value)} maxLength={300} /><button disabled={action.isPending || !title.trim()}>添加</button>
+          </form>
+          {groupSimpleTasks(selected, now).map((group) => group.tasks.length ? <section className="simple-group" key={group.title}><h2>{group.title}<small>{group.tasks.length}</small></h2>{group.tasks.map((task) => <SimpleTask key={task.id} task={task} tasks={tasks} projects={projects} expanded={expanded === task.id} onExpand={() => setExpanded(expanded === task.id ? null : task.id)} />)}</section> : null)}
+          {!selected.some((task) => task.status === 'open') ? <p className="simple-empty">没有待处理任务。记一件事，或安心休息。</p> : null}
+        </> : days.length ? days.map((day) => <section className="simple-group" key={day}><h2>{day}</h2>{history.filter((task) => localDateKey(task.completedAt!) === day).map((task) => <div className="simple-history-row" key={task.id}><span>{task.title}<small>{projects.find((p) => p.id === task.projectId)?.name ?? '默认清单'}</small></span><time>{new Date(task.completedAt!).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.restoreLegacyTask(task.id))}>恢复待办</button></div>)}</section>) : <p className="simple-empty">还没有符合条件的完成记录。</p>}
+      </>}
+    </div>
+  </main>;
+}
 
-  const failedDelivery = failedDeliveries[0] ?? null;
-  return (
-    <main className={`workbench-v2 ${isFocusMode ? 'is-focus-mode' : ''}`}>
-      <AppHealthBanner health={health} />
-      <WorkbenchSidebar
-        primaryItems={primaryNavItems}
-        utilityItems={utilityNavItems}
-        section={section}
-        onSelect={selectSection}
-        projects={projects}
-        tasks={tasks}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={selectProject}
-        unclassifiedSelected={section === 'inbox'}
-        onSelectUnclassified={() => selectSection('inbox')}
-        projectCreateOpen={projectCreateOpen}
-        onProjectCreateOpenChange={setProjectCreateOpen}
-      />
-      <section className="app-workspace">
-        <WorkbenchToolbar
-          searchOpen={searchOpen}
-          search={search}
-          onSearchChange={setSearch}
-          onCloseSearch={() => { setSearchOpen(false); setSearch(''); }}
-          onOpenPalette={() => setPaletteOpen(true)}
-          continuousActiveMs={work.continuousActiveMs}
-          formatMinutes={formatMinutes}
-          pausedUntil={reminderStatus.pausedUntil}
-          resumeState={resume.state}
-          resumeError={resume.error?.message}
-          onResume={() => void resume.run()}
-          pauseState={pause.state}
-          pauseError={pause.error?.message}
-          onPause={(minutes) => void pause.run(minutes)}
-        />
-        <div className="workspace-scroll">{renderWorkspace()}</div>
-      </section>
-      <SideSheet open={selectedTask !== null} title="任务详情" onClose={() => setSelectedTaskId(null)}>
-        {selectedTask ? <TaskDetail key={selectedTask.id} task={selectedTask} tasks={tasks} projects={projects} active={selectedTask.id === activeTaskId} onDeleted={() => setSelectedTaskId(null)} /> : null}
-      </SideSheet>
-      <CommandPalette open={paletteOpen} commands={paletteCommands} onClose={() => setPaletteOpen(false)} />
-      <Dialog
-        open={pendingFocusTaskId !== null}
-        title={`切换到「${tasks.find((task) => task.id === pendingFocusTaskId)?.title ?? '新任务'}」`}
-        description={`当前正在进行「${focusTask?.title ?? '当前任务'}」。可以留下一条恢复检查点，也可以直接切换。`}
-        onClose={() => { if (!switchFocus.isPending) setPendingFocusTaskId(null); }}
-        footer={<>
-          <Button disabled={switchFocus.isPending} onClick={() => pendingFocusTaskId && runFocusSwitch(pendingFocusTaskId, null)}>直接切换</Button>
-          <CommandButton
-            variant="primary"
-            state={switchFocus.state}
-            errorReason={switchFocus.error?.message}
-            onClick={() => pendingFocusTaskId && runFocusSwitch(pendingFocusTaskId, {
-              progress: switchProgress,
-              nextStep: switchNextStep,
-              feeling: switchFeeling
-            })}
-          >记录并切换</CommandButton>
-        </>}
-      >
-        <Field label="做到哪里？"><textarea rows={2} value={switchProgress} onChange={(event) => setSwitchProgress(event.currentTarget.value)} /></Field>
-        <Field label="回来先做什么？"><textarea rows={2} value={switchNextStep} onChange={(event) => setSwitchNextStep(event.currentTarget.value)} /></Field>
-        <Field label="此刻感受？"><input value={switchFeeling} onChange={(event) => setSwitchFeeling(event.currentTarget.value)} /></Field>
-      </Dialog>
-      {undo ? <Toast actions={<CommandButton variant="ghost" state={undoTask.state} errorReason={undoTask.error?.message} onClick={() => void undoTask.run(undo.operationId)}>撤销</CommandButton>}><span className="undo-toast-copy">{undo.kind === 'delete' ? '已删除' : '已完成'}「{undo.taskTitle}」</span></Toast> : null}
-      {failedDelivery ? <Toast tone="danger" role="alert" actions={<><CommandButton variant="ghost" state={retryDelivery.state} errorReason={retryDelivery.error?.message} onClick={() => void retryDelivery.run(failedDelivery.id)}>重试</CommandButton><CommandButton variant="ghost" state={dismissDelivery.state} errorReason={dismissDelivery.error?.message} onClick={() => void dismissDelivery.run(failedDelivery.id)}>忽略</CommandButton></>}><strong>有提醒未能送达</strong><span>{failedDelivery.title} · {failedDelivery.body}</span></Toast> : null}
-    </main>
-  );
+function SimpleTask({ task, tasks, projects, expanded, onExpand }: { task: Task; tasks: Task[]; projects: Project[]; expanded: boolean; onExpand: () => void }): JSX.Element {
+  const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  const { settings } = useSettings();
+  const steps = taskSteps(task.id, tasks).filter((step) => step.status !== 'archived');
+  const pinned = settings.todoBubbleTaskIds.includes(task.id);
+  const complete = (): void => {
+    const pending = steps.filter((step) => step.status === 'open');
+    if (pending.length && !window.confirm(`还有 ${pending.length} 个步骤未完成，是否一起完成？`)) return;
+    void action.run(() => window.eyeProtect.completeTaskTree(task.id, Object.fromEntries([task, ...pending].map((entry) => [entry.id, entry.revision]))));
+  };
+  return <article className={`simple-task ${expanded ? 'is-expanded' : ''}`}>
+    <div className="simple-task-row"><input type="checkbox" aria-label={`完成 ${task.title}`} checked={false} disabled={action.isPending} onChange={complete} />
+      <button className="simple-task-name" aria-expanded={expanded} onClick={onExpand}>{task.title}</button>
+      {steps.length ? <span className="simple-muted">{steps.filter((step) => step.status === 'done').length}/{steps.length}</span> : null}<time>{task.dueDate}</time>
+      <div className="simple-row-actions"><button aria-label={pinned ? '移出浮窗' : '放到浮窗'} aria-pressed={pinned} disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.saveSettings({ todoBubbleTaskIds: pinned ? settings.todoBubbleTaskIds.filter((id) => id !== task.id) : [...settings.todoBubbleTaskIds, task.id], todoBubbleEnabled: true }))}><Pin size={16} /></button>
+        <button aria-label={`专注 ${task.title}`} onClick={() => void action.run(async () => { const state = await window.eyeProtect.getPomodoro(); if (['focus', 'break'].includes(state.phase) && !window.confirm('结束当前计时，开始这项任务？')) return; await window.eyeProtect.preparePomodoro(task.id, true); })}><Play size={16} /></button></div>
+      <details className="simple-menu"><summary aria-label={`更多操作 ${task.title}`}>•••</summary><button disabled={action.isPending} onClick={() => { if (window.confirm('删除任务及其步骤？')) void action.run(() => window.eyeProtect.deleteTask(task.id)); }}>删除任务</button>{pinned ? [-1, 1].map((direction) => <button key={direction} disabled={action.isPending || settings.todoBubbleTaskIds.indexOf(task.id) + direction < 0 || settings.todoBubbleTaskIds.indexOf(task.id) + direction >= settings.todoBubbleTaskIds.length} onClick={() => void action.run(() => { const ids = [...settings.todoBubbleTaskIds]; const index = ids.indexOf(task.id); [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]]; return window.eyeProtect.saveSettings({ todoBubbleTaskIds: ids }); })}>{direction === -1 ? '浮窗上移' : '浮窗下移'}</button>) : null}</details>
+    </div>
+    {action.error ? <p role="alert">{action.error.message}</p> : null}
+    {expanded ? <TaskFields task={task} steps={steps} projects={projects} /> : null}
+  </article>;
+}
+
+function TaskFields({ task, steps, projects }: { task: Task; steps: Task[]; projects: Project[] }): JSX.Element {
+  const [draft, setDraft] = useState<TaskUpdateInput>({ title: task.title, dueDate: task.dueDate, reminderAt: task.reminderAt, notes: task.notes, projectId: task.projectId });
+  const [revision, setRevision] = useState(task.revision);
+  const [stepTitle, setStepTitle] = useState('');
+  const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  const toDateTime = (time: number | null | undefined): string => time ? new Date(time - new Date(time).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : '';
+  return <div className="simple-task-fields">
+    <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => { const result = await window.eyeProtect.updateTask(task.id, { ...draft, baseRevision: revision }); const saved = result.find((entry) => entry.id === task.id); if (saved) setRevision(saved.revision); }); }}>
+      <label>名称<input value={draft.title} required onChange={(e) => setDraft({ ...draft, title: e.currentTarget.value })} /></label>
+      <div className="simple-field-grid"><label>截止日期<input type="date" value={draft.dueDate ?? ''} onChange={(e) => setDraft({ ...draft, dueDate: e.currentTarget.value || null })} /></label>
+        <label>提醒我<input type="datetime-local" value={toDateTime(draft.reminderAt)} onChange={(e) => setDraft({ ...draft, reminderAt: e.currentTarget.value ? new Date(e.currentTarget.value).getTime() : null })} /></label>
+        <label>清单<select value={draft.projectId ?? ''} onChange={(e) => setDraft({ ...draft, projectId: e.currentTarget.value || null })}><option value="">默认清单</option>{projects.filter(isSimpleList).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label></div>
+      <label>备注<textarea rows={3} value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.currentTarget.value })} /></label><button disabled={action.isPending}>保存修改</button>
+    </form>
+    <h3>步骤</h3>{steps.map((step, index) => <div className="simple-step" key={step.id}><input type="checkbox" aria-label={`步骤 ${step.title}`} checked={step.status === 'done'} disabled={action.isPending} onChange={() => void action.run(() => window.eyeProtect.setTaskStatus(step.id, step.status === 'done' ? 'open' : 'done'))} /><input aria-label="步骤名称" key={`${step.id}-${step.revision}`} defaultValue={step.title} onBlur={(e) => { if (e.currentTarget.value.trim() !== step.title) void action.run(() => window.eyeProtect.updateTask(step.id, { title: e.currentTarget.value, baseRevision: step.revision })); }} /><button type="button" aria-label="上移步骤" disabled={!steps.slice(0, index).some((item) => item.parentId === step.parentId) || action.isPending} onClick={() => void action.run(() => window.eyeProtect.moveStep(step.id, -1))}>↑</button><button type="button" aria-label={`删除步骤 ${step.title}`} onClick={() => { if (window.confirm('删除这一步及其原有下级步骤？')) void action.run(() => window.eyeProtect.deleteTask(step.id)); }}>×</button></div>)}
+    <form className="simple-add" onSubmit={(e) => { e.preventDefault(); if (stepTitle.trim()) void action.run(async () => { await window.eyeProtect.createStep(task.id, stepTitle.trim()); setStepTitle(''); }); }}><input aria-label="添加步骤" placeholder="添加一个步骤…" value={stepTitle} onChange={(e) => setStepTitle(e.currentTarget.value)} /><button disabled={action.isPending || !stepTitle.trim()}>添加步骤</button></form>
+    {action.error ? <p role="alert">{action.error.message}</p> : null}
+  </div>;
 }

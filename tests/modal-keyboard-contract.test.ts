@@ -17,5 +17,6 @@ test('command palette owns initial focus and modal panels stop shortcuts before 
   assert.match(sheet, /onKeyDown=/);
   assert.doesNotMatch(dialog, /window\.addEventListener\('keydown'/);
   assert.doesNotMatch(sheet, /window\.addEventListener\('keydown'/);
-  assert.match(workbench, /aria-modal/);
+  assert.doesNotMatch(workbench, /<SideSheet|<CommandPalette|<DailyPlanningFlow/);
+  assert.match(workbench, /aria-expanded=/);
 });
