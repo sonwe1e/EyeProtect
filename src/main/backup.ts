@@ -142,6 +142,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         tags: [],
         plannedAt: null,
         dueAt: null,
+        dueDate: null,
         reminderAt: null,
         recurrence: null,
         context: todo.remindOnBreak || todo.context === 'away' ? 'away' as const : 'desk' as const,

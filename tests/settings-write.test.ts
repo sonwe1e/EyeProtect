@@ -77,3 +77,26 @@ test('corrupt settings.json is quarantined and the next save writes a clean file
     assert.ok(after.includes('settings.json'), 'a fresh clean file is written on save');
   });
 });
+
+
+test('pet selection persists with order and returns an isolated snapshot', () => {
+  withTempStore((store) => {
+    assert.equal(store.get().petAppearance, 'cat');
+    store.save({ todoBubbleTaskIds: ['b', 'a', 'b'], petAppearance: 'rabbit' });
+    const snapshot = store.get();
+    snapshot.todoBubbleTaskIds.push('unwanted');
+    const restored = new SettingsStore().get();
+    assert.deepEqual(restored.todoBubbleTaskIds, ['b', 'a']);
+    assert.deepEqual(store.get().todoBubbleTaskIds, ['b', 'a']);
+    assert.equal(restored.petAppearance, 'rabbit');
+  });
+});
+
+test('legacy settings preserve collection appearance and invalid selection is cleaned', () => {
+  withTempStore((_store, dir) => {
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ todoBubbleTaskIds: ['a', '', 2, null, 'a'] }));
+    const restored = new SettingsStore().get();
+    assert.equal(restored.petAppearance, 'collection');
+    assert.deepEqual(restored.todoBubbleTaskIds, ['a']);
+  });
+});

@@ -16,7 +16,7 @@ const task = (id: string, plannedAt: number | null = null, projectId: string | n
   createdAt: 1,
   updatedAt: 1,
   completedAt: null,
-  dueAt: null,
+  dueAt: null, dueDate: null,
   plannedAt,
   estimateMinutes: null,
   sortOrder: 0,

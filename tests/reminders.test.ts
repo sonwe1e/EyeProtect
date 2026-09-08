@@ -17,7 +17,10 @@ const baseSettings: Settings = {
   reminderMode: 'focused',
   preAlertSeconds: 0,
   startWithWindows: false,
+  eyeEnabled: true, walkEnabled: true, eyeRestSeconds: 30, walkRestSeconds: 60, pomodoroMinutes: 25, pomodoroBreakMinutes: 5,
   todoBubbleEnabled: true,
+  todoBubbleTaskIds: [],
+  petAppearance: 'collection',
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -65,7 +68,7 @@ const makeScheduler = (settings: Settings = makeSettings()) => {
 
 const makeTask = (id: string, title: string, priority: Task['priority'], context: Task['context'], sortOrder: number, remindOnBreak = false): Task => ({
   id, title, notes: null, status: 'open', priority, projectId: null, parentId: null,
-  tags: [], plannedAt: null, dueAt: null, reminderAt: null, recurrence: null,
+  tags: [], plannedAt: null, dueAt: null, dueDate: null, reminderAt: null, recurrence: null,
   context, remindOnBreak, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
   updatedAt: sortOrder + 1, completedAt: null, sectionId: null, revision: 1
 });

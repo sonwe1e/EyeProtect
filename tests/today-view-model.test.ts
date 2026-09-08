@@ -16,7 +16,7 @@ const task = (id: string, status: Task['status'] = 'open', projectId: string | n
   createdAt: 1,
   updatedAt: 1,
   completedAt: null,
-  dueAt: null,
+  dueAt: null, dueDate: null,
   plannedAt: null,
   estimateMinutes: null,
   sortOrder: 0,

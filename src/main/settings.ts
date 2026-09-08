@@ -14,6 +14,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 import {
   DEFAULT_SETTINGS,
+  SIMPLE_SETTING_LIMITS,
   REMINDER_MODES,
   SETTINGS_LIMITS,
   TODO_PRIORITIES,
@@ -191,6 +192,12 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
   const input = value && typeof value === 'object' ? (value as Partial<Settings>) : {};
 
   return {
+    eyeEnabled: input.eyeEnabled !== false,
+    walkEnabled: input.walkEnabled !== false,
+    eyeRestSeconds: Math.round(clampNumber(input.eyeRestSeconds, DEFAULT_SETTINGS.eyeRestSeconds, SIMPLE_SETTING_LIMITS.eyeRestSeconds.min, SIMPLE_SETTING_LIMITS.eyeRestSeconds.max)),
+    walkRestSeconds: Math.round(clampNumber(input.walkRestSeconds, DEFAULT_SETTINGS.walkRestSeconds, SIMPLE_SETTING_LIMITS.walkRestSeconds.min, SIMPLE_SETTING_LIMITS.walkRestSeconds.max)),
+    pomodoroMinutes: Math.round(clampNumber(input.pomodoroMinutes, DEFAULT_SETTINGS.pomodoroMinutes, SIMPLE_SETTING_LIMITS.pomodoroMinutes.min, SIMPLE_SETTING_LIMITS.pomodoroMinutes.max)),
+    pomodoroBreakMinutes: Math.round(clampNumber(input.pomodoroBreakMinutes, DEFAULT_SETTINGS.pomodoroBreakMinutes, SIMPLE_SETTING_LIMITS.pomodoroBreakMinutes.min, SIMPLE_SETTING_LIMITS.pomodoroBreakMinutes.max)),
     eyeIntervalMinutes: Math.round(
       clampNumber(
         input.eyeIntervalMinutes,
@@ -272,6 +279,11 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.startWithWindows === 'boolean'
         ? input.startWithWindows
         : DEFAULT_SETTINGS.startWithWindows,
+    todoBubbleTaskIds: Array.isArray(input.todoBubbleTaskIds)
+      ? [...new Set(input.todoBubbleTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
+      : [],
+    petAppearance: input.petAppearance === 'cat' || input.petAppearance === 'dog' || input.petAppearance === 'rabbit'
+      ? input.petAppearance : 'collection',
     todoBubbleEnabled:
       typeof input.todoBubbleEnabled === 'boolean'
         ? input.todoBubbleEnabled
@@ -393,6 +405,7 @@ export class SettingsStore extends EventEmitter {
         ])
       ),
       quietAppWhitelist: [...this.settings.quietAppWhitelist],
+      todoBubbleTaskIds: [...this.settings.todoBubbleTaskIds],
       alarms: this.settings.alarms.map((alarm) => ({ ...alarm })),
       todos: this.settings.todos.map((todo) => ({ ...todo }))
     };
@@ -401,8 +414,8 @@ export class SettingsStore extends EventEmitter {
   save(partial: Partial<Settings>): Settings {
     const previous = this.get();
     const next = sanitizeSettings({ ...previous, ...partial });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
     return this.get();
   }
@@ -418,8 +431,8 @@ export class SettingsStore extends EventEmitter {
       petPosition: position,
       petPositionsByLayout: Object.fromEntries(Object.entries(positions).slice(-20))
     });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
   }
 
   addTodo(rawText: string): TodoItem[] {
@@ -525,8 +538,8 @@ export class SettingsStore extends EventEmitter {
    */
   persistAlarms(alarms: Alarm[]): void {
     const next = sanitizeSettings({ ...this.get(), alarms });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
   }
 
   /** Remove v1.0 collections after their verified SQLite migration. */
@@ -541,8 +554,8 @@ export class SettingsStore extends EventEmitter {
 
   private commitTodos(todos: TodoItem[]): TodoItem[] {
     const next = sanitizeSettings({ ...this.get(), todos });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
     const result = this.get().todos;
     this.emit('todos-changed', result);
     return result;
@@ -550,7 +563,7 @@ export class SettingsStore extends EventEmitter {
 
   private read(): Settings {
     if (!existsSync(this.filePath)) {
-      return sanitizeSettings({});
+      return sanitizeSettings(DEFAULT_SETTINGS);
     }
 
     try {

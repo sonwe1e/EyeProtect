@@ -73,6 +73,17 @@ const api: EyeProtectApi = {
   restartCycle: () => ipcRenderer.invoke('reminder:restart') as Promise<ReminderStatus>,
   onSettingsChanged: (callback) => on<Settings>('settings:changed', callback),
   onReminderChanged: (callback) => on<ReminderStatus>('reminder:changed', callback),
+  completeTaskTree: (id, revisions) => ipcRenderer.invoke('task:complete-tree', id, revisions) as Promise<Task[]>,
+  moveStep: (id, direction) => ipcRenderer.invoke('task:move-step', id, direction),
+  createStep: (rootId, title) => ipcRenderer.invoke('task:create-step', rootId, title) as Promise<Task[]>,
+  preparePomodoro: (taskId, replace) => ipcRenderer.invoke('pomodoro:prepare', taskId, replace),
+  getPomodoro: () => ipcRenderer.invoke('pomodoro:get'),
+  startPomodoro: (taskId, minutes, replace) => ipcRenderer.invoke('pomodoro:start', taskId, minutes, replace),
+  pomodoroAction: (action) => ipcRenderer.invoke('pomodoro:action', action),
+  onPomodoroChanged: (callback) => on('pomodoro:changed', callback),
+  beginHealthRest: (id) => ipcRenderer.invoke('reminder:begin-rest', id),
+  getLegacyData: () => ipcRenderer.invoke('data:legacy'),
+  restoreLegacyTask: (id) => ipcRenderer.invoke('task:restore-legacy', id),
   getTasks: () => ipcRenderer.invoke('task:list') as Promise<Task[]>,
   getTask: (id: string) => ipcRenderer.invoke('task:get', id) as Promise<Task | null>,
   createTask: (input: TaskInput) => ipcRenderer.invoke('task:create', input) as Promise<Task[]>,
@@ -194,6 +205,9 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('character:accessory', id, accessory) as Promise<CharacterCollectionState>,
   onCharacterCollectionChanged: (callback) =>
     on<CharacterCollectionState>('character:changed', callback),
+  reportPetArtworkBounds: (bounds) => ipcRenderer.invoke('window:pet:artwork-bounds', bounds) as Promise<void>,
+  reportBubbleHeight: (height) => ipcRenderer.invoke('window:bubble:height', height) as Promise<void>,
+  onBubbleLayout: (callback) => on('bubble:layout', callback),
   movePetWindow: (position) =>
     ipcRenderer.invoke('window:pet:move', position) as Promise<PetPosition | null>,
   openWorkbench: (section = 'today') =>

@@ -24,7 +24,7 @@ test('complete v4 backup round-trips Task Core, characters, occurrences and remi
   };
   const task: Task = {
     id: 'task-1', title: '接水', notes: null, status: 'open', priority: 'important',
-    projectId: null, parentId: null, tags: [], plannedAt: null, dueAt: null,
+    projectId: null, parentId: null, tags: [], plannedAt: null, dueAt: null, dueDate: null,
     reminderAt: 50, recurrence: null, context: 'away', remindOnBreak: true, estimateMinutes: null,
     sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null, sectionId: null, revision: 1
   };
@@ -96,7 +96,7 @@ test('backup parser rejects unsupported containers and any malformed history ent
 test('parseBackup rejects a cyclic task graph (A->B->A)', () => {
   const taskA: Task = {
     id: 'a', title: 'A', notes: null, status: 'open', priority: 'normal',
-    projectId: null, parentId: 'b', tags: [], plannedAt: null, dueAt: null,
+    projectId: null, parentId: 'b', tags: [], plannedAt: null, dueAt: null, dueDate: null,
     reminderAt: null, recurrence: null, context: 'desk', remindOnBreak: false,
     estimateMinutes: null, sortOrder: 0, createdAt: 1, updatedAt: 1, completedAt: null,
     sectionId: null, revision: 1
@@ -121,7 +121,7 @@ test('parseBackup rejects a cyclic task graph (A->B->A)', () => {
 test('parseBackup preserves a valid task DAG (A->B->C)', () => {
   const base = {
     notes: null, status: 'open' as const, priority: 'normal' as const,
-    projectId: null, tags: [] as string[], plannedAt: null, dueAt: null,
+    projectId: null, tags: [] as string[], plannedAt: null, dueAt: null, dueDate: null,
     reminderAt: null, recurrence: null, context: 'desk' as const,
     remindOnBreak: false, estimateMinutes: null, createdAt: 1, updatedAt: 1,
     completedAt: null, sectionId: null, revision: 1
@@ -152,7 +152,7 @@ test('replaceAll rejects a cyclic task graph without changing storage', () => {
     const store = new TaskStore(dir);
     const base = {
       notes: null, status: 'open' as const, priority: 'normal' as const,
-      projectId: null, tags: [] as string[], plannedAt: null, dueAt: null,
+      projectId: null, tags: [] as string[], plannedAt: null, dueAt: null, dueDate: null,
       reminderAt: null, recurrence: null, context: 'desk' as const,
       remindOnBreak: false, estimateMinutes: null, createdAt: 1, updatedAt: 1,
       completedAt: null, sectionId: null, revision: 1

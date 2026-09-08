@@ -32,7 +32,7 @@ const task = (over: Partial<Task>): Task =>
     parentId: null,
     tags: [],
     plannedAt: null,
-    dueAt: null,
+    dueAt: null, dueDate: null,
     reminderAt: null,
     recurrence: null,
     context: 'desk',

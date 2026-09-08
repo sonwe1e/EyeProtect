@@ -14,7 +14,7 @@ const task = (id: string, minutes: number, duration: number): Task => ({
   parentId: null,
   tags: [],
   plannedAt: day + minutes * 60_000,
-  dueAt: null,
+  dueAt: null, dueDate: null,
   reminderAt: null,
   recurrence: null,
   estimateMinutes: duration,

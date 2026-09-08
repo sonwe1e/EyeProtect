@@ -2410,7 +2410,7 @@ const migrateTodo = (todo: TodoItem, sortOrder: number, now: number): Task => ({
   parentId: null,
   tags: [],
   plannedAt: null,
-  dueAt: null,
+  dueAt: null, dueDate: null,
   reminderAt: null,
   recurrence: null,
   context: todo.remindOnBreak || todo.context === 'away' ? 'away' : 'desk',

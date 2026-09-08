@@ -217,6 +217,7 @@ export interface Task {
   plannedAt: number | null;
   /** Hard deadline. */
   dueAt: number | null;
+  dueDate: string | null;
   /** Optional standalone reminder deadline registered with the scheduler kernel. */
   reminderAt: number | null;
   recurrence: RecurrenceRule | null;
@@ -269,6 +270,7 @@ export interface TaskInput {
   tags?: string[];
   plannedAt?: number | null;
   dueAt?: number | null;
+  dueDate?: string | null;
   reminderAt?: number | null;
   recurrence?: RecurrenceRule | null;
   context?: TaskContext;
@@ -561,6 +563,12 @@ export interface TodoItem {
 }
 
 export interface Settings {
+  eyeEnabled: boolean;
+  walkEnabled: boolean;
+  eyeRestSeconds: number;
+  walkRestSeconds: number;
+  pomodoroMinutes: number;
+  pomodoroBreakMinutes: number;
   eyeIntervalMinutes: number;
   walkIntervalMinutes: number;
   snoozeMinutes: number;
@@ -586,6 +594,8 @@ export interface Settings {
   startWithWindows: boolean;
   /** Show the passive task preview next to the pet; reminder bubbles ignore it. */
   todoBubbleEnabled: boolean;
+  todoBubbleTaskIds: string[];
+  petAppearance: 'collection' | 'cat' | 'dog' | 'rabbit';
   petScale: number;
   petPosition: PetPosition | null;
   /** One absolute pet position per connected-display topology. */
@@ -622,6 +632,7 @@ export interface Settings {
 }
 
 export interface ActiveReminder {
+  restStartedAt?: number | null;
   id: string;
   kind: ReminderKind;
   kinds: SingleReminderKind[];
@@ -662,6 +673,7 @@ export interface ActiveReminder {
  * deadline. Transient fields (the per-event `id`) are intentionally dropped.
  */
 export interface PersistedBreakSession {
+  restStartedAt?: number | null;
   kind: ReminderKind;
   kinds: SingleReminderKind[];
   startedAt: number;
@@ -854,7 +866,25 @@ export interface FailedDeliveryNotice {
   failedAt: number | null;
 }
 
+export interface PomodoroState {
+  phase: 'idle' | 'ready' | 'focus' | 'break' | 'focus-finished' | 'break-finished';
+  running: boolean;
+  taskId: string | null;
+  remainingMs: number;
+  revision: number;
+}
+export interface LegacyData { sections: Array<{ title: string; items: Array<{ title: string; detail: string }> }> }
+
 export interface EyeProtectApi {
+  preparePomodoro: (taskId: string | null, replace: boolean) => Promise<PomodoroState>;
+  getPomodoro: () => Promise<PomodoroState>;
+  startPomodoro: (taskId: string | null, minutes: number, replace: boolean) => Promise<PomodoroState>;
+  pomodoroAction: (action: 'pause' | 'resume' | 'stop' | 'break') => Promise<PomodoroState>;
+  onPomodoroChanged: (callback: (state: PomodoroState) => void) => () => void;
+  beginHealthRest: (id: string) => Promise<ReminderStatus>;
+  getLegacyData: () => Promise<LegacyData>;
+  restoreLegacyTask: (id: string) => Promise<Task[]>;
+
   getSettings: () => Promise<Settings>;
   saveSettings: (settings: Partial<Settings>) => Promise<Settings>;
   getRuntimeInfo: () => Promise<RuntimeInfo>;
@@ -880,6 +910,9 @@ export interface EyeProtectApi {
   // --- v1.1 Task Core (USERPLAN §二) ---
   /** All tasks (any view/filter is applied in the renderer). */
   getTasks: () => Promise<Task[]>;
+  completeTaskTree: (id: string, revisions: Record<string, number>) => Promise<Task[]>;
+  moveStep: (id: string, direction: -1 | 1) => Promise<Task[]>;
+  createStep: (rootId: string, title: string) => Promise<Task[]>;
   getTask: (id: string) => Promise<Task | null>;
   createTask: (input: TaskInput) => Promise<Task[]>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<Task[]>;
@@ -966,6 +999,9 @@ export interface EyeProtectApi {
   setCharacterMaterial: (id: string, material: CharacterMaterial) => Promise<CharacterCollectionState>;
   setCharacterAccessory: (id: string, accessory: PetAccessory) => Promise<CharacterCollectionState>;
   onCharacterCollectionChanged: (callback: (state: CharacterCollectionState) => void) => () => void;
+  reportPetArtworkBounds: (bounds: { top: number; bottom: number }) => Promise<void>;
+  reportBubbleHeight: (height: number) => Promise<void>;
+  onBubbleLayout: (callback: (layout: { placement: 'above' | 'below'; tailX: number }) => void) => () => void;
   movePetWindow: (position: PetPosition) => Promise<PetPosition | null>;
   openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection' | 'review') => Promise<void>;
   closeWorkbench: () => Promise<void>;
@@ -990,7 +1026,20 @@ export interface EyeProtectApi {
   restartCycle: () => Promise<ReminderStatus>;
 }
 
+export const SIMPLE_SETTING_LIMITS = {
+  eyeRestSeconds: { min: 5, max: 600 },
+  walkRestSeconds: { min: 10, max: 1800 },
+  pomodoroMinutes: { min: 1, max: 180 },
+  pomodoroBreakMinutes: { min: 1, max: 60 }
+} as const;
+
 export const DEFAULT_SETTINGS: Settings = {
+  eyeEnabled: true,
+  walkEnabled: true,
+  eyeRestSeconds: 30,
+  walkRestSeconds: 60,
+  pomodoroMinutes: 25,
+  pomodoroBreakMinutes: 5,
   eyeIntervalMinutes: 20,
   walkIntervalMinutes: 60,
   snoozeMinutes: 5,
@@ -998,10 +1047,12 @@ export const DEFAULT_SETTINGS: Settings = {
   dailyCapacityMinutes: 360,
   workStartMinutes: 7 * 60,
   workEndMinutes: 21 * 60,
-  reminderMode: 'guided',
-  preAlertSeconds: 30,
+  reminderMode: 'focused',
+  preAlertSeconds: 0,
   startWithWindows: false,
   todoBubbleEnabled: true,
+  todoBubbleTaskIds: [],
+  petAppearance: 'cat',
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},
@@ -1383,6 +1434,7 @@ export const sanitizeTask = (value: unknown, now: number = Date.now()): Task | n
     tags: sanitizeTagList(candidate.tags),
     plannedAt: normalizeTaskTimestamp(candidate.plannedAt, null),
     dueAt: normalizeTaskTimestamp(candidate.dueAt, null),
+    dueDate: isLocalDateKey(candidate.dueDate) ? candidate.dueDate : null,
     reminderAt: normalizeTaskTimestamp(candidate.reminderAt, null),
     recurrence,
     context,
@@ -1476,7 +1528,7 @@ const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Strict civil-date key check: backups and IPC must never smuggle raw timestamps in here. */
 export const isLocalDateKey = (value: unknown): value is string =>
-  typeof value === 'string' && LOCAL_DATE_PATTERN.test(value);
+  typeof value === 'string' && LOCAL_DATE_PATTERN.test(value) && Number.isFinite(new Date(`${value}T12:00:00Z`).getTime()) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
 
 const normalizePositiveInt = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
