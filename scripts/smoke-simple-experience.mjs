@@ -173,17 +173,39 @@ try {
     await click(bubble, '继续');
     metrics.drag = [];
     const start = await evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+    const petRect = () => evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+    const bubbleRect = () => evaluate(bubble, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+    // The pet and the bubble live in different renderers, so their positions can
+    // only be read one after the other. Sampling until two consecutive reads
+    // agree stops a comparison from pairing the pet's old position with the
+    // bubble's new one — on a loaded CI runner that read gap is easily longer
+    // than the 25 ms between drag steps.
+    const settledGeometry = async () => {
+      let previous = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const p = await petRect();
+        const b = await bubbleRect();
+        if (previous && previous.p.x === p.x && previous.p.y === p.y && previous.b.x === b.x && previous.b.y === b.y) {
+          return { p, b, settled: true };
+        }
+        previous = { p, b };
+        await delay(25);
+      }
+      return { ...previous, settled: false };
+    };
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 80, button: 'left', buttons: 1, clickCount: 1 });
     for (let step = 1; step <= 50; step += 1) {
       const current = await evaluate(pet, '({ x: screenX, y: screenY })');
       const dx = Math.round(Math.sin(step / 50 * Math.PI * 2) * 180);
       await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x + 80 + dx - current.x, y: 80, button: 'left', buttons: 1 });
       await delay(25);
-      const p = await evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
-      const b = await evaluate(bubble, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
+      const { p, b, settled } = await settledGeometry();
       assert.equal(p.width, start.width); assert.equal(p.height, start.height);
-      assert.ok(Math.abs(b.x + b.width / 2 - p.x - p.width / 2) <= 2);
-      metrics.drag.push({ p, b });
+      assert.ok(
+        Math.abs(b.x + b.width / 2 - p.x - p.width / 2) <= 2,
+        `bubble must stay centered under the pet at step ${step} (settled=${settled}): pet=${JSON.stringify(p)} bubble=${JSON.stringify(b)}`
+      );
+      metrics.drag.push({ p, b, settled });
     }
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 80, button: 'left', buttons: 0, clickCount: 1 });
     assert.ok(new Set(metrics.drag.map(entry => entry.p.x)).size > 15);
@@ -202,8 +224,10 @@ try {
     metrics.paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
     await delay(500); child = launch(); child.stderr.on('data', (data) => { log += data; });
-    const restarted = await waitForTarget(endpoint, '#pet');
-    await waitFor(restarted, `Boolean(window.eyeProtect)`);
+    // A cold relaunch (fresh profile lock, first paint) can exceed the default
+    // 12s watchdog on a loaded machine, so give the restart its own budget.
+    const restarted = await waitForTarget(endpoint, '#pet', 45_000);
+    await waitFor(restarted, `Boolean(window.eyeProtect)`, 20_000);
     metrics.restarted = await evaluate(restarted, 'window.eyeProtect.getPomodoro()');
     assert.equal(metrics.restarted.running, false); assert.equal(metrics.restarted.remainingMs, metrics.paused.remainingMs);
     await evaluate(restarted, `window.eyeProtect.pomodoroAction('stop')`);
