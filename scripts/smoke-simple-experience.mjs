@@ -12,8 +12,17 @@ const runtime = resolve(output, `run-${Date.now()}`);
 const port = await getAvailablePort();
 const endpoint = `http://127.0.0.1:${port}`;
 mkdirSync(output, { recursive: true });
+// CI runners have no interactive desktop, so Chromium treats the frameless pet
+// window as occluded/backgrounded: it stops compositing and stops applying
+// window moves mid-drag (the pet moved once, then `screenX` froze for all 50
+// steps). These switches keep the packaged app fully active under test.
+const CI_SWITCHES = [
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-background-timer-throttling'
+];
 const launch = () => spawn(resolve('release/win-unpacked/EyeProtect.exe'), [
-  `--remote-debugging-port=${port}`, `--force-device-scale-factor=${scale}`, `--user-data-dir=${resolve(runtime, 'profile')}`, ...(emergency ? ['--eyeprotect-smoke-emergency'] : [])
+  `--remote-debugging-port=${port}`, `--force-device-scale-factor=${scale}`, `--user-data-dir=${resolve(runtime, 'profile')}`, ...CI_SWITCHES, ...(emergency ? ['--eyeprotect-smoke-emergency'] : [])
 ], { windowsHide: true, env: { ...process.env, EYEPROTECT_SMOKE: '1', EYEPROTECT_DATA_DIR: resolve(runtime, 'data') } });
 let child = launch();
 let log = '';
@@ -275,10 +284,27 @@ try {
     await evaluate(pet, `window.eyeProtect.pomodoroAction('pause')`);
     metrics.paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
-    await delay(500); child = launch(); child.stderr.on('data', (data) => { log += data; });
-    // A cold relaunch (fresh profile lock, first paint) can exceed the default
-    // 12s watchdog on a loaded machine, so give the restart its own budget.
-    const restarted = await waitForTarget(endpoint, '#pet', 45_000);
+    // The relaunched app takes the single-instance lock, so the old process has
+    // to release it first; a lost race makes the new instance exit immediately
+    // and the pet target never appears. Wait for the exit, then retry once.
+    const waitForExit = async () => {
+      const deadline = Date.now() + 15_000;
+      while (child.exitCode === null && Date.now() < deadline) await delay(200);
+    };
+    const restart = async () => {
+      await waitForExit();
+      child = launch();
+      child.stderr.on('data', (data) => { log += data; });
+      return waitForTarget(endpoint, '#pet', 45_000);
+    };
+    let restarted;
+    try {
+      restarted = await restart();
+    } catch (error) {
+      console.log(`Relaunch did not expose the pet window (${error.message}); retrying once.`);
+      if (child.exitCode === null) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+      restarted = await restart();
+    }
     await waitFor(restarted, `Boolean(window.eyeProtect)`, 20_000);
     metrics.restarted = await evaluate(restarted, 'window.eyeProtect.getPomodoro()');
     assert.equal(metrics.restarted.running, false); assert.equal(metrics.restarted.remainingMs, metrics.paused.remainingMs);
