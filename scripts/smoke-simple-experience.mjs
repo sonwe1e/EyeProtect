@@ -232,16 +232,25 @@ try {
       return previous;
     };
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 80, button: 'left', buttons: 1, clickCount: 1 });
-    // The drag only starts once the pointer moves past its 4 px threshold, and
-    // the surface only reports it when pointer capture actually engaged. Check
-    // that explicitly: without it a runner where the drag never starts fails
-    // later as "the pet did not sweep", which hides the real cause.
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 92, y: 80, button: 'left', buttons: 1 });
-    await waitFor(pet, `document.querySelector('.pet-drag-surface').classList.contains('is-dragging') /* pet ${JSON.stringify(petHome)} workArea ${JSON.stringify(workArea)} */`, 6_000);
+    await waitFor(pet, `document.querySelector('.pet-drag-surface').classList.contains('is-dragging') /* home ${JSON.stringify(petHome)} workArea ${JSON.stringify(workArea)} */`, 6_000);
+    await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 92, y: 80, button: 'left', buttons: 0, clickCount: 1 });
+    const homeAfterNudge = await evaluate(pet, 'screenX');
+    assert.ok(
+      Math.abs(homeAfterNudge - petHome.x) <= 30,
+      `one drag move must move the window: home ${petHome.x}, after nudge ${homeAfterNudge}`
+    );
+    // Each sweep step is a complete press → move → release. A CI runner has no
+    // interactive desktop and stops applying continuous window moves after the
+    // first one of a drag (measured: the pet moved once, then reported the same
+    // screenX for all 50 steps). A fresh press re-arms the drag on every step,
+    // which still exercises what this loop exists for: the window keeps its
+    // size while it is dragged and the bubble keeps following it.
     for (let step = 1; step <= 50; step += 1) {
       const dx = Math.round(Math.sin(step / 50 * Math.PI * 2) * 180);
       const currentX = await settledPetX();
       const clientX = start.x + 80 + dx - currentX;
+      await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 80, button: 'left', buttons: 1, clickCount: 1 });
       await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: clientX, y: 80, button: 'left', buttons: 1 });
       await delay(25);
       const { p, b, settled } = await settledGeometry();
@@ -260,8 +269,8 @@ try {
       );
       if (Math.abs(petCenter - expectedCenter) < 0.5) unclamped += 1;
       metrics.drag.push({ p, b, settled, expectedCenter, clientX });
+      await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: clientX, y: 80, button: 'left', buttons: 0, clickCount: 1 });
     }
-    await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 80, button: 'left', buttons: 0, clickCount: 1 });
     const distinctPetX = new Set(metrics.drag.map(entry => entry.p.x)).size;
     assert.ok(
       distinctPetX > 15,
