@@ -12,7 +12,6 @@ const theme = read('src/renderer/src/styles/theme.css');
 const tokens = read('src/renderer/src/styles/tokens.css');
 const primitives = read('src/renderer/src/styles/primitives.css');
 const workbench = read('src/renderer/src/styles/workbench.css');
-const collection = read('src/renderer/src/styles/collection.css');
 const settings = read('src/renderer/src/styles/settings.css');
 const plan = read('src/renderer/src/features/tasks/PlanWorkspace.module.css');
 const project = read('src/renderer/src/features/tasks/ProjectWorkspace.module.css');
@@ -50,7 +49,6 @@ const rawColor = /#[0-9a-f]{3,8}\b|\brgba?\s*\(/i;
 for (const [name, source] of [
   ['primitives.css', primitives],
   ['workbench.css', workbench],
-  ['collection.css', collection],
   ['settings.css', settings],
   ['PlanWorkspace.module.css', plan],
   ['ProjectWorkspace.module.css', project],
@@ -79,7 +77,6 @@ if (/\p{Extended_Pictographic}/u.test(chrome)) {
 for (const [source, label] of [
   [primitives, 'primitives.css'],
   [workbench, 'workbench.css'],
-  [collection, 'collection.css'],
   [settings, 'settings.css'],
   [plan, 'PlanWorkspace.module.css'],
   [project, 'ProjectWorkspace.module.css'],

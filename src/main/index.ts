@@ -22,13 +22,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AppHealth,
-  CharacterAppearanceMode,
-  CharacterMaterial,
   DailyTaskPlanInput,
   DailyReflectionInput,
   HotkeyAction,
   HotkeyStatus,
-  PetAccessory,
   PreAlertAction,
   ReminderAction,
   ReminderKind,
@@ -62,7 +59,6 @@ import { PomodoroService } from './pomodoro';
 import { isCurrentTask } from '../shared/simpleTasks';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
-import { CharacterService } from './characterService';
 import { buildDailyReview } from './dailyReview';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
 import { asSimpleTaskInput, asSimpleTaskUpdateInput } from './ipcTaskInput';
@@ -473,8 +469,6 @@ app.whenReady().then(async () => {
     return action();
   };
   const taskService = new TaskService(taskStore, false);
-  const characterService = new CharacterService(taskStore, Date.now, false);
-  characterService.getState();
   const taskScheduler = new TaskScheduler(kernel, () => taskService.getTasks().filter((task) => isCurrentTask(task, taskService.getProjects())), Date.now, {
     persist: (events) => taskStore.replaceScheduledEvents('task', events),
     isConsumed: (task) =>
@@ -522,7 +516,6 @@ app.whenReady().then(async () => {
   taskService.on('project-removed', (id) => { windows.broadcastProjectRemoved(id); refreshTasks(); });
   taskService.on('projects-replaced', (projects) => { windows.broadcastProjects(projects); refreshTasks(); });
   taskService.on('undo-changed', (state) => windows.broadcastUndo(state));
-  characterService.on('changed', (state) => windows.broadcastCharacterCollection(state));
 
   const refreshSystemTheme = (): void => windows.refreshWorkbenchTheme();
   nativeTheme.on('updated', refreshSystemTheme);
@@ -793,7 +786,6 @@ app.whenReady().then(async () => {
     windows.broadcastProjects(taskService.getProjects());
     windows.broadcastActiveTask(taskService.getActiveTaskId());
     windows.broadcastStandaloneReminders(taskStore.getStandaloneReminders());
-    windows.broadcastCharacterCollection(characterService.getState());
     windows.broadcastHotkeyStatus(hotkeyStatus);
     // Health is derived, not part of any domain push, so seed it explicitly —
     // otherwise a recovery-mode launch would show no banner until the next
@@ -806,15 +798,6 @@ app.whenReady().then(async () => {
   // renderers are trusted code, but IPC payloads are still an external input.
   handleIpc('settings:get', () => settingsStore.get());
   handleIpc('settings:save', (payload) => settingsStore.save(asPartialSettings(payload)));
-  handleIpc('character:get', () => characterService.getState());
-  handleIpc('character:appearance', (mode, id) => {
-    const normalizedMode: CharacterAppearanceMode = mode === 'pinned' ? 'pinned' : 'daily-random';
-    return requireWritableTaskDatabase(() => {
-      const state = characterService.setAppearance(normalizedMode, typeof id === 'string' ? id : null);
-      settingsStore.save({ petAppearance: 'collection' });
-      return state;
-    });
-  });
   handleIpc('runtime:get', () => getRuntimeInfo(settingsStore));
   handleIpc('app:health:get', () => getAppHealth());
   // A renderer-only reload cannot exit database-recovery mode: the main-process
@@ -915,7 +898,6 @@ app.whenReady().then(async () => {
         standaloneReminders: taskStore.getStandaloneReminders(),
         activeTaskId: taskService.getActiveTaskId(),
         taskReminderOccurrences: taskStore.getTaskReminderOccurrences(),
-        characterCollection: characterService.getState(),
         dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
         timeBlocks: taskStore.getTimeBlocks(),
         projectSections: taskStore.getAllProjectSections(),
@@ -967,8 +949,7 @@ app.whenReady().then(async () => {
           standaloneReminders: taskStore.getStandaloneReminders(),
           activeTaskId: taskService.getActiveTaskId(),
           taskReminderOccurrences: taskStore.getTaskReminderOccurrences(),
-          characterCollection: characterService.getState(),
-          dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
+            dailyTaskPlans: taskStore.getAllDailyTaskPlans(),
           timeBlocks: taskStore.getTimeBlocks(),
           projectSections: taskStore.getAllProjectSections(),
           focusSessions: taskStore.getFocusSessions(),
@@ -995,7 +976,6 @@ app.whenReady().then(async () => {
         taskStore.replaceTaskReminderOccurrences(candidate.taskReminderOccurrences);
         taskStore.replaceStandaloneReminders(candidate.standaloneReminders);
         taskStore.setActiveTaskId(candidate.activeTaskId);
-        characterService.replaceState(candidate.characterCollection);
         const next = settingsStore.save(candidate.settings);
         historyStore.replaceEvents(candidate.reminderHistory, next);
       };
@@ -1044,7 +1024,6 @@ app.whenReady().then(async () => {
     taskStore.replaceAllDailyReflections([]);
     taskStore.replaceStandaloneReminders([]);
     taskStore.setActiveTaskId(null);
-    characterService.replaceState(null);
     publishApplicationState();
     return { success: true, message: '已恢复默认设置' };
   });
@@ -1191,7 +1170,6 @@ app.whenReady().then(async () => {
       section === 'settings' ||
       section === 'reminders' ||
       section === 'pet-tasks' ||
-      section === 'collection' ||
       section === 'review'
         ? section
         : 'today'

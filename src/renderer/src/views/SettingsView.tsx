@@ -18,7 +18,6 @@ import {
   Play,
   RotateCcw,
   ShieldCheck,
-  Sparkles,
   Timer,
   Trash2,
   Undo2,
@@ -708,12 +707,6 @@ export default function SettingsView({ embedded = false }: { embedded?: boolean 
                   稍后 {care.snoozedToday}
                 </span>
               </div>
-              {care.accessory !== 'none' ? (
-                <span className="care-unlock">
-                  <Sparkles size={13} />
-                  今日配饰已解锁
-                </span>
-              ) : null}
             </div>
 
             <div className="history-stats">

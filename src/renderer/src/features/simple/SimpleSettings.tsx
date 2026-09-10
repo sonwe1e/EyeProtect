@@ -1,20 +1,18 @@
 import { SIMPLE_SETTING_LIMITS, SETTINGS_LIMITS } from '../../../../shared/types';
 import { useState } from 'react';
 import type { Settings, LegacyData } from '../../../../shared/types';
-import { PIXEL_ANIMALS, PIXEL_ANIMAL_NAMES, createPixelAnimal } from '../../../../shared/pixelAnimals';
+import { PIXEL_ANIMALS, PIXEL_ANIMAL_NAMES } from '../../../../shared/pixelAnimals';
 import { useSettings } from '../../hooks/useSettings';
 import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
-import { useCharacterCollection } from '../../hooks/useCharacterCollection';
 import { useCommand } from '../../hooks/useCommand';
-import { ProceduralCharacter } from '../characters/ProceduralCharacter';
+import { PixelAnimal } from '../characters/PixelAnimal';
 import { run } from '../../lib/commands';
 
 export function SimpleSettings(): JSX.Element {
   const { settings } = useSettings();
   const projects = useProjects();
   const tasks = useTasks();
-  const collection = useCharacterCollection();
   const [legacy, setLegacy] = useState<LegacyData | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   const save = (patch: Partial<Settings>): void => { void action.run(() => window.eyeProtect.saveSettings(patch)); };
@@ -26,8 +24,7 @@ export function SimpleSettings(): JSX.Element {
       <div className="simple-field-grid"><label className="simple-check"><input type="checkbox" checked={settings.walkEnabled} onChange={(e) => save({ walkEnabled: e.currentTarget.checked })} />走动提醒</label>{number('walkIntervalMinutes', '间隔（分钟）', 1, 240)}{number('walkRestSeconds', '休息（秒）', SIMPLE_SETTING_LIMITS.walkRestSeconds.min, SIMPLE_SETTING_LIMITS.walkRestSeconds.max)}</div>
       <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}>试一下护眼提醒</button>
     </section>
-    <section><h2>桌面外观</h2><div className="simple-animals">{PIXEL_ANIMALS.map((animal) => <button key={animal} aria-pressed={settings.petAppearance === animal} onClick={() => save({ petAppearance: animal })}><ProceduralCharacter character={createPixelAnimal(animal)} /><span>{PIXEL_ANIMAL_NAMES[animal]}</span></button>)}</div>
-      {collection.characters.length ? <label>已有角色<select value={settings.petAppearance === 'collection' ? collection.activeCharacterId : ''} onChange={(e) => { if (e.currentTarget.value) void action.run(() => window.eyeProtect.setCharacterAppearance('pinned', e.currentTarget.value)); }}><option value="">选择已有角色</option>{collection.characters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label> : null}
+    <section><h2>桌面外观</h2>      <div className="simple-animals">{PIXEL_ANIMALS.map((animal) => <button key={animal} aria-pressed={settings.petAppearance === animal} onClick={() => save({ petAppearance: animal })}><PixelAnimal animal={animal} action="idle" label={PIXEL_ANIMAL_NAMES[animal]} /><span>{PIXEL_ANIMAL_NAMES[animal]}</span></button>)}</div>
       <div className="simple-field-grid">{number('petScale', '桌宠大小', .5, 1.8, .1)}<label>主题<select value={settings.theme} onChange={(e) => save({ theme: e.currentTarget.value as Settings['theme'] })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div>
     </section>
     <section><h2>应用</h2><label className="simple-check"><input type="checkbox" checked={settings.startWithWindows} onChange={(e) => save({ startWithWindows: e.currentTarget.checked })} />开机启动</label>

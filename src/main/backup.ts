@@ -11,7 +11,6 @@ import {
   sanitizeFocusSessions,
   sanitizeTaskCheckpoints,
   sanitizeDailyReflections,
-  type CharacterCollectionState,
   type DailyTaskPlan,
   type FocusSession,
   type TaskCheckpoint,
@@ -26,7 +25,7 @@ import {
 } from '../shared/types';
 import type { TaskReminderOccurrence } from './taskStore';
 
-const BACKUP_SCHEMA_VERSION = 7;
+const BACKUP_SCHEMA_VERSION = 8;
 type PreferenceSettings = Omit<Settings, 'todos' | 'alarms' | 'activeTaskId'>;
 
 export interface BackupDomainData {
@@ -35,7 +34,6 @@ export interface BackupDomainData {
   standaloneReminders: StandaloneReminder[];
   activeTaskId: string | null;
   taskReminderOccurrences: TaskReminderOccurrence[];
-  characterCollection: CharacterCollectionState | null;
   /** Schema v4 planning domain (USERPLAN 1.2 PR1). Empty for v1–v4 backups. */
   dailyTaskPlans: DailyTaskPlan[];
   timeBlocks: TimeBlock[];
@@ -46,7 +44,7 @@ export interface BackupDomainData {
 }
 
 export interface EyeProtectBackup extends BackupDomainData {
-  version: 7;
+  version: 8;
   createdAt: number;
   appVersion: string;
   settings: PreferenceSettings;
@@ -59,7 +57,6 @@ const emptyDomain = (): BackupDomainData => ({
   standaloneReminders: [],
   activeTaskId: null,
   taskReminderOccurrences: [],
-  characterCollection: null,
   dailyTaskPlans: [],
   timeBlocks: [],
   projectSections: [],
@@ -70,7 +67,6 @@ const emptyDomain = (): BackupDomainData => ({
 
 type BackupDomainInput = Partial<BackupDomainData> & {
   taskReminderOccurrences?: TaskReminderOccurrence[];
-  characterCollection?: CharacterCollectionState | null;
 };
 
 const preferenceSettings = (settings: Settings): PreferenceSettings => {
@@ -96,7 +92,6 @@ export const createBackup = (
   standaloneReminders: domain.standaloneReminders ?? [],
   activeTaskId: domain.activeTaskId ?? null,
   taskReminderOccurrences: domain.taskReminderOccurrences ?? [],
-  characterCollection: domain.characterCollection ?? null,
   dailyTaskPlans: domain.dailyTaskPlans ?? [],
   timeBlocks: domain.timeBlocks ?? [],
   projectSections: domain.projectSections ?? [],
@@ -108,7 +103,7 @@ export const createBackup = (
 export const parseBackup = (text: string): EyeProtectBackup => {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (
-    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
+    (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6 && parsed.version !== 7 && parsed.version !== BACKUP_SCHEMA_VERSION) ||
     !Number.isFinite(parsed.createdAt) ||
     typeof parsed.appVersion !== 'string' ||
     !parsed.settings || typeof parsed.settings !== 'object' ||
@@ -124,7 +119,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
   const importedTasks = Array.isArray(parsed.tasks)
     ? parsed.tasks.map((entry) => sanitizeTask(entry)).filter((entry): entry is Task => Boolean(entry))
     : [];
-  if (parsed.version !== 7) for (const task of importedTasks) {
+  if (parsed.version !== 8) for (const task of importedTasks) {
     task.dueDate = task.dueAt === null ? null : localDateKey(task.dueAt);
   }
   const projects = Array.isArray(parsed.projects)
@@ -196,10 +191,6 @@ export const parseBackup = (text: string): EyeProtectBackup => {
         }];
       })
     : [];
-  const characterCollection = parsed.characterCollection && typeof parsed.characterCollection === 'object'
-    ? parsed.characterCollection as CharacterCollectionState
-    : null;
-
   // Schema v4 planning domain. Older backups simply carry empty arrays.
   // Referential integrity is enforced here: a plan/block/session pointing at a
   // task (or a section at a project) that did not survive sanitizing is dropped.
@@ -260,8 +251,7 @@ export const parseBackup = (text: string): EyeProtectBackup => {
     projects,
     standaloneReminders,
     taskReminderOccurrences,
-    characterCollection,
-    dailyTaskPlans,
+      dailyTaskPlans,
     timeBlocks,
     projectSections,
     focusSessions,

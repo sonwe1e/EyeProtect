@@ -35,7 +35,7 @@ export default function WorkbenchView(): JSX.Element {
   const [expanded, setExpanded] = useState<string | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   useEffect(() => {
-    const navigate = (section: string): void => { setTab(section === 'settings' || section === 'collection' ? 'settings' : section === 'review' ? 'review' : 'today'); };
+    const navigate = (section: string): void => { setTab(section === 'settings' ? 'settings' : section === 'review' ? 'review' : 'today'); };
     void window.eyeProtect.getWorkbenchSection().then(navigate);
     return window.eyeProtect.onWorkbenchNavigate(navigate);
   }, []);

@@ -35,6 +35,11 @@
   --glass-surface: rgb(255 255 255 / 90%);
   --glass-surface-strong: rgb(255 255 255 / 98%);
   --glass-border: rgb(24 32 36 / 16%);
+  /* Reminder stage accents. Decorative only (stage wash, badge dot, rest ring);
+     body text never relies on them for contrast. */
+  --rest-accent-eye: #2f7f72;
+  --rest-accent-walk: #a86b1f;
+  --rest-accent-combined: #a8505c;
 }
 
 :root[data-theme='dark'] {
@@ -73,6 +78,9 @@
   --glass-surface: rgb(23 30 35 / 92%);
   --glass-surface-strong: rgb(23 30 35 / 98%);
   --glass-border: rgb(238 244 247 / 16%);
+  --rest-accent-eye: #7fd0bd;
+  --rest-accent-walk: #e2b96b;
+  --rest-accent-combined: #f0a09a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -112,6 +120,9 @@
     --glass-surface: rgb(23 30 35 / 92%);
     --glass-surface-strong: rgb(23 30 35 / 98%);
     --glass-border: rgb(238 244 247 / 16%);
+    --rest-accent-eye: #7fd0bd;
+    --rest-accent-walk: #e2b96b;
+    --rest-accent-combined: #f0a09a;
   }
 }
 
@@ -125,17 +136,4 @@
   --color-priority-urgent: var(--danger);
   --surface-base: var(--bg-app);
   --shadow-floating: var(--shadow-overlay);
-  --artwork-stage-center: #244f4b;
-  --artwork-stage-mid: #142b2b;
-  --artwork-stage-edge: #101819;
-  --artwork-caption-fg: rgb(255 255 255 / 78%);
-  --artwork-caption-bg: rgb(3 12 12 / 34%);
-  --artwork-caption-border: rgb(255 255 255 / 10%);
-  --artwork-eye-accent: #65c7b4;
-  --artwork-walk-accent: #f7cd63;
-  --artwork-combined-accent: #ffa69e;
-  --gift-fg: #70461d;
-  --gift-bg: #ffd477;
-  --gift-border: rgb(112 70 29 / 20%);
-  --character-shadow: rgb(0 0 0 / 16%);
 }

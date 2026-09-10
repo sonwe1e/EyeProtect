@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
+import { isPixelAnimal } from '../shared/pixelAnimals';
 import {
   DEFAULT_SETTINGS,
   SIMPLE_SETTING_LIMITS,
@@ -282,8 +283,7 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
     todoBubbleTaskIds: Array.isArray(input.todoBubbleTaskIds)
       ? [...new Set(input.todoBubbleTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
       : [],
-    petAppearance: input.petAppearance === 'cat' || input.petAppearance === 'dog' || input.petAppearance === 'rabbit'
-      ? input.petAppearance : 'collection',
+    petAppearance: isPixelAnimal(input.petAppearance) ? input.petAppearance : 'cat',
     todoBubbleEnabled:
       typeof input.todoBubbleEnabled === 'boolean'
         ? input.todoBubbleEnabled

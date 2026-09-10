@@ -6,22 +6,16 @@
   -webkit-app-region: no-drag;
 }
 
-/* Reminder alerts render in their own window; same layout variables as the
-   legacy in-pet alert mode. */
+/* Reminder alerts render in their own transparent, frameless window. */
 .alert-shell {
   position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   -webkit-app-region: no-drag;
-  --alert-x-pad: clamp(16px, 3vw, 22px);
-  --alert-top-pad: clamp(12px, 2.5vh, 18px);
-  --alert-panel-space: min(320px, calc(100vh - 96px));
 }
 
-.pet-shell button,
-.alert-panel,
-.reminder-artwork {
+.pet-shell button {
   -webkit-app-region: no-drag;
 }
 
@@ -135,13 +129,11 @@
 }
 
 .pet-shell:hover .pet-drag-handle { opacity: 0.72; }
-.pet-compact .pet-drag-handle,
-.pet-compact .pet-care-badge,
-.pet-compact .pet-gift-badge {
+.pet-compact .pet-drag-handle {
   display: none;
 }
 
-.pet-character .procedural-character {
+.pet-character .pixel-animal {
   display: block;
   width: 100%;
   height: 100%;
@@ -150,63 +142,15 @@
   transform-origin: 50% 75%;
 }
 
-.pet-character.is-animating .procedural-character {
+.pet-character.is-animating .pixel-animal {
   animation: pet-idle-sway 3.4s ease-in-out 1;
 }
 
-.pet-character.mood-happy .procedural-character {
-  animation: pet-celebrate 720ms ease-out 1;
-}
-
-.pet-character.mood-anticipating .procedural-character {
-  animation: pet-attention 1.1s ease-in-out 1;
-}
-
-.pet-character.mood-tired .procedural-character {
-  filter: saturate(0.82) brightness(0.96);
-}
-
-.pet-care-badge {
-  position: absolute;
-  left: 4.375vw;
-  bottom: 4.375vw;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 22.5vw;
-  height: 17.5vw;
-  padding: 0 5vw;
-  color: var(--brand-strong);
-  font-size: 7.5vw;
-  font-weight: 700;
-  background: var(--glass-surface);
-  border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
-  border-radius: 999px;
-  opacity: 0.76;
-  transition: opacity var(--motion-fast) ease, border-color var(--motion-fast) ease;
-  -webkit-app-region: no-drag;
-}
-
-.pet-care-badge svg {
-  width: 8.75vw;
-  height: 8.75vw;
-  fill: color-mix(in srgb, var(--brand) 18%, transparent);
-}
-
-.pet-care-badge:hover {
-  opacity: 1;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .procedural-character *,
-  .reminder-atmosphere *,
+  .pixel-animal *,
   .pet-gear,
   .pet-alarm,
   .pet-todo-tab,
-  .pet-care-badge,
-  .pet-gift-badge,
-  .alert-actions button,
   .bubble-actions button {
     animation: none !important;
     transition: none !important;
@@ -238,242 +182,7 @@
   }
 }
 
-@keyframes pet-idle-breath {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-2px) scale(1.035);
-  }
-}
-
-.reminder-artwork {
-  position: absolute;
-  inset: var(--alert-top-pad, 18px) var(--alert-x-pad, 22px) var(--alert-panel-space, 220px);
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  cursor: pointer;
-  background: radial-gradient(circle at 50% 45%, var(--artwork-stage-center) 0, var(--artwork-stage-mid) 45%, var(--artwork-stage-edge) 100%);
-  border: 1px solid color-mix(in srgb, var(--fg-inverse) 12%, transparent);
-  border-radius: var(--radius-large);
-  box-shadow: 0 18px 42px color-mix(in srgb, var(--artwork-stage-edge) 72%, transparent);
-}
-
-.procedural-character { position: relative; width: 100%; height: 100%; }
-.procedural-character svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.procedural-character.style-pixel svg { shape-rendering: crispEdges; }
-.procedural-character.material-glow .character-body { filter: drop-shadow(0 0 6px var(--character-base)); }
-.procedural-character.material-plush .character-body { filter: saturate(.82) contrast(.92); opacity: .94; }
-.procedural-character.style-doodle .character-body { stroke-dasharray: 2.4 .8; }
-.procedural-character.style-toy .character-body { filter: drop-shadow(0 3px 1px var(--character-shadow)); }
-.procedural-character.material-candy .character-body { filter: saturate(1.38) contrast(1.04); }
-.procedural-character.material-cosmic .character-body { filter: hue-rotate(24deg) drop-shadow(0 0 5px var(--character-light)); }
-.character-eye { transform-box: fill-box; transform-origin: center; animation: character-blink 5.2s steps(1) infinite; }
-.character-orbits { transform-origin: 50px 50px; animation: character-orbit 9s linear infinite; }
-.character-limb { transform-box: fill-box; transform-origin: center; }
-.action-walk .character-limb:nth-child(odd), .action-combined .character-limb:nth-child(odd) { animation: character-step 800ms ease-in-out infinite alternate; }
-.action-walk .character-limb:nth-child(even), .action-combined .character-limb:nth-child(even) { animation: character-step 800ms ease-in-out infinite alternate-reverse; }
-.action-eye .character-eye, .action-combined .character-eye { animation: character-look-away 2.4s ease-in-out infinite; }
-.action-react .character-body { transform-box: fill-box; transform-origin: center; animation: pet-celebrate 720ms ease-out infinite; }
-.mood-sleeping .character-eye { transform: scaleY(.12); animation: none; }
-.reminder-stage .procedural-character { width: min(70vh, 70%); height: min(70vh, 78%); z-index: 2; }
-.reminder-stage-caption { position: absolute; bottom: 14px; z-index: 3; padding: 6px 12px; color: var(--artwork-caption-fg); font-size: 12px; letter-spacing: .12em; background: var(--artwork-caption-bg); border: 1px solid var(--artwork-caption-border); border-radius: 999px; }
-.reminder-atmosphere { position: absolute; inset: 0; overflow: hidden; }
-.reminder-atmosphere i { position: absolute; width: 10px; height: 10px; background: var(--artwork-eye-accent); border-radius: 50%; opacity: .42; animation: reminder-float 4s ease-in-out infinite; }
-.reminder-atmosphere i:nth-child(1) { left: 14%; top: 24%; }.reminder-atmosphere i:nth-child(2) { right: 18%; top: 18%; animation-delay: -1s; }.reminder-atmosphere i:nth-child(3) { left: 23%; bottom: 18%; animation-delay: -2s; }.reminder-atmosphere i:nth-child(4) { right: 12%; bottom: 28%; animation-delay: -3s; }
-.kind-walk .reminder-atmosphere i { border-radius: 2px; background: var(--artwork-walk-accent); }.kind-combined .reminder-atmosphere i { background: var(--artwork-combined-accent); }
-.eye-path { stroke-dasharray: 8 5; animation: path-flow 2s linear infinite; }.walk-path { stroke-dasharray: 5 6; animation: path-flow 1.2s linear infinite; }
-.pet-character.is-reacting .procedural-character { animation: pet-idle-wobble 700ms ease-in-out; }
-.pet-gift-badge { position: absolute; right: 4.375vw; bottom: 4.375vw; z-index: 6; display: grid; width: 21vw; height: 21vw; place-items: center; color: var(--gift-fg); background: var(--gift-bg); border: 1px solid var(--gift-border); border-radius: 50%; animation: gift-pulse 2.2s ease-in-out infinite; -webkit-app-region: no-drag; }
-.pet-gift-badge svg { width: 10vw; height: 10vw; }
-
-@keyframes character-blink { 0%, 44%, 48%, 100% { transform: scaleY(1); } 46% { transform: scaleY(.12); } }
-@keyframes character-orbit { to { transform: rotate(360deg); } }
-@keyframes character-step { from { transform: rotate(-10deg) translateY(1px); } to { transform: rotate(12deg) translateY(-2px); } }
-@keyframes character-look-away { 0%, 100% { transform: translateX(-1.5px) scaleY(1); } 45% { transform: translateX(1.5px) scaleY(1); } 50% { transform: translateX(1.5px) scaleY(.12); } }
-@keyframes reminder-float { 0%, 100% { transform: translateY(0) scale(.8); opacity: .25; } 50% { transform: translateY(-14px) scale(1.2); opacity: .65; } }
-@keyframes path-flow { to { stroke-dashoffset: -26; } }
-@keyframes gift-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08) rotate(4deg); } }
-
-.alert-panel {
-  position: absolute;
-  right: var(--alert-x-pad, 22px);
-  bottom: 18px;
-  left: var(--alert-x-pad, 22px);
-  z-index: 4;
-  max-height: calc(var(--alert-panel-space, 220px) - 28px);
-  padding: clamp(12px, 2vh, 16px);
-  overflow: hidden;
-  color: var(--fg-primary);
-  background: var(--glass-surface-strong);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-large);
-  box-shadow: var(--shadow-overlay);
-}
-
-.alert-heading {
-  display: grid;
-  gap: 6px;
-}
-
-.kind-badge {
-  position: static;
-  inset: auto;
-  transform: none;
-  display: inline-flex;
-  width: fit-content;
-  height: auto;
-  padding: 4px 8px;
-  color: var(--brand-contrast);
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--brand);
-  border-radius: 999px;
-  box-shadow: none;
-}
-
-.kind-badge.walk {
-  color: var(--warning);
-  background: var(--warning-subtle);
-}
-
-.kind-badge.combined {
-  color: var(--danger);
-  background: var(--danger-subtle);
-}
-
-.alert-heading h1 {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.18;
-}
-
-.alert-heading p {
-  margin: 0;
-  color: var(--fg-secondary);
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-@keyframes pet-celebrate {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  40% {
-    transform: translateY(-7px) scale(1.04) rotate(-2deg);
-  }
-  70% {
-    transform: translateY(-2px) scale(1.02) rotate(2deg);
-  }
-}
-
-@keyframes pet-attention {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  35% {
-    transform: translateX(-3px) rotate(-1deg);
-  }
-  70% {
-    transform: translateX(3px) rotate(1deg);
-  }
-}
-
-/* Once a concrete activity is present, its instruction replaces the generic
-   detail sentence. Keep kind + title on one line so the primary actions stay
-   visible without making the reminder window dominate a small display. */
-.alert-panel:has(.alert-activities) .alert-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.alert-panel:has(.alert-activities) .alert-heading h1 {
-  min-width: 0;
-  font-size: 20px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.alert-panel:has(.alert-activities) .alert-heading p {
-  display: none;
-}
-
-.alert-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.alert-actions button,
-.test-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 40px;
-  padding: 0 10px;
-  color: var(--fg-primary);
-  background: var(--surface-hover);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-medium);
-  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
-}
-
-.alert-actions button:hover:not(:disabled):not(.primary),
-.test-actions button:hover:not(:disabled) { background: var(--surface); border-color: var(--brand); }
-
-.alert-actions .primary {
-  color: var(--brand-contrast);
-  background: var(--brand);
-  border-color: var(--brand);
-}
-
-.alert-actions button:active:not(:disabled),
-.test-actions button:active:not(:disabled) { transform: translateY(1px); }
-
-.alert-actions button:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.alert-wait-hint {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  padding: 7px 10px;
-  font-size: 12px;
-  background: var(--surface-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-medium);
-}
-
-.alert-wait-time {
-  font-weight: 600;
-  color: var(--fg-primary);
-}
-
-.alert-wait-note {
-  color: var(--fg-secondary);
-}
-
-.alert-activities {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-}
+.pet-character.is-reacting .pixel-animal { animation: pet-idle-wobble 700ms ease-in-out; }
 
 .activity-guide {
   display: grid;
@@ -520,69 +229,6 @@
   color: var(--fg-secondary);
   font-size: 12px;
   line-height: 1.35;
-}
-
-.alert-guided-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-  padding: 7px 10px;
-  color: var(--brand);
-  font-size: 12px;
-  background: var(--brand-subtle);
-  border-radius: 7px;
-}
-
-.alert-guided-hint small {
-  flex-shrink: 0;
-  color: var(--fg-secondary);
-  font-size: 10.5px;
-}
-
-.break-todo-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-  padding: 8px 10px;
-  background: var(--warning-subtle);
-  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
-  border-radius: 7px;
-}
-
-.break-todo-card div {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.break-todo-card span {
-  color: var(--warning);
-  font-size: 10.5px;
-}
-
-.break-todo-card strong {
-  overflow: hidden;
-  color: var(--fg-primary);
-  font-size: 12.5px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.break-todo-card button {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 4px;
-  min-height: 30px;
-  padding: 0 9px;
-  color: var(--brand);
-  background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
-  border-radius: 7px;
 }
 
 .settings-shell {
@@ -1762,10 +1408,8 @@
   .pet-gear,
   .pet-alarm,
   .pet-todo-tab,
-  .pet-care-badge,
-  .pet-gift-badge,
-  .alert-panel,
-  .alert-actions button,
+  .rest-card,
+  .rest-actions button,
   .activity-guide,
   .bubble-card,
   .bubble-actions button,
@@ -1774,7 +1418,7 @@
     border-color: ButtonText;
   }
 
-  .alert-panel,
+  .rest-card,
   .bubble-card {
     outline: 1px solid ButtonText;
   }
@@ -1794,8 +1438,8 @@
 .bubble-select { align-self: flex-start; min-height: 28px; padding: 2px 8px; }
 .bubble-todos .bubble-title { padding-right: 24px; }
 .bubble-close { min-width: 24px; min-height: 24px; }
-.pet-character .procedural-character.pixel-animal { animation: none; filter: none; }
-.pixel-animal svg { image-rendering: pixelated; overflow: hidden; }
+.pet-character .pixel-animal { animation: none; filter: none; }
+.pixel-animal svg { display: block; width: 100%; height: 100%; image-rendering: pixelated; overflow: hidden; }
 
 
 .bubble-todos button { font-family: inherit; cursor: pointer; }
@@ -1809,16 +1453,360 @@
 .bubble-todos button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* Keep the pixel silhouette clear; controls remain available on hover/focus. */
-.pet-shell:has(.pixel-animal) :is(.pet-toolbar, .pet-care-badge, .pet-gift-badge) { opacity: 0; }
-.pet-shell:has(.pixel-animal):is(:hover, :focus-within) :is(.pet-toolbar, .pet-care-badge, .pet-gift-badge) { opacity: 1; }
-.pet-shell:has(.pixel-animal):has(.is-dragging) :is(.pet-toolbar, .pet-care-badge, .pet-gift-badge, .pet-drag-handle) { opacity: 0; pointer-events: none; }
+.pet-shell:has(.pixel-animal) .pet-toolbar { opacity: 0; }
+.pet-shell:has(.pixel-animal):is(:hover, :focus-within) .pet-toolbar { opacity: 1; }
+.pet-shell:has(.pixel-animal):has(.is-dragging) :is(.pet-toolbar, .pet-drag-handle) { opacity: 0; pointer-events: none; }
 
 .pomodoro-clock { display: block; text-align: center; font-size: 34px; font-variant-numeric: tabular-nums; padding: 8px 0; }
 .pomodoro-task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; color: var(--fg-secondary); }
 .pomodoro-duration { display: flex; gap: 6px; align-items: center; font-size: 12px; }.pomodoro-duration input { width: 48px; }
-.simple-rest { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 32px; color: var(--fg-primary); background: var(--surface); }
-.simple-rest-character { width: 190px; height: 190px; }.simple-rest h1 { margin: 0; font-size: 28px; text-align: center; }.simple-rest > p { font-size: 19px; }
-.simple-rest .bubble-actions button { min-height: 42px; padding: 8px 18px; font-size: 14px; }.simple-rest select { border: 1px solid var(--border-strong); border-radius: var(--radius-medium); background: var(--surface); color: var(--fg-primary); }
+.pomodoro-presets { display: flex; gap: 6px; margin: 4px 0 6px; width: 100%; }
+.pomodoro-preset-chip { flex: 1; min-height: 24px; padding: 2px 0; font-size: 11px; border: 1px solid var(--border-subtle); border-radius: var(--radius-small); background: var(--surface); color: var(--fg-secondary); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast); }
+.pomodoro-preset-chip:hover { background: var(--surface-hover); color: var(--fg-primary); }
+.pomodoro-preset-chip.is-active { background: var(--brand-subtle); color: var(--brand-strong); border-color: var(--brand); font-weight: 600; }
+.bubble-card .bubble-actions { display: flex; gap: 6px; }
+.bubble-card .bubble-actions button { flex: 1; min-height: 32px; }
+/* ── Rest / reminder surface (alert window) ───────────────────────────────
+   The alert window is transparent and sized exactly like the card, so the card
+   insets itself and paints its own shadow. Kind accents are decorative (stage
+   wash, badge dot, rest ring); all text keeps its semantic token contrast. */
+.simple-rest {
+  display: block;
+  box-sizing: border-box;
+  padding: clamp(10px, 2.2vmin, 22px);
+  color: var(--fg-primary);
+}
+.simple-rest.kind-eye { --rest-accent: var(--rest-accent-eye); }
+.simple-rest.kind-walk { --rest-accent: var(--rest-accent-walk); }
+.simple-rest.kind-combined { --rest-accent: var(--rest-accent-combined); }
 
-.simple-rest .bubble-actions { width: 100%; max-width: 600px; justify-content: center; align-items: center; }
-.simple-rest .bubble-actions button { flex: 0 0 auto; }
+.rest-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 40%) minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-large);
+  box-shadow: var(--shadow-overlay);
+  animation: rest-card-in var(--motion-standard) ease-out 1;
+}
+
+@keyframes rest-card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.rest-stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--rest-accent) 20%, var(--surface)) 0%,
+    color-mix(in srgb, var(--rest-accent) 7%, var(--surface-raised)) 55%,
+    var(--surface) 100%
+  );
+  border-right: 1px solid var(--border-subtle);
+}
+
+.rest-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  color: var(--fg-primary);
+  font-size: 12px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rest-accent) 40%, transparent);
+  border-radius: 999px;
+}
+
+.rest-kind-badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  background: var(--rest-accent);
+  border-radius: 50%;
+}
+
+.rest-stage-art {
+  align-self: center;
+  width: min(184px, 80%);
+  aspect-ratio: 1 / 1;
+}
+
+.rest-stage-art .pixel-animal {
+  width: 100%;
+  height: 100%;
+}
+
+.rest-stage-caption {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-align: center;
+}
+
+.rest-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.rest-eyebrow {
+  margin: 0;
+  color: var(--fg-tertiary);
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+
+.rest-heading h1 {
+  margin: 6px 0 0;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+}
+
+.rest-lede {
+  margin: 6px 0 0;
+  color: var(--fg-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.rest-timer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-large);
+}
+
+.rest-ring {
+  position: relative;
+  flex: none;
+  width: 96px;
+  height: 96px;
+}
+
+.rest-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.rest-ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--fg-primary) 12%, transparent);
+  stroke-width: 7;
+}
+
+.rest-ring-value {
+  fill: none;
+  stroke: var(--rest-accent);
+  stroke-width: 7;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--motion-slow) linear;
+}
+
+.rest-ring-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+
+.rest-ring-text strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rest-ring-text span {
+  color: var(--fg-secondary);
+  font-size: 11px;
+}
+
+.rest-timer-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rest-timer-copy strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.rest-timer-copy span {
+  color: var(--fg-secondary);
+  font-size: 12.5px;
+}
+
+.rest-activities {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rest-activities .activity-guide {
+  background: var(--surface-raised);
+  border-color: color-mix(in srgb, var(--rest-accent) 30%, transparent);
+}
+
+.rest-activities .activity-guide progress {
+  accent-color: var(--rest-accent);
+}
+
+.rest-break-task {
+  margin: 0;
+  padding: 8px 11px;
+  color: var(--fg-primary);
+  font-size: 12.5px;
+  background: var(--warning-subtle);
+  border: 1px solid color-mix(in srgb, var(--warning) 26%, transparent);
+  border-radius: var(--radius-medium);
+}
+
+.rest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+
+.rest-actions button {
+  min-height: var(--hit-target-min);
+  padding: 0 16px;
+  color: var(--fg-primary);
+  font-size: 14px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+}
+
+.rest-actions button:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--brand);
+}
+
+.rest-actions button.primary {
+  flex: 1 1 180px;
+  color: var(--brand-contrast);
+  font-weight: 600;
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.rest-actions button.primary:hover:not(:disabled) {
+  background: var(--brand-strong);
+  border-color: var(--brand-strong);
+}
+
+.rest-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.rest-actions button.ghost {
+  color: var(--fg-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+
+.rest-actions button.ghost:hover:not(:disabled) {
+  color: var(--fg-primary);
+  background: var(--surface-hover);
+  border-color: var(--border-subtle);
+}
+
+.rest-actions button:focus-visible,
+.rest-snooze-group select:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.rest-snooze-group {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.rest-snooze-group button {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+
+.rest-snooze-group select {
+  min-height: var(--hit-target-min);
+  padding: 0 10px;
+  color: var(--fg-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: var(--radius-medium);
+  border-bottom-right-radius: var(--radius-medium);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rest-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+/* Narrow alert windows (the window can be as small as 480 x 440): the stage
+   collapses into a compact header row so the panel keeps its room. */
+@media (max-width: 660px) {
+  .rest-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .rest-stage {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    justify-items: start;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .rest-kind-badge { grid-column: 1 / -1; }
+  /* Fixed size: a percentage width would resolve against this item's own
+     auto-sized track and collapse the artwork to zero. */
+  .rest-stage-art { grid-row: 2; width: 64px; height: 64px; }
+  .rest-stage-caption { grid-row: 2; grid-column: 2; align-self: center; text-align: left; }
+  .rest-panel { padding: var(--space-4); }
+}
+
+@media (max-height: 560px) {
+  .rest-timer { padding: var(--space-2) var(--space-3); }
+  .rest-ring { width: 76px; height: 76px; }
+  .rest-heading h1 { font-size: 22px; }
+}
+
+/* Two-column layout only: in the stacked layout the artwork sits in an
+   auto-sized track and keeps its fixed narrow size. */
+@media (max-height: 560px) and (min-width: 661px) {
+  .rest-stage-art { width: 120px; }
+}
+
+

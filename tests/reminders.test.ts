@@ -21,7 +21,7 @@ const baseSettings: Settings = {
   eyeEnabled: true, walkEnabled: true, eyeRestSeconds: 30, walkRestSeconds: 60, pomodoroMinutes: 25, pomodoroBreakMinutes: 5,
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
-  petAppearance: 'collection',
+  petAppearance: 'cat',
   petScale: 1,
   petPosition: null,
   petPositionsByLayout: {},

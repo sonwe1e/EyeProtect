@@ -1,3 +1,5 @@
+import type { PixelAnimal } from './pixelAnimals';
+
 export type ReminderKind = 'eye' | 'walk' | 'combined';
 export type SingleReminderKind = Exclude<ReminderKind, 'combined'>;
 export type ReminderAction = 'complete' | 'snooze' | 'skip';
@@ -11,70 +13,6 @@ export const nextTodoPriority = (current: TodoPriority): TodoPriority => {
   const index = TODO_PRIORITIES.indexOf(current);
   return TODO_PRIORITIES[(index + 1) % TODO_PRIORITIES.length];
 };
-
-export type CharacterStyle = 'soft' | 'doodle' | 'pixel' | 'toy';
-export type CharacterMaterial = 'paper' | 'glow' | 'plush' | 'candy' | 'cosmic';
-export type CharacterPersonality = 'curious' | 'mischievous' | 'dreamy' | 'brave' | 'gentle';
-export type CharacterAppearanceMode = 'daily-random' | 'pinned';
-
-export interface CharacterAppendage {
-  angle: number;
-  length: number;
-  width: number;
-  tipSize: number;
-  bend: number;
-}
-
-export interface CharacterRecipe {
-  bodyWidth: number;
-  bodyHeight: number;
-  bodyRoundness: number;
-  bodyTilt: number;
-  attentionCount: number;
-  attentionSpread: number;
-  appendages: CharacterAppendage[];
-  orbitCount: number;
-  pattern: 'none' | 'spots' | 'stripes' | 'sparkles';
-  palette: [string, string, string];
-}
-
-export interface CharacterRig {
-  center: { x: number; y: number };
-  attention: { x: number; y: number };
-  locomotionY: number;
-  actionPoints: Array<{ x: number; y: number }>;
-}
-
-export interface CollectibleCharacter {
-  id: string;
-  seed: string;
-  generatorVersion: number;
-  name: string;
-  style: CharacterStyle;
-  personality: CharacterPersonality;
-  favoriteActions: [string, string];
-  recipe: CharacterRecipe;
-  rig: CharacterRig;
-  material: CharacterMaterial;
-  accessory: PetAccessory;
-  favorite: boolean;
-  createdAt: number;
-}
-
-export interface DailyCharacterCandidate {
-  localDate: string;
-  character: CollectibleCharacter;
-  decision: 'pending' | 'collected' | 'discarded';
-}
-
-export interface CharacterCollectionState {
-  installSalt: string;
-  characters: CollectibleCharacter[];
-  candidate: DailyCharacterCandidate | null;
-  appearanceMode: CharacterAppearanceMode;
-  pinnedCharacterId: string | null;
-  activeCharacterId: string;
-}
 
 /**
  * Enforcement style of a reminder, chosen in settings:
@@ -595,7 +533,7 @@ export interface Settings {
   /** Show the passive task preview next to the pet; reminder bubbles ignore it. */
   todoBubbleEnabled: boolean;
   todoBubbleTaskIds: string[];
-  petAppearance: 'collection' | 'cat' | 'dog' | 'rabbit';
+  petAppearance: PixelAnimal;
   petScale: number;
   petPosition: PetPosition | null;
   /** One absolute pet position per connected-display topology. */
@@ -724,8 +662,6 @@ export interface WeeklyReport {
   retentionDays: 30 | 90;
 }
 
-export type PetMood = 'calm' | 'anticipating' | 'happy' | 'tired' | 'sleeping';
-export type PetAccessory = 'none' | 'cup' | 'glasses' | 'leaf';
 export type HotkeyAction =
   | 'break-now'
   | 'pause-toggle'
@@ -760,8 +696,6 @@ export interface CareStatus {
   snoozedToday: number;
   skippedToday: number;
   naturalBreaksToday: number;
-  mood: PetMood;
-  accessory: PetAccessory;
   message: string;
 }
 
@@ -989,24 +923,14 @@ export interface EyeProtectApi {
   retryFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;
   dismissFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;
   onFailedDeliveriesChanged: (callback: (notices: FailedDeliveryNotice[]) => void) => () => void;
-  getCharacterCollection: () => Promise<CharacterCollectionState>;
-  collectDailyCharacter: () => Promise<CharacterCollectionState>;
-  discardDailyCharacter: () => Promise<CharacterCollectionState>;
-  renameCharacter: (id: string, name: string) => Promise<CharacterCollectionState>;
-  deleteCharacter: (id: string) => Promise<CharacterCollectionState>;
-  setCharacterFavorite: (id: string, favorite: boolean) => Promise<CharacterCollectionState>;
-  setCharacterAppearance: (mode: CharacterAppearanceMode, id?: string | null) => Promise<CharacterCollectionState>;
-  setCharacterMaterial: (id: string, material: CharacterMaterial) => Promise<CharacterCollectionState>;
-  setCharacterAccessory: (id: string, accessory: PetAccessory) => Promise<CharacterCollectionState>;
-  onCharacterCollectionChanged: (callback: (state: CharacterCollectionState) => void) => () => void;
   reportPetArtworkBounds: (bounds: { top: number; bottom: number }) => Promise<void>;
   reportBubbleHeight: (height: number) => Promise<void>;
   onBubbleLayout: (callback: (layout: { placement: 'above' | 'below'; tailX: number }) => void) => () => void;
   movePetWindow: (position: PetPosition) => Promise<PetPosition | null>;
-  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks') => Promise<void>;
+  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks') => Promise<void>;
   closeWorkbench: () => Promise<void>;
-  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks'>;
-  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks') => void) => () => void;
+  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>;
+  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks') => void) => () => void;
   getWeeklyReport: () => Promise<WeeklyReport>;
   getCareStatus: () => Promise<CareStatus>;
   clearReminderHistory: () => Promise<WeeklyReport>;

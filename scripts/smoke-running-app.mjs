@@ -25,7 +25,7 @@ const pet = await waitForValue(
   petTarget,
   `(async () => {
   const api = window.eyeProtect;
-  const methods = ['getCharacterCollection', 'getRuntimeInfo', 'getSettings', 'movePetWindow'];
+  const methods = ['getRuntimeInfo', 'getSettings', 'movePetWindow'];
   const ready = Boolean(api) && methods.every((name) => typeof api[name] === 'function');
   if (!ready) {
     return { bridge: false, href: location.href, readyState: document.readyState, methods: Object.fromEntries(methods.map((name) => [name, typeof api?.[name]])) };
@@ -41,13 +41,12 @@ const pet = await waitForValue(
     characterRegion: character ? getComputedStyle(character).webkitAppRegion : null,
     dragHandleRegion: dragHandle ? getComputedStyle(dragHandle).webkitAppRegion : null,
     dragSurface: Boolean(document.querySelector('.pet-drag-surface')),
-    proceduralSvg: Boolean(document.querySelector('.pet-character .procedural-character svg')),
-    collection: await api.getCharacterCollection(),
+    proceduralSvg: Boolean(document.querySelector('.pet-character .pixel-animal svg')),
     runtime: await api.getRuntimeInfo(),
     settings: await api.getSettings()
   };
 })()`,
-  (value) => Boolean(value?.bridge && value?.petShell && value?.character && value?.proceduralSvg && value?.collection?.candidate)
+  (value) => Boolean(value?.bridge && value?.petShell && value?.character && value?.proceduralSvg)
 );
 const bridgeReadyLatencyMs = Date.now() - petProbeStartedAt;
 
@@ -59,7 +58,6 @@ if (
   pet.dragHandleRegion !== 'no-drag' ||
   !pet.dragSurface ||
   !pet.proceduralSvg ||
-  !pet.collection?.candidate ||
   pet.runtime?.appVersion !== expectedVersion
 ) {
   throw new Error(`Pet renderer smoke check failed: ${JSON.stringify(pet)}`);
@@ -108,7 +106,7 @@ await call(petTarget, 'Input.dispatchMouseEvent', {
 const afterDrag = await waitForValue(petTarget, `({ x: window.screenX, y: window.screenY })`, (value) => value?.x !== beforeDrag.x || value?.y !== beforeDrag.y);
 const afterLongDrag = await evaluate(petTarget, `({
   visible: document.visibilityState === 'visible',
-  character: Boolean(document.querySelector('.pet-character .procedural-character svg')),
+  character: Boolean(document.querySelector('.pet-character .pixel-animal svg')),
   dragging: document.querySelector('.pet-drag-surface')?.classList.contains('is-dragging') ?? false
 })`);
 if (!afterLongDrag.visible || !afterLongDrag.character || afterLongDrag.dragging) {
@@ -126,15 +124,7 @@ if (!characterCenter) throw new Error('Pet character click target was unavailabl
 await evaluate(petTarget, "window.eyeProtect.openWorkbench('today')");
 const workbenchTarget = await waitForTarget(endpoint, '#workbench');
 await waitForValue(workbenchTarget, `Boolean(document.querySelector('.today-page'))`, Boolean);
-await call(petTarget, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: characterCenter.x, y: characterCenter.y, button: 'right', buttons: 2, clickCount: 1 });
 await call(petTarget, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: characterCenter.x, y: characterCenter.y, button: 'right', buttons: 0, clickCount: 1 });
-const collection = await waitForValue(workbenchTarget, `(() => ({
-  page: Boolean(document.querySelector('.collection-page')),
-  candidate: Boolean(document.querySelector('.candidate-card .procedural-character svg'))
-}))()`, (value) => value?.page && value?.candidate);
-if (!collection?.page || !collection.candidate) {
-  throw new Error(`Character collection smoke check failed: ${JSON.stringify(collection)}`);
-}
 await evaluate(petTarget, "window.eyeProtect.openWorkbench('settings')");
 await waitForValue(
   workbenchTarget,
@@ -225,7 +215,6 @@ console.log(
       pet,
       petDrag: { before: beforeDrag, after: afterDrag },
       bridgeReadyLatencyMs,
-      collection,
       workbench,
       themeAudit
     },

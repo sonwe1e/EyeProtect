@@ -79,7 +79,7 @@ export const sanitizeTaskUpdateInput = (input: TaskUpdateInput): WhitelistedTask
 
 ## 4. The Pet Window Stays Lightweight
 
-The always-resident pet window subscribes only to lightweight channels (pending-task count, care status, reminder status, character collection). It never receives the full task list.
+The always-resident pet window subscribes only to lightweight channels (pending-task count, care status, reminder status). It never receives the full task list.
 
 **Pattern:**
 ```typescript

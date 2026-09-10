@@ -1,12 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { Clock3, ListChecks, Settings as SettingsIcon } from 'lucide-react';
-import type { PetMood } from '../../../shared/types';
 import { PetCharacter } from '../features/pet/PetCharacter';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { usePendingTaskCount } from '../hooks/usePendingTaskCount';
 import { useSettings } from '../hooks/useSettings';
-import { createPixelAnimal } from '../../../shared/pixelAnimals';
-import { activeCharacterFrom, useCharacterCollection } from '../hooks/useCharacterCollection';
 import { commands, run } from '../lib/commands';
 import { useCommand } from '../hooks/useCommand';
 
@@ -20,9 +17,8 @@ export default function PetView(): JSX.Element {
     return window.eyeProtect.preparePomodoro(null, true);
   }));
   const pendingCount = usePendingTaskCount();
-  const collection = useCharacterCollection();
   const { settings } = useSettings();
-  const character = settings.petAppearance === 'collection' ? activeCharacterFrom(collection) : createPixelAnimal(settings.petAppearance);
+  const animal = settings.petAppearance;
   useLayoutEffect(() => {
     const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
     if (!svg) return;
@@ -33,7 +29,7 @@ export default function PetView(): JSX.Element {
       top: Math.max(0, (box.y - viewBox.y) / viewBox.height),
       bottom: Math.min(1, (box.y + box.height - viewBox.y) / viewBox.height)
     });
-  }, [character.id]);
+  }, [animal]);
   const dragRef = useRef<{
     pointerId: number;
     screenX: number;
@@ -44,7 +40,7 @@ export default function PetView(): JSX.Element {
   } | null>(null);
   const suppressClickUntilRef = useRef(0);
   const reactionTimer = useRef<number | null>(null);
-  const [reaction, setReaction] = useState<string | null>(null);
+  const [reacting, setReacting] = useState(false);
   const [dragging, setDragging] = useState(false);
 
   const handleOpenTodos = useCallback(() => {
@@ -101,10 +97,6 @@ export default function PetView(): JSX.Element {
     }
   }, []);
 
-  const mood: PetMood = 'calm';
-
-  const accessory = character.accessory;
-
   const compactPet = settings.petScale < 0.7;
 
   // Pointer capture on the drag surface retargets the synthesized `click`
@@ -113,12 +105,10 @@ export default function PetView(): JSX.Element {
   // only fires on a genuine single click (detail === 1), never after a drag.
   const handleReact = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (event.detail !== 1) return;
-    const actions = character.favoriteActions;
-    const action = actions[Math.floor(Math.random() * actions.length)];
-    setReaction(action);
+    setReacting(true);
     if (reactionTimer.current) clearTimeout(reactionTimer.current);
-    reactionTimer.current = window.setTimeout(() => setReaction(null), REACTION_MS);
-  }, [character.favoriteActions]);
+    reactionTimer.current = window.setTimeout(() => setReacting(false), REACTION_MS);
+  }, []);
 
   return (
     <main className={`pet-shell ${compactPet ? 'pet-compact' : ''}`.trim()} onContextMenu={handleContextMenu}>
@@ -159,10 +149,8 @@ export default function PetView(): JSX.Element {
           onDoubleClick={handlePetDoubleClick}
         >
           <PetCharacter
-            character={character}
-            mood={mood}
-            accessory={accessory}
-            reaction={reaction}
+            animal={animal}
+            reacting={reacting}
             doubleClickHint={
               reminderStatus.activeReminder?.mode === 'gentle'
                 ? '双击完成当前休息'

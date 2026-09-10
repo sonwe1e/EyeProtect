@@ -16,7 +16,9 @@
 
 `BubbleView` 复用同一个窗口显示手选待办、番茄钟设置或计时。优先级为健康提醒 > 番茄钟 > 手选待办。遮罩健康提醒使用独立 Alert 窗口；原主界面故障时，Emergency HTML 和原生通知继续兜底。
 
-`PetView` 的时钟按钮开启自由专注；任务行可以关联主任务启动。像素动物或既有角色使用统一入口渲染，不再生成每日访客或展示养成分数。
+Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动物、提醒类型与节拍文案，面板显示标题、主进程选中的微休息活动（`ActiveReminder.activityIds` 经 `breakActivities.getActivity` 解析，进度由 `ActivityGuide` 按 `restStartedAt` 推进）、倒计时环、走动提醒携带的待办、开始/完成/稍后/跳过动作。文案、阶段与倒计时由 `features/reminders/restViewModel.ts` 从主进程状态派生（`tests/rest-view-model.test.ts`），渲染端不持有计时权威。
+
+`PetView` 的时钟按钮开启自由专注；任务行可以关联主任务启动。桌宠只渲染三只内置像素动物（橘猫/小狗/白兔），外观由 `settings.petAppearance` 决定；旧的程序化/收藏角色系统已删除。
 
 ## 数据与迁移
 

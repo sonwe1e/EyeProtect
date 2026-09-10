@@ -6,7 +6,6 @@ import type {
   ActiveReminder,
   AppHealth,
   CareStatus,
-  CharacterCollectionState,
   FocusStatus,
   HotkeyStatus,
   Project,
@@ -124,7 +123,6 @@ export class AppWindows {
     | 'today'
     | 'settings'
     | 'reminders'
-    | 'collection'
     | 'pet-tasks'
     | 'review' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
@@ -279,7 +277,6 @@ export class AppWindows {
       | 'today'
       | 'settings'
       | 'reminders'
-      | 'collection'
       | 'pet-tasks'
       | 'review' = 'today'
   ): void {
@@ -374,7 +371,7 @@ export class AppWindows {
     }
   }
 
-  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks' {
+  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks' {
     return this.workbenchSection;
   }
 
@@ -621,14 +618,6 @@ export class AppWindows {
 
   broadcastFailedDeliveries(notices: FailedDeliveryNotice[]): void {
     this.sendTo([this.workbenchWindow], 'delivery:failed-changed', notices);
-  }
-
-  broadcastCharacterCollection(state: CharacterCollectionState): void {
-    this.sendTo(
-      [this.petWindow, this.alertWindow, this.bubbleWindow, this.workbenchWindow],
-      'character:changed',
-      state
-    );
   }
 
   broadcastHistory(report: WeeklyReport, care: CareStatus): void {

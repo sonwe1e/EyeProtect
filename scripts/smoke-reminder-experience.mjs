@@ -179,20 +179,4 @@ const workbench = (await waitForValue('#workbench', `(() => ({
 }))()`, (value) => value?.ready)).value;
 assert(workbench.shell, 'Workbench reminder page failed', workbench);
 
-await evaluate(pet, `window.eyeProtect.openWorkbench('collection')`);
-const collection = (await waitForValue('#workbench', `(() => ({
-  ready: Boolean(document.querySelector('.collection-page')),
-  character: Boolean(document.querySelector('.procedural-character svg'))
-}))()`, (value) => value?.ready && value?.character)).value;
-assert(collection.character, 'Character collection did not render a procedural candidate', collection);
-
-const collectResult = (await waitForValue('#workbench', `(() => {
-  const collect = [...document.querySelectorAll('.candidate-actions button')].find((entry) => entry.textContent?.includes('收下它'));
-  if (collect instanceof HTMLButtonElement && !collect.disabled) { collect.click(); return { clicked: true, collected: false }; }
-  return { clicked: false, collected: Boolean(document.querySelector('.character-card')) };
-})()`, (value) => value?.clicked || value?.collected)).value;
-if (collectResult.clicked) {
-  await waitForValue('#workbench', `Boolean(document.querySelector('.character-card'))`, Boolean);
-}
-
-console.log(JSON.stringify({ setup, alert, today, projectCreated, resumedFocus, workbench, collection, collectResult }, null, 2));
+console.log(JSON.stringify({ setup, alert, today, projectCreated, resumedFocus, workbench }, null, 2));

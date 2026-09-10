@@ -11,7 +11,6 @@
  * push events (`task:changed`, `project:changed`, …) keep working unchanged.
  */
 import type {
-  CharacterCollectionState,
   DailyReviewSummary,
   DailyReflection,
   DailyReflectionInput,
@@ -141,26 +140,6 @@ export const commands = {
       run<DailyReflection | null>(() => window.eyeProtect.getDailyReflection(localDate)),
     saveReflection: (input: DailyReflectionInput) =>
       run<DailyReflection>(() => window.eyeProtect.saveDailyReflection(input))
-  },
-
-  // ── Characters ─────────────────────────────────────────────────────────────
-  characters: {
-    collect: () =>
-      run<CharacterCollectionState>(() => window.eyeProtect.collectDailyCharacter()),
-    discard: () =>
-      run<CharacterCollectionState>(() => window.eyeProtect.discardDailyCharacter()),
-    rename: (id: string, name: string) =>
-      run<CharacterCollectionState>(() => window.eyeProtect.renameCharacter(id, name)),
-    remove: (id: string) =>
-      run<CharacterCollectionState>(() => window.eyeProtect.deleteCharacter(id)),
-    setFavorite: (id: string, favorite: boolean) =>
-      run<CharacterCollectionState>(() => window.eyeProtect.setCharacterFavorite(id, favorite)),
-    setAppearance: (mode: Parameters<typeof window.eyeProtect.setCharacterAppearance>[0], id?: string | null) =>
-      run<CharacterCollectionState>(() => window.eyeProtect.setCharacterAppearance(mode, id)),
-    setMaterial: (id: string, material: Parameters<typeof window.eyeProtect.setCharacterMaterial>[1]) =>
-      run<CharacterCollectionState>(() => window.eyeProtect.setCharacterMaterial(id, material)),
-    setAccessory: (id: string, accessory: Parameters<typeof window.eyeProtect.setCharacterAccessory>[1]) =>
-      run<CharacterCollectionState>(() => window.eyeProtect.setCharacterAccessory(id, accessory))
   },
 
   // ── Standalone reminders ────────────────────────────────────────────────────

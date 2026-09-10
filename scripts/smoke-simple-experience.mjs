@@ -34,7 +34,7 @@ const metrics = { scale, phase };
 try {
   const pet = await waitForTarget(endpoint, '#pet');
   await waitFor(pet, `Boolean(document.querySelector('.pet-drag-surface'))`);
-  await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light', eyeIntervalMinutes: 240, walkIntervalMinutes: 240, eyeRestSeconds: 5, todoBubbleTaskIds: [] })`);
+  await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light', eyeIntervalMinutes: 240, walkIntervalMinutes: 240, eyeRestSeconds: 12, todoBubbleTaskIds: [] })`);
   await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
   const workbench = await waitForTarget(endpoint, '#workbench');
   await waitFor(workbench, `document.querySelector('.simple-add') !== null`);
@@ -105,12 +105,64 @@ try {
     const reminder = await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
     const alert = emergency ? await waitForTarget(endpoint, (page) => page.url.startsWith('data:text/html'), 'emergency') : await waitForTarget(endpoint, '#alert');
     await waitFor(alert, emergency ? `document.querySelector('#start') !== null` : `document.querySelector('.simple-rest') !== null`);
-    await capture(alert, 'rest-ready');
+    if (!emergency) {
+      // The rest card is an "art stage + reading panel": stage with the pixel
+      // companion and the reminder kind, panel with the copy, the micro-break
+      // activity picked by the main process, the countdown and the actions.
+      await waitFor(alert, `document.querySelector('.rest-card .rest-stage-art .pixel-animal') !== null`);
+      // Settings arrive over IPC after the first paint; wait for the panel to
+      // reflect the saved rest length before asserting on the copy.
+      await waitFor(alert, `document.querySelector('.rest-ring-text strong')?.textContent === '00:12'`);
+      const chrome = await evaluate(alert, `(() => ({
+        badge: document.querySelector('.rest-kind-badge')?.textContent ?? '',
+        title: document.querySelector('#rest-title')?.textContent ?? '',
+        caption: document.querySelector('.rest-stage-caption')?.textContent ?? '',
+        primary: document.querySelector('.rest-actions button.primary')?.textContent ?? '',
+        timer: document.querySelector('.rest-ring-text strong')?.textContent ?? '',
+        activities: [...document.querySelectorAll('.rest-activities .activity-guide')].map((entry) => entry.textContent ?? '')
+      }))()`);
+      assert.equal(chrome.badge, '护眼提醒', 'the stage must label the reminder kind');
+      assert.equal(chrome.title, '让眼睛休息一下', 'the panel must carry the reminder title');
+      assert.equal(chrome.primary, '开始休息', 'the primary action must start the rest');
+      assert.equal(chrome.caption, '远望 · 眨眼 · 放松', 'the stage caption must match the kind');
+      assert.equal(chrome.timer, '00:12', 'the ready state previews the configured rest length');
+      assert.equal(chrome.activities.length, 1, 'an eye reminder must show its picked micro-break activity');
+      assert.ok(chrome.activities[0].includes('步'), `activity guide must show its pacing, got ${chrome.activities[0]}`);
+      await capture(alert, 'rest-ready');
+      await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
+      await waitFor(alert, `document.documentElement.dataset.theme === 'dark'`);
+      assert.equal(await evaluate(alert, `getComputedStyle(document.documentElement).colorScheme`), 'dark', 'the alert must follow the dark theme');
+      await capture(alert, 'rest-dark');
+      await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light' })`);
+      await waitFor(alert, `document.documentElement.dataset.theme === 'light'`);
+    } else {
+      await capture(alert, 'rest-ready');
+    }
     assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).running, true, 'pending prompt alone must not pause focus');
     await click(alert, '开始休息');
     await waitFor(pet, `(async () => !(await window.eyeProtect.getPomodoro()).running)()`);
     const paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
-    await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '${emergency ? '完成' : '完成休息'}' && !b.disabled)`);
+    if (!emergency) {
+      await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '完成休息')`);
+      const resting = await evaluate(alert, `(() => ({
+        ringLabel: document.querySelector('.rest-ring-text span')?.textContent ?? '',
+        lede: document.querySelector('.rest-lede')?.textContent ?? '',
+        completeDisabled: [...document.querySelectorAll('button')].find(b => b.textContent === '完成休息')?.disabled ?? null
+      }))()`);
+      assert.equal(resting.ringLabel, '剩余', 'the running countdown must label its ring');
+      assert.match(resting.lede, /^还有 \d+ 秒/, 'the running countdown must be visible as text');
+      assert.equal(resting.completeDisabled, true, 'focused mode must enforce the rest wait');
+    }
+    // The rest window is 12s below; waitFor's default budget is shorter.
+    await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '${emergency ? '完成' : '完成休息'}' && !b.disabled)`, 30_000);
+    if (!emergency) {
+      const finished = await evaluate(alert, `(() => ({
+        ringLabel: document.querySelector('.rest-ring-text span')?.textContent ?? '',
+        lede: document.querySelector('.rest-lede')?.textContent ?? ''
+      }))()`);
+      assert.equal(finished.ringLabel, '已到时间', 'the ring must settle once the rest window closed');
+      assert.equal(finished.lede, '这次休息时间已到', 'the panel must announce the finished rest');
+    }
     await capture(alert, 'rest-finished');
     await click(alert, emergency ? '完成' : '完成休息', true);
     await waitFor(pet, `(async () => !(await window.eyeProtect.getReminderStatus()).activeReminder)()`);

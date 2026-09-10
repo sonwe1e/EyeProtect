@@ -46,7 +46,6 @@ import {
   type TaskUpdateInput,
   type TaskStatus,
   type UndoState,
-  type CharacterCollectionState,
   type FailedDeliveryNotice,
   type TodoItem
 } from '../shared/types';
@@ -205,25 +204,6 @@ export class TaskStore extends EventEmitter {
 
   getRecoveryStatus(): TaskDatabaseRecovery {
     return { ...this.recovery };
-  }
-
-  getCharacterCollectionState(): CharacterCollectionState | null {
-    const row = this.db.prepare('SELECT data_json FROM character_collection_state WHERE id = 1').get() as SqlRow | undefined;
-    if (!row || typeof row.data_json !== 'string') return null;
-    try {
-      return JSON.parse(row.data_json) as CharacterCollectionState;
-    } catch {
-      return null;
-    }
-  }
-
-  replaceCharacterCollectionState(state: CharacterCollectionState): CharacterCollectionState {
-    this.db.prepare(`
-      INSERT INTO character_collection_state(id, data_json, updated_at) VALUES (1, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at
-    `).run(JSON.stringify(state), Date.now());
-    this.emit('character-collection-changed', state);
-    return structuredClone(state);
   }
 
   close(): void {
@@ -1371,13 +1351,12 @@ export class TaskStore extends EventEmitter {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS character_collection_state (
-        id INTEGER PRIMARY KEY CHECK(id = 1),
-        data_json TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
     `);
     this.migrateTaskStatusModel();
+    // Drop the legacy collectible-character table from the old "组合桌宠"
+    // feature. Removed alongside CharacterMaterial/PetAccessory and the
+    // character service; old backups simply lose this data on import.
+    this.db.exec('DROP TABLE IF EXISTS character_collection_state');
     const projectColumns = this.db.prepare('PRAGMA table_info(projects)').all() as SqlRow[];
     if (!projectColumns.some((column) => column.name === 'goal')) {
       this.db.exec('ALTER TABLE projects ADD COLUMN goal TEXT');

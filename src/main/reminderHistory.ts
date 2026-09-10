@@ -309,38 +309,22 @@ export const buildCareStatus = (
         skippedToday * 8
     )
   );
-  const hour = new Date(now).getHours();
   const lastComplete = [...today]
     .reverse()
     .find((event) => event.action === 'complete');
   const recentlyCompleted = Boolean(
     lastComplete && now - lastComplete.timestamp <= 10 * 60 * 1_000
   );
-  const mood =
-    hour >= 22 || hour < 7
-      ? 'sleeping'
-      : recentlyCompleted
-        ? 'happy'
-        : snoozedToday >= 2 && snoozedToday > completedToday
-          ? 'tired'
-          : 'calm';
-  const accessory =
-    completedToday >= 8
-      ? 'leaf'
-      : completedToday >= 5
-        ? 'glasses'
-        : completedToday >= 3
-          ? 'cup'
-          : 'none';
+  const hour = new Date(now).getHours();
   const message =
     today.length === 0
       ? '今天从轻松开始'
-      : mood === 'happy'
+      : recentlyCompleted
         ? '休息得很好，继续保持舒服的节奏'
-        : mood === 'tired'
+        : snoozedToday >= 2 && snoozedToday > completedToday
           ? '今天稍后有点多，下一次试着停一小会儿'
-          : mood === 'sleeping'
-            ? '夜深了，青蛙也准备休息'
+          : hour >= 22 || hour < 7
+            ? '夜深了，该准备休息了'
             : `今天已认真休息 ${completedToday + naturalBreaksToday} 次`;
   return {
     score,
@@ -348,8 +332,6 @@ export const buildCareStatus = (
     snoozedToday,
     skippedToday,
     naturalBreaksToday,
-    mood,
-    accessory,
     message
   };
 };

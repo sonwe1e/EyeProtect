@@ -6,7 +6,7 @@ EyeProtect 是本地优先的 Windows 休息提醒与待办助手，使用 Elect
 
 主界面只有待办、完成记录、设置。任务按截止日期分组，使用简单清单；点击任务原地展开备注、日期、单次提醒与一层步骤。桌宠旁气泡展示手选任务或番茄钟。休息统一用遮罩，点击开始休息暂停专注，手动继续恢复。
 
-旧项目/规划/工时/独立提醒/养成界面不在当前主流程。旧数据保留供备份、只读查看与恢复，不重新启用旧自动规则。
+旧项目/规划/工时/独立提醒界面不在当前主流程；旧组合收藏角色系统已随像素动物方案删除。旧数据保留供备份、只读查看与恢复，不重新启用旧自动规则。
 
 ## 查找位置
 
@@ -15,8 +15,10 @@ EyeProtect 是本地优先的 Windows 休息提醒与待办助手，使用 Elect
 | 主任务、清单、步骤 | src/main/taskService.ts、src/main/taskStore.ts、src/shared/simpleTasks.ts |
 | 日期与 IPC | src/shared/types.ts、src/main/ipcTaskInput.ts、src/preload/index.ts、src/main/index.ts |
 | 休息节奏与生命周期 | src/main/reminders.ts、src/main/scheduling/kernel.ts、src/main/activityMonitor.ts |
+| 提醒界面（遮罩卡片） | src/renderer/src/views/AlertView.tsx、src/renderer/src/features/reminders/restViewModel.ts、src/renderer/src/features/reminders/ActivityGuide.tsx |
 | 番茄钟 | src/main/pomodoro.ts、src/renderer/src/features/simple/PomodoroCard.tsx |
 | 主界面与设置 | src/renderer/src/views/WorkbenchView.tsx、src/renderer/src/features/simple/SimpleSettings.tsx |
+| 桌宠与像素动物 | src/renderer/src/views/PetView.tsx、src/shared/pixelAnimals.ts、src/renderer/src/features/characters/PixelAnimal.tsx |
 | 窗口与兜底 | src/main/windows.ts、src/main/windowBounds.ts、src/main/reminderSurface.ts |
 | 数据兼容 | src/main/backup.ts；数据库 v5、备份 v7 |
 

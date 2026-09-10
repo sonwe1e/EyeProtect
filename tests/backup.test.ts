@@ -17,7 +17,7 @@ const event: ReminderEvent = {
   mode: 'guided'
 };
 
-test('complete v4 backup round-trips Task Core, characters, occurrences and reminder history', () => {
+test('complete v4 backup round-trips Task Core, occurrences and reminder history', () => {
   const settings = {
     ...DEFAULT_SETTINGS,
     eyeIntervalMinutes: 35
@@ -36,11 +36,7 @@ test('complete v4 backup round-trips Task Core, characters, occurrences and remi
       enabled: true, createdAt: 1, updatedAt: 1
     }],
     activeTaskId: task.id,
-    taskReminderOccurrences: [{ taskId: task.id, fireAt: 50, consumedAt: 60 }],
-    characterCollection: {
-      installSalt: 'install', characters: [], candidate: null, appearanceMode: 'daily-random',
-      pinnedCharacterId: null, activeCharacterId: 'character-starter'
-    }
+    taskReminderOccurrences: [{ taskId: task.id, fireAt: 50, consumedAt: 60 }]
   });
   const restored = parseBackup(text);
 
@@ -53,7 +49,6 @@ test('complete v4 backup round-trips Task Core, characters, occurrences and remi
   assert.equal(restored.standaloneReminders[0].schedule.type, 'daily');
   assert.equal(restored.activeTaskId, 'task-1');
   assert.deepEqual(restored.taskReminderOccurrences, [{ taskId: task.id, fireAt: 50, consumedAt: 60 }]);
-  assert.equal(restored.characterCollection?.installSalt, 'install');
   assert.deepEqual(restored.reminderHistory, [event]);
 });
 

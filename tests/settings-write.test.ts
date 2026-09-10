@@ -92,11 +92,20 @@ test('pet selection persists with order and returns an isolated snapshot', () =>
   });
 });
 
-test('legacy settings preserve collection appearance and invalid selection is cleaned', () => {
+test('legacy settings invalid appearance selection is cleaned', () => {
   withTempStore((_store, dir) => {
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ todoBubbleTaskIds: ['a', '', 2, null, 'a'] }));
     const restored = new SettingsStore().get();
-    assert.equal(restored.petAppearance, 'collection');
+    assert.equal(restored.petAppearance, 'cat');
     assert.deepEqual(restored.todoBubbleTaskIds, ['a']);
+  });
+});
+
+test('a removed collectible-character id falls back to a built-in animal', () => {
+  withTempStore((_store, dir) => {
+    // The old "组合桌宠" collection stored generated character ids here; the
+    // pixel-animal setting must reject them instead of rendering nothing.
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ petAppearance: 'character-1a2b3c' }));
+    assert.equal(new SettingsStore().get().petAppearance, 'cat');
   });
 });

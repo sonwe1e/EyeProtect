@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import type { PixelAnimal as Animal } from '../../../../shared/pixelAnimals';
 
 // Every contour sits on a 64 x 64 grid. Stepped fills provide volume without
 // gradients or subpixel transforms; ears, face and limbs switch whole frames.
-export function PixelAnimal({ animal, action, label }: { animal: Animal; action: string; label: string }): JSX.Element {
+// Memoized because the alert window re-renders once per countdown second and
+// must not redraw the artwork.
+export const PixelAnimal = memo(function PixelAnimal({ animal, action, label }: { animal: Animal; action: string; label: string }): JSX.Element {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -33,7 +35,7 @@ export function PixelAnimal({ animal, action, label }: { animal: Animal; action:
   const cream = '#fff0d4';
   const pink = '#eaa4a9';
   const blink = frame === 2;
-  return <div className="procedural-character pixel-animal" role="img" aria-label={label} data-animal={animal} data-frame={frame}>
+  return <div className="pixel-animal" role="img" aria-label={label} data-animal={animal} data-frame={frame}>
     <svg viewBox="0 0 64 64" shapeRendering="crispEdges" aria-hidden="true">
       <path fill={ink} opacity=".15" d="M18 59H46V61H18Z" />
       {cat ? <g><path fill={ink} d={frame === 1 ? 'M44 47H50V41H54V49H52V53H44Z' : 'M43 49H49V45H53V51H51V55H43Z'} /><path fill={mid} d={frame === 1 ? 'M46 49H50V45H52V49H50V51H46Z' : 'M45 51H49V49H51V51H49V53H45Z'} /></g> : null}
@@ -76,4 +78,4 @@ export function PixelAnimal({ animal, action, label }: { animal: Animal; action:
       <path fill={light} d="M24 56H28V58H24ZM36 56H40V58H36Z" />
     </svg>
   </div>;
-}
+});

@@ -123,9 +123,6 @@ try {
   await evaluate(workbench, `document.querySelector('.pet-task-choices input[type="checkbox"]').click()`);
   await waitFor(workbench, `(async () => (await window.eyeProtect.getSettings()).todoBubbleTaskIds.length === 3)()`);
   await waitFor(bubble, `document.querySelectorAll('.bubble-task-row').length === 3`);
-  await evaluate(pet, `window.eyeProtect.openWorkbench('collection')`);
-  await waitFor(workbench, `document.querySelector('.builtin-animal-grid') !== null`);
-  await capture(workbench, 'animal-collection');
   await evaluate(pet, `window.eyeProtect.closeWorkbench()`);
   await evaluate(pet, `window.eyeProtect.saveSettings({ todoBubbleTaskIds: ${JSON.stringify([ids[0]])} })`);
   await waitFor(bubble, `document.querySelectorAll('.bubble-complete').length === 1`);

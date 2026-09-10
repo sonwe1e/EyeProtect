@@ -22,7 +22,7 @@
 | 安全加固记录 | [docs/hardening-notes.md](docs/hardening-notes.md) | `src/main/security.ts`、`src/main/scheduling/emergencyTemplate.ts` | `tests/security.test.ts` |
 | 发布与验收 | [docs/release-checklist.md](docs/release-checklist.md) | `package.json`、`.github/workflows/windows.yml` | — |
 | 备份与恢复 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/main/backup.ts`、`src/main/taskStore.ts` | `tests/backup.test.ts` |
-| 角色与收藏 | [CLAUDE.md](CLAUDE.md) §Generated / runtime directories | `src/shared/characters.ts`、`src/main/characterService.ts` | `tests/characters.test.ts`、`tests/character-service.test.ts` |
+| 像素动物与提醒界面 | [CLAUDE.md](CLAUDE.md) §Generated / runtime directories | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx`、`src/renderer/src/views/AlertView.tsx` | `tests/rest-view-model.test.ts` |
 | 今日视图与规划 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/renderer/src/features/tasks/todaySections.ts`、`src/renderer/src/features/tasks/todayViewModel.ts` | `tests/today-sections.test.ts`、`tests/today-view-model.test.ts` |
 | 项目生命周期 | [CLAUDE.md](CLAUDE.md) §Architecture | `src/shared/projectPolicy.ts`、`src/renderer/src/features/tasks/ProjectWorkspace.tsx` | `tests/project-policy.test.ts` |
 
@@ -37,7 +37,7 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 - `src/shared/`：主进程、preload、renderer 共用的类型、默认设置和设置范围。
 - `src/renderer/`：渲染端入口和 React UI。`src/renderer/src/App.tsx` 只负责按 URL hash 动态加载视图；`views/` 放窗口级界面，`features/` 放任务、提醒、桌宠、计划、复盘等组件，`hooks/` 按窗口订阅所需数据，`styles/` 放基础样式与设计令牌（`styles.css` 为遗留窗口样式：桌宠/提醒/气泡 + 工作台内嵌设置页与独立提醒页）。
 - `tests/`：Node 内置 test runner 测试，覆盖提醒调度、调度内核、运行状态恢复、系统生命周期、任务/项目/计划/专注、备份、设置事件、提醒追踪日志和 IPC 页面白名单。`tests/electron-loader.mjs` + `tests/electron-stub.mjs` 为 reminder surface 测试在纯 Node 下打桩 Electron。
-- `public/assets/`：静态资源。只包含 `tray-icon.png`（托盘）和 `app-icon.ico`（打包图标）；桌宠与提醒主体由程序化内联 SVG 渲染。`app-icon.png` 源文件在 `scripts/assets/`（仅 `npm run build:icon` 生成 .ico 时使用），不会被打包。
+- `public/assets/`：静态资源。只包含 `tray-icon.png`（托盘）和 `app-icon.ico`（打包图标）；桌宠与提醒视觉由内联 SVG 渲染。`app-icon.png` 源文件在 `scripts/assets/`（仅 `npm run build:icon` 生成 .ico 时使用），不会被打包。
 - `out/`、`release/`、`node_modules/`：构建产物、发行产物和依赖目录，通常不要手动修改。
 
 ## 功能修改位置速查
@@ -54,8 +54,8 @@ EyeProtect 是一个 Windows 桌面护眼提醒与工作节奏应用，技术栈
 | IPC 入参清洗（任务/项目创建与更新） | `src/main/ipcTaskInput.ts`、`src/main/ipcProjectInput.ts` | 所有 renderer 传入字段在此白名单化；新增任务字段（含并发保护 `baseRevision`）必须在此透传并补 `tests/ipc-task-input.test.ts`。 |
 | 桌宠界面、提醒卡片、设置窗口、按钮、文案、表单 | `src/renderer/src/views/`、`src/renderer/src/features/` | 窗口级状态留在 View，可复用交互放在对应 feature；不要恢复全窗口共用的 `useAppState()`。 |
 | 视觉样式、窗口布局、桌宠外观和动画 | `src/renderer/src/styles.css`、`src/renderer/src/styles/` | 窗口透明和拖拽依赖 `-webkit-app-region`，按钮等交互元素必须保持 `no-drag`；公共颜色和节奏优先使用设计令牌。详见 [docs/color-system.md](docs/color-system.md)。 |
-| 公仔生成、收藏、材质、配饰和低频动作 | `src/shared/characters.ts`、`src/main/characterService.ts`、`src/renderer/src/features/characters/` | 角色由种子确定性生成；用户改名/材质/配饰不能改变角色指纹。默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
-| 托盘图标或程序化提醒视觉 | `public/assets/tray-icon.png`、`src/renderer/src/features/reminders/ReminderArtwork.tsx` | 托盘图标必须继续包含在两个发行包中；公仔与提醒为内联 SVG，不依赖旧固定 PNG。修改后运行 `npm run package`。 |
+| 像素动物外观与低频动作 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx` | 只有内置的橘猫/小狗/白兔三只；`PIXEL_ANIMALS` 是唯一来源，设置清洗与两个窗口都从它派生。默认保持静止，仅在页面可见且未启用 reduced-motion 时低频播放一次短动作。 |
+| 托盘图标或提醒界面视觉 | `public/assets/tray-icon.png`、`src/renderer/src/views/AlertView.tsx`、`src/renderer/src/features/characters/PixelAnimal.tsx` | 托盘图标必须继续包含在两个发行包中；提醒视觉是「舞台 + 阅读面板」，样式在 `styles.css` 的 `.rest-*`，颜色令牌在 `theme.css` 的 `--rest-accent-*`。修改后运行 `npm run package`。 |
 | 打包配置、产物名称、Windows NSIS/portable 目标 | `package.json` | 修改 `build` 字段；默认输出目录是 `release/`。 |
 | electron-vite 入口、renderer public 目录 | `electron.vite.config.ts` | main、preload、renderer 的入口都在这里声明。 |
 | 今日视图、每日规划、专注候选 | `src/renderer/src/features/tasks/todaySections.ts`、`src/renderer/src/features/tasks/todayViewModel.ts`、`src/renderer/src/features/tasks/FocusSurface.tsx` | 任务必须经过 `isTaskAvailableForPlanning` 过滤；项目完成/归档后其任务不再进入 Today/Focus。详见 [docs/architecture.md](docs/architecture.md) §Today & Focus。 |

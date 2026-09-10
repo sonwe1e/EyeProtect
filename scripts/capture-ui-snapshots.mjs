@@ -189,7 +189,7 @@ mkdirSync(outputDir, { recursive: true });
 const pet = await waitForTarget(endpoint, '#pet');
 await waitFor(pet, `(async () => {
   const api = window.eyeProtect;
-  const methods = ['getTasks', 'createTask', 'deleteTask', 'getProjects', 'createProject', 'deleteProject', 'updateProject', 'updateTask', 'setActiveTask', 'upsertDailyPlan', 'createTimeBlock', 'createProjectSection', 'startFocus', 'pauseFocus', 'saveSettings', 'openWorkbench', 'getCharacterCollection'];
+  const methods = ['getTasks', 'createTask', 'deleteTask', 'getProjects', 'createProject', 'deleteProject', 'updateProject', 'updateTask', 'setActiveTask', 'upsertDailyPlan', 'createTimeBlock', 'createProjectSection', 'startFocus', 'pauseFocus', 'saveSettings', 'openWorkbench'];
   return Boolean(api) && methods.every((name) => typeof api[name] === 'function');
 })()`);
 await evaluate(pet, `(async () => {
@@ -473,10 +473,6 @@ for (const [width, height] of [[944, 561], [960, 600]]) {
   }
 }
 await setViewport(workbench, 1600, 900, acceptanceScale);
-
-await evaluate(pet, `window.eyeProtect.openWorkbench('collection')`);
-await waitFor(workbench, `Boolean(document.querySelector('.collection-page .procedural-character svg'))`);
-await capture(workbench, 'collection-dark.png');
 
 await evaluate(pet, `window.eyeProtect.openWorkbench('settings')`);
 await waitFor(workbench, `Boolean(document.querySelector('.settings-shell'))`);

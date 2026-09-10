@@ -19,9 +19,9 @@ for (const percent of scales) {
       width: innerWidth,
       height: innerHeight,
       toolbar: Boolean(document.querySelector('.pet-toolbar')),
-      character: Boolean(document.querySelector('.pet-character .procedural-character svg')),
+      character: Boolean(document.querySelector('.pet-character .pixel-animal svg')),
       dragSurface: Boolean(document.querySelector('.pet-drag-surface')),
-      secondaryChrome: ['.pet-care-badge', '.pet-gift-badge', '.pet-drag-handle']
+      secondaryChrome: ['.pet-drag-handle']
         .some((selector) => {
           const element = document.querySelector(selector);
           return element && getComputedStyle(element).display !== 'none';
@@ -107,7 +107,7 @@ for (const percent of scales) {
   await waitFor(workbench, `Boolean(document.querySelector('.today-page'))`);
   await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: center.x, y: center.y, button: 'right', buttons: 2, clickCount: 1 });
   await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: center.x, y: center.y, button: 'right', buttons: 0, clickCount: 1 });
-  await waitFor(workbench, `Boolean(document.querySelector('.collection-page'))`);
+  await waitFor(workbench, `Boolean(document.querySelector('.settings-shell'))`);
 }
 
 await evaluate(pet, `window.eyeProtect.saveSettings({ petScale: 1 })`);

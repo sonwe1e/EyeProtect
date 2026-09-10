@@ -99,6 +99,17 @@ test('Workbench selection stays neutral while active navigation icons carry the 
   assert.match(workbenchCss, /\.task-row\.is-selected[^}]*background:\s*var\(--surface-selected\)/);
 });
 
+test('the workbench owns a scroll container', () => {
+  // base.css keeps `body { overflow: hidden }` for the transparent widget
+  // windows, and a hidden body overflow propagates to the viewport: the page
+  // then clips content without allowing wheel/keyboard scrolling. The workbench
+  // must therefore scroll inside its own shell.
+  const simpleCss = read('src/renderer/src/styles/simple.css');
+  assert.match(simpleCss, /\.simple-workbench\s*\{[^}]*height:\s*100vh/s, 'workbench shell must bound its own height');
+  assert.match(simpleCss, /\.simple-workbench\s*\{[^}]*overflow-y:\s*auto/s, 'workbench shell must scroll its overflowing content');
+  assert.match(read('src/renderer/src/styles/base.css'), /body\s*\{[^}]*overflow:\s*hidden/s, 'widget windows keep the document unscrollable');
+});
+
 test('theme changes reach every live renderer window', () => {
   assert.match(
     windowsSource,

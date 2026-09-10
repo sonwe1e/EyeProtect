@@ -7,8 +7,6 @@ const DEFAULT_CARE: CareStatus = {
   snoozedToday: 0,
   skippedToday: 0,
   naturalBreaksToday: 0,
-  mood: 'calm',
-  accessory: 'none',
   message: '今天从轻松开始'
 };
 

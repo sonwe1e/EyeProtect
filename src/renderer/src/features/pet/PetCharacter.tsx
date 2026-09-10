@@ -1,21 +1,17 @@
 import { useEffect, useState } from 'react';
-import type { CollectibleCharacter, PetAccessory, PetMood } from '../../../../shared/types';
-import { ProceduralCharacter } from '../characters/ProceduralCharacter';
+import { PIXEL_ANIMAL_NAMES, type PixelAnimal } from '../../../../shared/pixelAnimals';
+import { PixelAnimal as PixelAnimalArtwork } from '../characters/PixelAnimal';
 
 const IDLE_ACTION_INTERVAL_MS = 45_000;
 const IDLE_ACTION_MAX_MS = 5_200;
 
 export function PetCharacter({
-  character,
-  mood,
-  accessory,
-  reaction,
+  animal,
+  reacting,
   doubleClickHint
 }: {
-  character: CollectibleCharacter;
-  mood: PetMood;
-  accessory: PetAccessory;
-  reaction: string | null;
+  animal: PixelAnimal;
+  reacting: boolean;
   doubleClickHint: string;
 }): JSX.Element {
   const [isAnimating, setIsAnimating] = useState(false);
@@ -53,15 +49,16 @@ export function PetCharacter({
       document.removeEventListener('visibilitychange', sync);
       reducedMotion.removeEventListener('change', sync);
     };
-  }, [character.id]);
+  }, [animal]);
 
+  const name = PIXEL_ANIMAL_NAMES[animal];
   return (
     <div
-      className={`pet-character mood-${mood} ${isAnimating ? 'is-animating' : ''} ${reaction ? `is-reacting reaction-${reaction}` : ''}`.trim()}
-      aria-label={character.name}
+      className={`pet-character ${isAnimating ? 'is-animating' : ''} ${reacting ? 'is-reacting' : ''}`.trim()}
+      aria-label={name}
       title={`单击互动，${doubleClickHint}`}
     >
-      <ProceduralCharacter character={character} mood={mood} action={reaction || isAnimating ? 'react' : 'idle'} accessory={accessory} />
+      <PixelAnimalArtwork animal={animal} action={reacting || isAnimating ? 'react' : 'idle'} label={name} />
     </div>
   );
 }

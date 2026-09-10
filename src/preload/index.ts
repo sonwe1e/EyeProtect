@@ -1,9 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   CareStatus,
-  CharacterAppearanceMode,
-  CharacterCollectionState,
-  CharacterMaterial,
   DailyReviewSummary,
   DailyReflection,
   DailyReflectionInput,
@@ -16,7 +13,6 @@ import type {
   FailedDeliveryNotice,
   FocusStatus,
   HotkeyStatus,
-  PetAccessory,
   PetPosition,
   PreAlertAction,
   Project,
@@ -185,26 +181,6 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('delivery:failed:dismiss', id) as Promise<FailedDeliveryNotice[]>,
   onFailedDeliveriesChanged: (callback) =>
     on<FailedDeliveryNotice[]>('delivery:failed-changed', callback),
-  getCharacterCollection: () =>
-    ipcRenderer.invoke('character:get') as Promise<CharacterCollectionState>,
-  collectDailyCharacter: () =>
-    ipcRenderer.invoke('character:collect') as Promise<CharacterCollectionState>,
-  discardDailyCharacter: () =>
-    ipcRenderer.invoke('character:discard') as Promise<CharacterCollectionState>,
-  renameCharacter: (id: string, name: string) =>
-    ipcRenderer.invoke('character:rename', id, name) as Promise<CharacterCollectionState>,
-  deleteCharacter: (id: string) =>
-    ipcRenderer.invoke('character:delete', id) as Promise<CharacterCollectionState>,
-  setCharacterFavorite: (id: string, favorite: boolean) =>
-    ipcRenderer.invoke('character:favorite', id, favorite) as Promise<CharacterCollectionState>,
-  setCharacterAppearance: (mode: CharacterAppearanceMode, id: string | null = null) =>
-    ipcRenderer.invoke('character:appearance', mode, id) as Promise<CharacterCollectionState>,
-  setCharacterMaterial: (id: string, material: CharacterMaterial) =>
-    ipcRenderer.invoke('character:material', id, material) as Promise<CharacterCollectionState>,
-  setCharacterAccessory: (id: string, accessory: PetAccessory) =>
-    ipcRenderer.invoke('character:accessory', id, accessory) as Promise<CharacterCollectionState>,
-  onCharacterCollectionChanged: (callback) =>
-    on<CharacterCollectionState>('character:changed', callback),
   reportPetArtworkBounds: (bounds) => ipcRenderer.invoke('window:pet:artwork-bounds', bounds) as Promise<void>,
   reportBubbleHeight: (height) => ipcRenderer.invoke('window:bubble:height', height) as Promise<void>,
   onBubbleLayout: (callback) => on('bubble:layout', callback),
@@ -214,9 +190,9 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks'>,
+    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>,
   onWorkbenchNavigate: (callback) =>
-    on<'today' | 'settings' | 'reminders' | 'collection' | 'review' | 'pet-tasks'>('workbench:navigate', callback),
+    on<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>('workbench:navigate', callback),
   getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
   getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
   clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,

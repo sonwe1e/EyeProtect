@@ -98,7 +98,7 @@ test('legacy nested steps flatten for display without rewriting their relationsh
   });
 });
 
-test('v7 backup retains explicit empty dates; old backups convert dueAt but not plannedAt', () => {
+test('v8 backup retains explicit empty dates; old backups convert dueAt but not plannedAt', () => {
   const stamp = new Date(2026, 5, 1, 12).getTime();
   const task = sanitizeTask({ id: 't', title: 'test', dueDate: null, dueAt: stamp, plannedAt: stamp })!;
   const backup = createBackup(DEFAULT_SETTINGS, [], '1.4.0', stamp, { tasks: [task] });
