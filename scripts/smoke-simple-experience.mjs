@@ -91,7 +91,12 @@ try {
   console.log('Task UI, completion, undo and settings passed.');
   if (phase === 'all') {
     await evaluate(pet, `window.eyeProtect.closeWorkbench()`);
-    await evaluate(pet, `window.eyeProtect.movePetWindow({ x: 550, y: 470 })`);
+    // Center the pet in the work area: CI runners are 1024x768, so at 1.25x/1.5x
+    // device scale the work area is only ~819/683 DIP wide and a hardcoded
+    // position parks the pet so close to an edge that the bubble is clamped.
+    const workArea = await evaluate(pet, `({ left: screen.availLeft, top: screen.availTop, width: screen.availWidth, height: screen.availHeight })`);
+    const petSize = await evaluate(pet, `({ width: innerWidth, height: innerHeight })`);
+    await evaluate(pet, `window.eyeProtect.movePetWindow({ x: ${Math.round(workArea.left + (workArea.width - petSize.width) / 2)}, y: ${Math.round(workArea.top + (workArea.height - petSize.height) / 2)} })`);
     await evaluate(pet, `window.eyeProtect.preparePomodoro(${JSON.stringify(root.id)}, false)`);
     bubble = await waitForTarget(endpoint, '#bubble');
     await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]') !== null`);
@@ -172,6 +177,7 @@ try {
     await capture(bubble, 'pomodoro-paused');
     await click(bubble, '继续');
     metrics.drag = [];
+    let unclamped = 0;
     const start = await evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
     const petRect = () => evaluate(pet, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
     const bubbleRect = () => evaluate(bubble, '({ x: screenX, y: screenY, width: innerWidth, height: innerHeight })');
@@ -201,14 +207,26 @@ try {
       await delay(25);
       const { p, b, settled } = await settledGeometry();
       assert.equal(p.width, start.width); assert.equal(p.height, start.height);
+      // The bubble centers under the pet but never leaves the work area, so on
+      // small displays the expected center is the clamped one — asserting the
+      // unclamped pet center would fail against correct behavior.
+      const petCenter = p.x + p.width / 2;
+      const bubbleCenter = b.x + b.width / 2;
+      const minCenter = workArea.left + b.width / 2;
+      const maxCenter = workArea.left + workArea.width - b.width / 2;
+      const expectedCenter = Math.min(Math.max(petCenter, minCenter), maxCenter);
       assert.ok(
-        Math.abs(b.x + b.width / 2 - p.x - p.width / 2) <= 2,
-        `bubble must stay centered under the pet at step ${step} (settled=${settled}): pet=${JSON.stringify(p)} bubble=${JSON.stringify(b)}`
+        Math.abs(bubbleCenter - expectedCenter) <= 2,
+        `bubble must follow the pet at step ${step} (settled=${settled}): pet=${JSON.stringify(p)} bubble=${JSON.stringify(b)} expectedCenter=${expectedCenter} workArea=${JSON.stringify(workArea)}`
       );
-      metrics.drag.push({ p, b, settled });
+      if (Math.abs(petCenter - expectedCenter) < 0.5) unclamped += 1;
+      metrics.drag.push({ p, b, settled, expectedCenter });
     }
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 80, button: 'left', buttons: 0, clickCount: 1 });
     assert.ok(new Set(metrics.drag.map(entry => entry.p.x)).size > 15);
+    // Following must be exercised, not just clamping: most steps have to be
+    // unclamped, otherwise a frozen bubble could pass the loop above.
+    assert.ok(unclamped > 15, `bubble following must be exercised on unclamped steps, got ${unclamped}/50`);
     console.log('Health pause/resume and continuous drag passed.');
     if (process.argv.includes('--wait-finish')) {
       console.log('Waiting for the real one-minute timer to finish.');
