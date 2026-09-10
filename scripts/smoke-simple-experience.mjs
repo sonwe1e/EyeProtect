@@ -199,11 +199,27 @@ try {
       }
       return { ...previous, settled: false };
     };
+    // The injected pointer is expressed in client coordinates of a 160 px
+    // window. If the window has not caught up with the previous move yet, that
+    // coordinate lands outside the window and Chromium clamps it, which
+    // silently shrinks the sweep (CI produced <= 15 distinct positions that
+    // way). Wait for the window to stop before converting the next target.
+    const settledPetX = async () => {
+      let previous = await evaluate(pet, 'screenX');
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        await delay(20);
+        const next = await evaluate(pet, 'screenX');
+        if (next === previous) return next;
+        previous = next;
+      }
+      return previous;
+    };
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 80, button: 'left', buttons: 1, clickCount: 1 });
     for (let step = 1; step <= 50; step += 1) {
-      const current = await evaluate(pet, '({ x: screenX, y: screenY })');
       const dx = Math.round(Math.sin(step / 50 * Math.PI * 2) * 180);
-      await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x + 80 + dx - current.x, y: 80, button: 'left', buttons: 1 });
+      const currentX = await settledPetX();
+      const clientX = start.x + 80 + dx - currentX;
+      await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: clientX, y: 80, button: 'left', buttons: 1 });
       await delay(25);
       const { p, b, settled } = await settledGeometry();
       assert.equal(p.width, start.width); assert.equal(p.height, start.height);
@@ -220,10 +236,11 @@ try {
         `bubble must follow the pet at step ${step} (settled=${settled}): pet=${JSON.stringify(p)} bubble=${JSON.stringify(b)} expectedCenter=${expectedCenter} workArea=${JSON.stringify(workArea)}`
       );
       if (Math.abs(petCenter - expectedCenter) < 0.5) unclamped += 1;
-      metrics.drag.push({ p, b, settled, expectedCenter });
+      metrics.drag.push({ p, b, settled, expectedCenter, clientX });
     }
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 80, button: 'left', buttons: 0, clickCount: 1 });
-    assert.ok(new Set(metrics.drag.map(entry => entry.p.x)).size > 15);
+    const distinctPetX = new Set(metrics.drag.map(entry => entry.p.x)).size;
+    assert.ok(distinctPetX > 15, `the drag must sweep the pet, got ${distinctPetX} distinct x: ${JSON.stringify(metrics.drag.map(entry => entry.p.x))}`);
     // Following must be exercised, not just clamping: most steps have to be
     // unclamped, otherwise a frozen bubble could pass the loop above.
     assert.ok(unclamped > 15, `bubble following must be exercised on unclamped steps, got ${unclamped}/50`);
