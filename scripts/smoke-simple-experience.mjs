@@ -91,12 +91,20 @@ try {
   console.log('Task UI, completion, undo and settings passed.');
   if (phase === 'all') {
     await evaluate(pet, `window.eyeProtect.closeWorkbench()`);
-    // Center the pet in the work area: CI runners are 1024x768, so at 1.25x/1.5x
-    // device scale the work area is only ~819/683 DIP wide and a hardcoded
-    // position parks the pet so close to an edge that the bubble is clamped.
+    // Center the pet in the work area: CI runners are small, so at 1.25x/1.5x
+    // device scale the work area is only a few hundred DIP wide and a hardcoded
+    // position parks the pet so close to an edge that the bubble is clamped and
+    // the sweep has no room.
     const workArea = await evaluate(pet, `({ left: screen.availLeft, top: screen.availTop, width: screen.availWidth, height: screen.availHeight })`);
     const petSize = await evaluate(pet, `({ width: innerWidth, height: innerHeight })`);
-    await evaluate(pet, `window.eyeProtect.movePetWindow({ x: ${Math.round(workArea.left + (workArea.width - petSize.width) / 2)}, y: ${Math.round(workArea.top + (workArea.height - petSize.height) / 2)} })`);
+    const petHome = {
+      x: Math.round(workArea.left + (workArea.width - petSize.width) / 2),
+      y: Math.round(workArea.top + (workArea.height - petSize.height) / 2)
+    };
+    await evaluate(pet, `window.eyeProtect.movePetWindow({ x: ${petHome.x}, y: ${petHome.y} })`);
+    // Fail here, not 50 steps later, if the pet cannot be placed for the sweep.
+    // The expression carries the geometry so a CI failure is self-explaining.
+    await waitFor(pet, `(Math.abs(screenX - ${petHome.x}) <= 2 && Math.abs(screenY - ${petHome.y}) <= 2) /* want ${petHome.x},${petHome.y} in ${JSON.stringify(workArea)} */`, 6_000);
     await evaluate(pet, `window.eyeProtect.preparePomodoro(${JSON.stringify(root.id)}, false)`);
     bubble = await waitForTarget(endpoint, '#bubble');
     await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]') !== null`);
@@ -215,6 +223,12 @@ try {
       return previous;
     };
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 80, button: 'left', buttons: 1, clickCount: 1 });
+    // The drag only starts once the pointer moves past its 4 px threshold, and
+    // the surface only reports it when pointer capture actually engaged. Check
+    // that explicitly: without it a runner where the drag never starts fails
+    // later as "the pet did not sweep", which hides the real cause.
+    await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 92, y: 80, button: 'left', buttons: 1 });
+    await waitFor(pet, `document.querySelector('.pet-drag-surface').classList.contains('is-dragging') /* pet ${JSON.stringify(petHome)} workArea ${JSON.stringify(workArea)} */`, 6_000);
     for (let step = 1; step <= 50; step += 1) {
       const dx = Math.round(Math.sin(step / 50 * Math.PI * 2) * 180);
       const currentX = await settledPetX();
@@ -240,7 +254,10 @@ try {
     }
     await call(pet, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 80, button: 'left', buttons: 0, clickCount: 1 });
     const distinctPetX = new Set(metrics.drag.map(entry => entry.p.x)).size;
-    assert.ok(distinctPetX > 15, `the drag must sweep the pet, got ${distinctPetX} distinct x: ${JSON.stringify(metrics.drag.map(entry => entry.p.x))}`);
+    assert.ok(
+      distinctPetX > 15,
+      `the drag must sweep the pet, got ${distinctPetX} distinct x ${JSON.stringify([...new Set(metrics.drag.map(entry => entry.p.x))])} from home ${JSON.stringify(petHome)} in work area ${JSON.stringify(workArea)}; client x ${JSON.stringify(metrics.drag.map(entry => entry.clientX))}`
+    );
     // Following must be exercised, not just clamping: most steps have to be
     // unclamped, otherwise a frozen bubble could pass the loop above.
     assert.ok(unclamped > 15, `bubble following must be exercised on unclamped steps, got ${unclamped}/50`);
