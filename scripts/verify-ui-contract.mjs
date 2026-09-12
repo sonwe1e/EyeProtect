@@ -202,6 +202,14 @@ const cases = [
   ['light primary button', light, '--brand-contrast', '--brand', 4.5],
   ['light danger', light, '--danger', '--danger-subtle', 4.5],
   ['light warning', light, '--warning', '--warning-subtle', 4.5],
+  // The reminder glass card floats over the user's desktop. --glass-panel-floor
+  // is the resolved worst case (the panel base composited over a pure-black or
+  // pure-white wallpaper), so this pair guards text legibility against any
+  // wallpaper the user might have. Tertiary text is deliberately NOT allowed on
+  // glass: at 94% opacity it lands at 4.30:1 in the light theme.
+  ['light secondary/glass floor', light, '--fg-secondary', '--glass-panel-floor', 4.5],
+  ['dark primary/glass floor', dark, '--fg-primary', '--glass-panel-floor', 4.5],
+  ['dark secondary/glass floor', dark, '--fg-secondary', '--glass-panel-floor', 4.5],
   ['dark primary/app', dark, '--fg-primary', '--bg-app', 4.5],
   ['dark secondary/app', dark, '--fg-secondary', '--bg-app', 4.5],
   ['dark tertiary/app', dark, '--fg-tertiary', '--bg-app', 4.5],

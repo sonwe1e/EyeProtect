@@ -50,7 +50,8 @@ test('tokens.css owns only non-color foundation tokens', () => {
   const allowed = new Set([
     '--space-1', '--space-2', '--space-3', '--space-4', '--space-6',
     '--radius-small', '--radius-medium', '--radius-large',
-    '--motion-fast', '--motion-standard', '--motion-slow',
+    '--motion-instant', '--motion-fast', '--motion-standard', '--motion-slow',
+    '--ease-out', '--ease-move', '--press-scale',
     '--hit-target-min', '--control-height-sm', '--control-height-md', '--task-row-height',
     '--workbench-sidebar-width', '--workbench-toolbar-height', '--workbench-content-max',
     '--workbench-page-top', '--workbench-section-gap'

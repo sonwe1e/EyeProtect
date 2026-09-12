@@ -47,7 +47,7 @@
   background: var(--brand-subtle);
   border: 1px solid color-mix(in srgb, var(--brand) 18%, transparent);
   border-radius: var(--radius-medium);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg-inverse) 24%, transparent);
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
 }
 
 .app-brand > div { display: grid; gap: 2px; }
@@ -71,7 +71,10 @@
   text-align: left;
   background: transparent;
   border-radius: var(--radius-medium);
-  transition: background var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
+  /* Navigation is the highest-frequency pointer target in the window. Per the
+     motion rules, a hover/active fade here only adds latency between the
+     pointer and the feedback, so the state lands on the next frame. */
+  transition: none;
 }
 
 .app-nav-item svg { color: currentColor; stroke: currentColor; }
@@ -79,7 +82,7 @@
 .app-nav-item.is-active { position: relative; color: var(--fg-primary); background: var(--surface-selected); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 60%, transparent); }
 .app-nav-item.is-active::before { position: absolute; top: 10px; bottom: 10px; left: 2px; width: 2px; content: ''; background: var(--brand); border-radius: 2px; }
 .app-nav-item.is-active svg { color: var(--brand); }
-.app-nav-count { min-width: 20px; color: currentColor; font-size: 12px; text-align: right; }
+.app-nav-count { min-width: 20px; color: currentColor; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .workbench-v2 .project-list {
   display: flex;
@@ -126,7 +129,7 @@
 .workbench-v2 .project-item.is-active { color: var(--fg-primary); background: var(--surface-selected); }
 .workbench-v2 .project-item-dot { flex: none; width: 8px; height: 8px; background: var(--project-dot-color); }
 .workbench-v2 .project-item-name { flex: 1; min-width: 0; padding: 0; overflow: hidden; color: currentColor; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; }
-.workbench-v2 .project-item-count { color: currentColor; }
+.workbench-v2 .project-item-count { color: currentColor; font-variant-numeric: tabular-nums; }
 .workbench-v2 .project-item.status-onHold,
 .workbench-v2 .project-item.status-completed,
 .workbench-v2 .project-item.status-archived { color: var(--fg-tertiary); }
@@ -172,7 +175,7 @@
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-medium);
-  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .command-palette-trigger:hover { color: var(--fg-primary); background: var(--surface); border-color: var(--border-strong); box-shadow: var(--shadow-soft); }
 .command-palette-trigger span { flex: 1; }
@@ -222,10 +225,10 @@
   }
 }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: var(--workbench-section-gap); }
-.page-header h1 { margin: 2px 0 0; font-size: clamp(25px, 3vw, 32px); font-weight: 680; letter-spacing: -0.025em; }
+.page-header h1 { margin: 2px 0 0; font-size: clamp(25px, 3vw, 32px); font-weight: 680; letter-spacing: -0.025em; text-wrap: balance; }
 .page-header > span { padding-bottom: 5px; color: var(--fg-secondary); font-size: 13px; }
 .page-eyebrow { color: var(--brand); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.rhythm-summary { display: flex; gap: 10px; color: var(--fg-tertiary); font-size: 11px; }
+.rhythm-summary { display: flex; gap: 10px; color: var(--fg-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .rhythm-summary span { display: inline-flex; align-items: center; gap: 4px; }
 .rhythm-summary svg { color: currentColor; opacity: 0.85; }
 
@@ -258,7 +261,7 @@
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-large);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--fg-inverse) 18%, transparent);
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
 }
 
 .workbench-v2 .task-compose-row { display: flex; min-height: var(--control-height-md); align-items: center; gap: 6px; padding: 4px; }
@@ -280,7 +283,8 @@
 .workbench-v2 .task-break-option { display: flex; min-height: 30px; align-items: center; gap: 7px; color: var(--fg-secondary); font-size: 12px; }
 .workbench-v2 .task-break-option input { accent-color: var(--brand); }
 .workbench-v2 .segmented { display: inline-flex; gap: 3px; padding: 3px; background: var(--surface-hover); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); }
-.workbench-v2 .segmented button { min-height: 36px; padding: 0 10px; color: var(--fg-secondary); background: transparent; border: 0; border-radius: var(--radius-small); transition: background var(--motion-fast), color var(--motion-fast); }
+.workbench-v2 .segmented button { min-height: 36px; padding: 0 10px; color: var(--fg-secondary); background: transparent; border: 0; border-radius: var(--radius-small); transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-instant) var(--ease-out); }
+.workbench-v2 .segmented button:active { transform: scale(var(--press-scale)); }
 .workbench-v2 .segmented button.is-active { color: var(--brand); font-weight: 700; background: var(--surface); box-shadow: 0 1px 2px color-mix(in srgb, var(--fg-primary) 8%, transparent); }
 
 .task-section { width: 100%; min-width: 0; margin-top: var(--workbench-section-gap); }
@@ -301,7 +305,10 @@
   border: 1px solid transparent;
   border-radius: var(--radius-medium);
   overflow: hidden;
-  transition: background var(--motion-fast), border-color var(--motion-fast), opacity var(--motion-fast);
+  /* Hover and selection land instantly (see .app-nav-item). Only the discrete
+     states keep a transition: completing a task and starting a drag are single
+     events where a short fade communicates that something actually happened. */
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 
 .workbench-v2 .task-row:hover { background: var(--surface-hover); border-color: var(--border-subtle); }
@@ -349,7 +356,7 @@
   content: '';
   background: var(--color-priority-normal);
   border-radius: 50%;
-  transition: transform var(--motion-fast);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .workbench-v2 .task-priority-dot[data-priority='important']::after { background: var(--color-priority-important); }
 .workbench-v2 .task-priority-dot[data-priority='urgent']::after { background: var(--color-priority-urgent); }
@@ -375,7 +382,7 @@
 .workbench-v2 .task-order-controls button,
 .workbench-v2 .task-remove { width: 36px; height: 36px; color: var(--fg-tertiary); background: transparent; }
 .workbench-v2 .task-order-controls,
-.workbench-v2 .task-remove { opacity: 0; pointer-events: none; transition: opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast); }
+.workbench-v2 .task-remove { opacity: 0; pointer-events: none; transition: opacity var(--motion-instant) var(--ease-out), background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .workbench-v2 .task-order-controls { display: inline-flex; gap: 2px; }
 .workbench-v2 .task-order-controls button { display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-small); }
 .workbench-v2 .task-order-controls button:hover:not(:disabled),
@@ -409,9 +416,9 @@
 .workbench-v2.is-focus-mode .workspace-toolbar { display: none; }
 .workbench-v2.is-focus-mode .app-workspace { grid-template-rows: 1fr; }
 
-.page-description { max-width: 560px; margin: 4px 0 0; color: var(--fg-secondary); font-size: 12.5px; font-weight: 400; line-height: 1.5; }
+.page-description { max-width: 560px; margin: 4px 0 0; color: var(--fg-secondary); font-size: 12.5px; font-weight: 400; line-height: 1.5; text-wrap: pretty; }
 .project-overview-list { display: grid; max-width: 760px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-.project-overview-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; padding: 16px; color: var(--fg-primary); text-align: left; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); transition: background var(--motion-fast), border-color var(--motion-fast); }
+.project-overview-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; padding: 16px; color: var(--fg-primary); text-align: left; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large); transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
 .project-overview-card:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 .project-overview-card > span { display: grid; min-width: 0; gap: 3px; }
 .project-overview-card > span strong,
@@ -585,7 +592,7 @@
 .workbench-v2 .project-workstream-summary span,
 .workbench-v2 .project-workstream-summary strong { display: block; }
 .workbench-v2 .task-checkpoint-list { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
-.workbench-v2 .task-checkpoint-list li { display: grid; gap: 3px; padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); background: var(--surface-subtle); }
+.workbench-v2 .task-checkpoint-list li { display: grid; gap: 3px; padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); background: var(--bg-app); }
 .workbench-v2 .task-checkpoint-list time,
 .workbench-v2 .task-checkpoint-list small { color: var(--fg-tertiary); font-size: 12px; }
 .workbench-v2 .review-checkpoints,

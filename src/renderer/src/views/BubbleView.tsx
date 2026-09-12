@@ -8,17 +8,30 @@ import { useTasks } from '../hooks/useTasks';
 import { useBubbleLayout } from '../hooks/useBubbleLayout';
 import { useCommand } from '../hooks/useCommand';
 import { usePomodoro } from '../hooks/usePomodoro';
+import { useReminderStatus } from '../hooks/useReminderStatus';
 import { PomodoroCard } from '../features/simple/PomodoroCard';
+import { GentleReminderBubble, PreAlertBubble } from '../features/reminders/ReminderBubble';
 import { run } from '../lib/commands';
 
 export default function BubbleView(): JSX.Element {
+  const status = useReminderStatus();
+  const active = status.activeReminder;
+  const preAlert = status.preAlert;
   const tasks = useTasks();
   const projects = useProjects();
   const { settings } = useSettings();
   const pomodoro = usePomodoro();
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   const focusing = pomodoro.phase !== 'idle';
-  useBubbleLayout(focusing ? `pomodoro-${pomodoro.phase}` : 'todo');
+  const gentle = active && active.mode === 'gentle' ? active : null;
+  // Reminders take precedence over the passive todo preview (the main process
+  // sizes the window per surface, see WindowManager#getBubbleSize).
+  const surface = preAlert ? 'prealert' : gentle ? `gentle-${gentle.id}` : focusing ? `pomodoro-${pomodoro.phase}` : 'todo';
+  useBubbleLayout(surface);
+
+  if (preAlert) return <PreAlertBubble preAlert={preAlert} />;
+  if (gentle) return <GentleReminderBubble active={gentle} settings={settings} />;
+
   const pending = selectPetTasks(settings.todoBubbleTaskIds, tasks, projects);
   return <div className="bubble-shell bubble-todos">
     {focusing ? <PomodoroCard state={pomodoro} taskTitle={tasks.find((task) => task.id === pomodoro.taskId)?.title ?? null} /> : <div className="bubble-card">

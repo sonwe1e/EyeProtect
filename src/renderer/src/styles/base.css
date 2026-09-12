@@ -2,6 +2,16 @@
   box-sizing: border-box;
 }
 
+/* The widget windows are sized exactly to the surface they host, so every level
+   of the chain needs a definite height: without this, `height: 100%` on a
+   window-level card resolves to `auto` (its containing block depends on
+   content) and the card stops short of the window bounds. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 100vw;
@@ -33,8 +43,20 @@ input:focus:not(:focus-visible) {
   outline: none;
 }
 
+/* One visible focus treatment for the whole product. The ring is solid rather
+   than translucent: a 50%-alpha ring loses contrast over hover/selected
+   surfaces, and keyboard users are the ones who depend on it most. */
 button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Bare inputs (task composer, inline rename fields) used to fall back to the
+   Chromium default ring while .ui-input drew the themed one. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 

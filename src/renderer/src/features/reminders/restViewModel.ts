@@ -1,4 +1,4 @@
-import type { ActiveReminder, ReminderKind, Settings } from '../../../../shared/types';
+import type { ActiveReminder, BreakActivity, ReminderKind, Settings } from '../../../../shared/types';
 
 /**
  * Pure view model for the rest/reminder surface. The alert window re-renders
@@ -88,4 +88,37 @@ export const formatRestDuration = (seconds: number): string => {
   const total = Math.max(0, Math.ceil(Number.isFinite(seconds) ? seconds : 0));
   const minutes = Math.floor(total / 60);
   return `${String(minutes).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+
+export interface ActivityStepProgress {
+  /** Index of the step the user should be on right now. */
+  stepIndex: number;
+  complete: boolean;
+  /** 0..1 across the activity's suggested duration. */
+  progress: number;
+}
+
+/**
+ * Where the user is inside a suggested micro-break. Activities carry a
+ * suggested duration and an ordered step list; the steps are spread evenly
+ * across that duration, so this is the single place that maps "elapsed time"
+ * onto "which instruction to show".
+ */
+export const getActivityProgress = (
+  activity: BreakActivity,
+  startedAt: number,
+  now: number
+): ActivityStepProgress => {
+  const durationMs = Math.max(1, activity.durationSeconds * 1_000);
+  const elapsed = Math.max(0, now - startedAt);
+  const progress = Math.min(1, elapsed / durationMs);
+  const stepIndex = Math.min(
+    activity.steps.length - 1,
+    Math.floor(progress * activity.steps.length)
+  );
+  return {
+    stepIndex: Math.max(0, stepIndex),
+    complete: progress >= 1,
+    progress
+  };
 };

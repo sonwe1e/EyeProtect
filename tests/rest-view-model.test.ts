@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   formatRestDuration,
+  getActivityProgress,
   restAnimalAction,
   restCountdown,
   restKindCopy,
   restPhase
 } from '../src/renderer/src/features/reminders/restViewModel';
-import { DEFAULT_SETTINGS, type ActiveReminder, type ReminderKind } from '../src/shared/types';
+import { DEFAULT_SETTINGS, type ActiveReminder, type BreakActivity, type ReminderKind } from '../src/shared/types';
 
 const settings = { ...DEFAULT_SETTINGS, eyeRestSeconds: 30, walkRestSeconds: 60 };
 
@@ -101,4 +102,30 @@ test('durations format as mm:ss and clamp invalid input', () => {
   assert.equal(formatRestDuration(-4), '00:00');
   assert.equal(formatRestDuration(Number.NaN), '00:00');
   assert.equal(formatRestDuration(0.4), '00:01');
+});
+
+test('activity steps are spread evenly across the suggested duration', () => {
+  // 30s over 3 steps: one step per 10s, and the last step holds to the end.
+  const activity: BreakActivity = { id: 'a', kind: 'eye', title: 't', steps: ['一', '二', '三'], durationSeconds: 30, tags: [] };
+  const startedAt = 1_000_000;
+
+  assert.deepEqual(getActivityProgress(activity, startedAt, startedAt), {
+    stepIndex: 0,
+    complete: false,
+    progress: 0
+  });
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 9_999).stepIndex, 0);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 10_000).stepIndex, 1);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 20_000).stepIndex, 2);
+  // Never index past the final step, and clamp a clock that ran backwards.
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 999_999).stepIndex, 2);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt - 5_000).stepIndex, 0);
+});
+
+test('activity progress reports completion at the suggested duration', () => {
+  const activity: BreakActivity = { id: 'a', kind: 'walk', title: 't', steps: ['一', '二'], durationSeconds: 60, tags: [] };
+  const startedAt = 2_000_000;
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 59_000).complete, false);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 60_000).complete, true);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 60_000).progress, 1);
 });

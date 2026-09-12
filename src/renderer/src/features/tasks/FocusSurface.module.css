@@ -5,7 +5,7 @@
 .root:global(.focus-empty) p { max-width: 460px; margin: 0; line-height: 1.6; }
 .root :global(.focus-candidates) { display: grid; width: min(460px, 80vw); gap: 8px; margin-top: 26px; }
 .root :global(.focus-no-candidates) { margin-top: 20px; color: var(--fg-tertiary); font-size: 12.5px; }
-.root :global(.focus-candidate) { display: flex; min-height: 44px; align-items: center; gap: 10px; padding: 0 14px; color: var(--fg-primary); text-align: left; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast); }
+.root :global(.focus-candidate) { display: flex; min-height: 44px; align-items: center; gap: 10px; padding: 0 14px; color: var(--fg-primary); text-align: left; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
 .root :global(.focus-candidate:hover),
 .root :global(.focus-candidate:focus-visible) { background: var(--surface-hover); border-color: var(--border-strong); box-shadow: 0 2px 8px color-mix(in srgb, var(--fg-primary) 6%, transparent); }
 .root :global(.focus-eyebrow) { color: var(--brand); font-size: 12px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -21,6 +21,6 @@
 .root :global(.focus-subtask-circle) { width: 16px; height: 16px; border: 1px solid var(--border-strong); border-radius: 50%; }
 .root :global(.focus-actions) { display: flex; gap: 10px; margin-top: 38px; }
 .root :global(.focus-footer) { margin-top: 42px; color: var(--fg-tertiary); font-size: 12px; }
-.root :global(.focus-back) { position: absolute; top: 24px; left: 28px; display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 10px; color: var(--fg-secondary); background: transparent; border-radius: var(--radius-medium); transition: background var(--motion-fast), color var(--motion-fast); }
+.root :global(.focus-back) { position: absolute; top: 24px; left: 28px; display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 10px; color: var(--fg-secondary); background: transparent; border-radius: var(--radius-medium); transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .root :global(.focus-back:hover) { color: var(--fg-primary); background: var(--surface-hover); }
 .root :global(.focus-back kbd) { color: var(--fg-tertiary); font: inherit; font-size: 10px; }
