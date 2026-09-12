@@ -1,6 +1,6 @@
 {
   "name": "eye-protect-pet",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Local-first Windows task and healthy work-rhythm assistant.",
   "main": "out/main/index.js",
   "author": "EyeProtect",
