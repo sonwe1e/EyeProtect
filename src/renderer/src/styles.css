@@ -148,6 +148,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pixel-animal *,
+  .pixel-animal,
+  svg.pa-art,
   .pet-gear,
   .pet-alarm,
   .pet-todo-tab,
@@ -183,6 +185,72 @@
 }
 
 .pet-character.is-reacting .pixel-animal { animation: pet-idle-wobble 700ms var(--ease-move); }
+
+/* ── Pixel animal motion signature (idle breath / poses / click windup) ─── */
+.pixel-animal {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 92%;
+}
+
+.pixel-animal svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Idle breath: torso + head only, one grid unit, stepped so the silhouette
+   stays pixel-aligned. reduced-motion disables this below. */
+svg.pa-art.pa-idle .pa-bob,
+svg.pa-art.pa-idle .pa-head-bob {
+  animation: pa-breath 4.4s steps(1, end) infinite;
+}
+
+@keyframes pa-breath {
+  0%,
+  100% { transform: translateY(0); }
+  14%,
+  48% { transform: translateY(-1px); }
+  62% { transform: translateY(0); }
+}
+
+svg.pose-w1 .pa-bob,
+svg.pose-w1 .pa-head-bob,
+svg.pose-w3 .pa-bob,
+svg.pose-w3 .pa-head-bob,
+svg.pose-gaze .pa-bob,
+svg.pose-gaze .pa-head-bob { transform: translateY(-1px); }
+svg.pose-w2 .pa-leg-l { transform: translateY(-1px); }
+svg.pose-w3 .pa-leg-r { transform: translateY(-1px); }
+
+/* Click windup → payoff (A4): short squash, then a soft bounce. */
+.pixel-animal.is-react {
+  animation: pa-react 700ms var(--ease-out) 1;
+}
+
+@keyframes pa-react {
+  0% { transform: none; }
+  12% { transform: scale(1.05, 0.9); }
+  34% { transform: translateY(-5px) scale(0.985, 1.015); }
+  58% { transform: none; }
+  74% { transform: scale(1.015, 0.985); }
+  100% { transform: none; }
+}
+
+.pixel-animal.is-celebrate {
+  animation: pa-cheer 620ms var(--ease-out) 1;
+}
+
+@keyframes pa-cheer {
+  0% { transform: none; }
+  16% { transform: scale(1.06, 0.88); }
+  42% { transform: translateY(-12px) scale(0.97, 1.05); }
+  72% { transform: none; }
+  86% { transform: scale(1.01, 0.99); }
+  100% { transform: none; }
+}
 
 .settings-shell {
   height: 100vh;
@@ -1606,6 +1674,18 @@
   filter: blur(18px);
 }
 
+/* B2: while resting, the stage glow pulses on the same 4s rhythm as a calm
+   breath. Pure CSS — never driven by the countdown clock. */
+.alert-shell.simple-rest.is-resting .rest-stage-glow {
+  animation: rest-glow-breath 4s ease-in-out infinite;
+}
+
+@keyframes rest-glow-breath {
+  0%,
+  100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
 .rest-ring {
   position: absolute;
   inset: 0;
@@ -1843,6 +1923,30 @@
 
 .rest-primary:hover:not(:disabled) { background: var(--brand-strong); border-color: var(--brand-strong); }
 .rest-primary:active:not(:disabled) { transform: scale(var(--press-scale)); box-shadow: inset 0 1px 0 var(--inset-press); }
+
+/* B3: once the wait unlocks, the primary action gets a single emphasis
+   entrance so the next click target is obvious without a sound cue. */
+.rest-primary.is-unlocked:not(:disabled) {
+  animation: rest-unlock var(--motion-emphasized) var(--ease-emphasized) 1;
+}
+
+@keyframes rest-unlock {
+  from {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 18%, transparent);
+  }
+  to { transform: none; }
+}
+
+.rest-ring.is-flash {
+  animation: rest-ring-flash 620ms var(--ease-out) 1;
+}
+
+@keyframes rest-ring-flash {
+  0% { filter: none; }
+  30% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--rest-accent) 70%, transparent)); }
+  100% { filter: none; }
+}
 
 .rest-actions-row { display: flex; gap: 10px; }
 .rest-snooze-group { display: inline-flex; flex: 1; }

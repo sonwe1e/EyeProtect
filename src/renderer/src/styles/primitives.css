@@ -223,6 +223,7 @@
 .ui-dialog__header h2 { margin: 0; font-size: 20px; }
 .ui-dialog__header p { margin: 6px 0 0; color: var(--fg-secondary); line-height: 1.5; }
 .ui-dialog__body { padding: 22px; }
+.ui-confirm-spacer { display: block; height: 4px; }
 .ui-dialog__footer {
   display: flex;
   justify-content: flex-end;

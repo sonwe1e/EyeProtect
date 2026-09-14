@@ -58,7 +58,11 @@ export function PetCharacter({
       aria-label={name}
       title={`单击互动，${doubleClickHint}`}
     >
-      <PixelAnimalArtwork animal={animal} action={reacting || isAnimating ? 'react' : 'idle'} label={name} />
+      <PixelAnimalArtwork
+        animal={animal}
+        action={reacting ? 'react' : isAnimating ? 'celebrate' : 'idle'}
+        label={name}
+      />
     </div>
   );
 }

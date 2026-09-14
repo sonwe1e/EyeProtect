@@ -9,6 +9,7 @@ import { useBubbleLayout } from '../hooks/useBubbleLayout';
 import { useCommand } from '../hooks/useCommand';
 import { usePomodoro } from '../hooks/usePomodoro';
 import { useReminderStatus } from '../hooks/useReminderStatus';
+import { useConfirm } from '../components/useConfirm';
 import { PomodoroCard } from '../features/simple/PomodoroCard';
 import { GentleReminderBubble, PreAlertBubble } from '../features/reminders/ReminderBubble';
 import { run } from '../lib/commands';
@@ -45,10 +46,25 @@ export default function BubbleView(): JSX.Element {
   </div>;
 }
 function BubbleTask({ task, tasks }: { task: Task; tasks: Task[] }): JSX.Element {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const complete = useCommand(() => run(async () => {
     const pending = taskSteps(task.id, tasks).filter((step) => step.status === 'open');
-    if (pending.length && !window.confirm(`还有 ${pending.length} 个步骤未完成，是否一起完成？`)) return;
+    if (pending.length) {
+      const ok = await confirm({
+        title: '还有未完成步骤',
+        description: `还有 ${pending.length} 个步骤未完成，是否一起完成？`,
+        confirmLabel: '一起完成'
+      });
+      if (!ok) return;
+    }
     return window.eyeProtect.completeTaskTree(task.id, Object.fromEntries([task, ...pending].map((entry) => [entry.id, entry.revision])));
   }));
-  return <li className="bubble-task-row"><div className="bubble-task-line"><button className="bubble-complete" aria-label={`完成 ${task.title}`} disabled={complete.isPending} onClick={() => void complete.run()}><Check size={14} /></button><button className="bubble-task-title" title={task.title} onClick={() => void window.eyeProtect.openWorkbench('today')}>{task.title}</button></div>{complete.error ? <span className="bubble-task-error" role="alert">{complete.error.message}</span> : null}</li>;
+  return <li className="bubble-task-row">
+    <div className="bubble-task-line">
+      <button className="bubble-complete" aria-label={`完成 ${task.title}`} disabled={complete.isPending} onClick={() => void complete.run()}><Check size={14} /></button>
+      <button className="bubble-task-title" title={task.title} onClick={() => void window.eyeProtect.openWorkbench('today')}>{task.title}</button>
+    </div>
+    {complete.error ? <span className="bubble-task-error" role="alert">{complete.error.message}</span> : null}
+    {confirmDialog}
+  </li>;
 }

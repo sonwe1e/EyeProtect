@@ -54,6 +54,25 @@ export const restAnimalAction = (kind: ReminderKind, phase: RestPhase): string =
   phase === 'ready' ? 'idle' : kind;
 
 /**
+ * Map the instruction currently on screen to a pet pose so the companion
+ * demonstrates the beat instead of looping a generic idle after start.
+ * Eye steps that ask the user to stand/walk switch to the walk signature.
+ */
+export const restAnimalActionForStep = (
+  phase: RestPhase,
+  activity: BreakActivity | null,
+  stepText: string | null
+): string => {
+  if (phase === 'ready') return 'idle';
+  if (!activity) return 'idle';
+  const text = `${activity.title} ${stepText ?? ''} ${activity.steps.join(' ')}`;
+  const wantsWalk = /走|站|迈步|踏步|离开椅子|伸展|耸肩|饮水/.test(text);
+  if (activity.kind === 'walk' || wantsWalk) return 'walk';
+  if (activity.kind === 'eye') return 'eye';
+  return 'combined';
+};
+
+/**
  * Rest seconds this reminder would take if the user started it now. Combined
  * reminders wait out the longer of the two configured rests (see
  * ReminderScheduler.beginRest), so the hint must show the same value.

@@ -88,6 +88,45 @@
   outline-offset: 0;
 }
 .simple-workbench input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--brand); flex-shrink: 0; }
+
+/* Signature completion control: stroke-draw check (transitions.dev).
+   Named complete-check so it does not collide with the settings label class. */
+.simple-complete-check {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: transparent;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+  transition: background var(--motion-instant) var(--ease-out), border-color var(--motion-instant) var(--ease-out), transform var(--motion-instant) var(--ease-out), color var(--motion-instant) var(--ease-out);
+}
+.simple-complete-check:hover { border-color: var(--brand); }
+.simple-complete-check:active { transform: scale(0.94); }
+.simple-complete-check svg { width: 13px; height: 13px; display: block; }
+.simple-complete-check svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+}
+.simple-complete-check.is-on {
+  color: var(--brand-contrast);
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.simple-complete-check.is-on svg path {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset var(--motion-emphasized) var(--ease-emphasized);
+}
 .simple-workbench input[type='number'],
 .simple-workbench input[type='date'],
 .simple-workbench input[type='datetime-local'] { font-variant-numeric: tabular-nums; }
@@ -177,10 +216,22 @@
 .simple-task-row .simple-task-name:hover { background: var(--surface-hover); }
 .simple-task-row time,
 .simple-muted { color: var(--fg-secondary); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.simple-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity var(--motion-instant) var(--ease-out); }
+.simple-row-actions { display: flex; gap: 4px; opacity: 0.4; transition: opacity var(--motion-instant) var(--ease-out); }
 .simple-task-row:hover .simple-row-actions,
 .simple-task-row:focus-within .simple-row-actions { opacity: 1; }
 .simple-row-actions button { min-height: 32px; padding: 0 8px; display: grid; place-items: center; }
+
+/* Completion: the check draws first, then the row yields so the undo banner
+   is the only remaining target. Reduced-motion collapses this to a cut. */
+.simple-task.is-completing {
+  opacity: 0.35;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.simple-task.is-completing .simple-task-name {
+  color: var(--fg-tertiary);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent);
+}
 
 /* Row menu: a small anchored popover, elevated one layer. */
 .simple-menu { position: relative; }
@@ -265,6 +316,44 @@
 .simple-undo button:hover { background: var(--brand-subtle); border-color: var(--brand); }
 
 .simple-empty { padding: 56px 0; color: var(--fg-tertiary); font-size: 13px; line-height: 1.6; text-align: center; }
+.simple-empty-card {
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-large);
+}
+.simple-empty-card .simple-empty { padding: 28px 0; }
+
+/* Focus presence strip (C5): visible only while a pomodoro is live. */
+.simple-focus-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  color: var(--fg-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-medium);
+  box-shadow: var(--shadow-hairline);
+  font-size: 12.5px;
+}
+.simple-focus-bar strong { font-weight: 650; }
+.simple-focus-bar > span:not(.simple-focus-dot) { color: var(--fg-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.simple-focus-bar time { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 650; }
+.simple-focus-bar button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.simple-focus-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
 
 /* ── Settings: quiet section cards ────────────────────────────────────────── */
 .simple-settings h1 { margin: 0 0 6px; font-size: 24px; font-weight: 680; letter-spacing: -0.02em; }

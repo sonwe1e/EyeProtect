@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { useClock } from '../hooks/useClock';
 import { useCommand } from '../hooks/useCommand';
@@ -12,7 +13,7 @@ import { PixelAnimal } from '../features/characters/PixelAnimal';
 import {
   formatRestDuration,
   getActivityProgress,
-  restAnimalAction,
+  restAnimalActionForStep,
   restCountdown,
   restKindCopy,
   restPhase
@@ -43,6 +44,19 @@ export default function AlertView(): JSX.Element {
   const pomodoro = usePomodoro();
   const { settings } = useSettings();
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  const [finishCue, setFinishCue] = useState(false);
+  const prevPhaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active) {
+      prevPhaseRef.current = null;
+      setFinishCue(false);
+      return;
+    }
+    const phase = restPhase(active, now);
+    if (phase === 'finished' && prevPhaseRef.current !== 'finished') setFinishCue(true);
+    if (phase !== 'finished') setFinishCue(false);
+    prevPhaseRef.current = phase;
+  }, [active, now]);
   if (!active) return <main className="alert-shell" />;
 
   const phase = restPhase(active, now);
@@ -69,6 +83,9 @@ export default function AlertView(): JSX.Element {
   const current = activityStates[currentIndex];
   const upcoming = activityStates[currentIndex + 1];
   const showSteps = started && Boolean(current);
+  const currentStepText = current ? current.activity.steps[current.step.stepIndex] ?? null : null;
+  const animalAction = restAnimalActionForStep(phase, current?.activity ?? null, currentStepText);
+  const animalKey = `${animalAction}:${current?.activity?.id ?? 'none'}:${current?.step.stepIndex ?? 0}`;
   const lede = !started
     ? mergedWithPomodoro
       ? '将与本轮番茄休息合并，点击开始休息。'
@@ -82,7 +99,7 @@ export default function AlertView(): JSX.Element {
       ? '已到时间，可以完成本次休息。'
       : `还剩 ${remainingSeconds} 秒 · 提前完成不会被记录`;
 
-  return <main className={`alert-shell simple-rest kind-${active.kind}`}>
+  return <main className={`alert-shell simple-rest kind-${active.kind}${phase === 'resting' ? ' is-resting' : ''}`}>
     <section className={`rest-card${showSteps ? ' has-steps' : ''}`} aria-labelledby="rest-title">
       <div className="rest-ambient" aria-hidden="true">
         <span className="rest-orb is-1" />
@@ -91,7 +108,7 @@ export default function AlertView(): JSX.Element {
 
       <div className="rest-stage">
         <span className="rest-stage-glow" aria-hidden="true" />
-        <svg className="rest-ring" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+        <svg className={`rest-ring${finishCue ? ' is-flash' : ''}`} viewBox="0 0 120 120" aria-hidden="true" focusable="false">
           <circle className="rest-ring-track" cx="60" cy="60" r={RING_RADIUS} />
           <circle
             className="rest-ring-value"
@@ -104,8 +121,9 @@ export default function AlertView(): JSX.Element {
         </svg>
         <div className="rest-stage-art">
           <PixelAnimal
+            key={animalKey}
             animal={animal}
-            action={restAnimalAction(active.kind, phase)}
+            action={animalAction}
             label={`${copy.badge} · ${animalName}`}
           />
         </div>
@@ -148,7 +166,7 @@ export default function AlertView(): JSX.Element {
       <div className="rest-actions">
         {!started
           ? <button className="rest-primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息</button>
-          : <button className="rest-primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>完成休息</button>}
+          : <button className={`rest-primary${finishCue ? ' is-unlocked' : ''}`} disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>完成休息</button>}
         <div className="rest-actions-row">
           <div className="rest-snooze-group">
             <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后提醒</button>

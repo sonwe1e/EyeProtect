@@ -4,6 +4,7 @@ import {
   formatRestDuration,
   getActivityProgress,
   restAnimalAction,
+  restAnimalActionForStep,
   restCountdown,
   restKindCopy,
   restPhase
@@ -92,6 +93,31 @@ test('animal action stays idle until the break starts', () => {
   assert.equal(restAnimalAction('combined', 'ready'), 'idle');
   assert.equal(restAnimalAction('combined', 'resting'), 'combined');
   assert.equal(restAnimalAction('walk', 'finished'), 'walk');
+});
+
+test('step-synced animal action follows the instruction on screen', () => {
+  const eye: BreakActivity = {
+    id: 'eye-far-gaze',
+    kind: 'eye',
+    title: '看向远处，缓慢眨眼',
+    steps: ['找一个 5 米外的目标', '放松地盯着它', '缓慢地眨眼 10 次'],
+    durationSeconds: 30,
+    tags: []
+  };
+  const walk: BreakActivity = {
+    id: 'walk-in-place',
+    kind: 'walk',
+    title: '原地走动',
+    steps: ['离开椅子', '在房间里原地踏步 30 秒'],
+    durationSeconds: 60,
+    tags: []
+  };
+  assert.equal(restAnimalActionForStep('ready', eye, eye.steps[0]), 'idle');
+  assert.equal(restAnimalActionForStep('resting', eye, eye.steps[1]), 'eye');
+  assert.equal(restAnimalActionForStep('resting', walk, walk.steps[1]), 'walk');
+  // An eye activity that asks the user to stand still demos the walk pose.
+  assert.equal(restAnimalActionForStep('finished', eye, '离开屏幕走两步'), 'walk');
+  assert.equal(restAnimalActionForStep('resting', null, null), 'idle');
 });
 
 test('durations format as mm:ss and clamp invalid input', () => {

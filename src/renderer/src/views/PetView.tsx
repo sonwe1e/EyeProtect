@@ -4,6 +4,7 @@ import { PetCharacter } from '../features/pet/PetCharacter';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { usePendingTaskCount } from '../hooks/usePendingTaskCount';
 import { useSettings } from '../hooks/useSettings';
+import { useConfirm } from '../components/useConfirm';
 import { commands, run } from '../lib/commands';
 import { useCommand } from '../hooks/useCommand';
 
@@ -11,9 +12,13 @@ const REACTION_MS = 1_100;
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const startFocus = useCommand(() => run(async () => {
     const state = await window.eyeProtect.getPomodoro();
-    if (['focus', 'break'].includes(state.phase) && !window.confirm('结束当前计时，开始新一轮？')) return;
+    if (['focus', 'break'].includes(state.phase)) {
+      const ok = await confirm({ title: '结束当前计时？', description: '结束当前计时，开始新一轮？', confirmLabel: '开始新一轮' });
+      if (!ok) return;
+    }
     return window.eyeProtect.preparePomodoro(null, true);
   }));
   const pendingCount = usePendingTaskCount();
@@ -161,6 +166,7 @@ export default function PetView(): JSX.Element {
         <div className="pet-drag-handle" aria-hidden="true" title="按住拖动桌宠" />
       </div>
 
+      {confirmDialog}
     </main>
   );
 }

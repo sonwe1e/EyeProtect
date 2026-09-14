@@ -1,0 +1,548 @@
+<!doctype html>
+<!-- EyeProtect 审美档位对比 Demo（配套 UX 美化决策）
+     纯静态：浏览器直接打开。三档样式叠在相同内容上，便于左右对比。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeProtect 审美档位对比</title>
+<style>
+:root {
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
+  --radius-small: 6px; --radius-medium: 8px; --radius-large: 12px;
+  --motion-instant: 90ms; --motion-fast: 140ms; --motion-standard: 220ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --press-scale: 0.97;
+  color-scheme: light;
+  --bg-app: #f5f6f7;
+  --surface: #ffffff;
+  --surface-raised: #fbfcfd;
+  --surface-hover: #eef1f3;
+  --surface-selected: #e5ecef;
+  --border-subtle: #dce3e7;
+  --border-strong: #c4d0d6;
+  --fg-primary: #182024;
+  --fg-secondary: #505d63;
+  --fg-tertiary: #65737a;
+  --brand: #526b78;
+  --brand-strong: #405865;
+  --brand-contrast: #ffffff;
+  --brand-subtle: #e7eef2;
+  --danger: #a0433b;
+  --danger-subtle: #f8e8e5;
+  --shadow-overlay: 0 2px 4px rgb(20 28 34 / 6%), 0 24px 64px rgb(20 28 34 / 16%);
+  --shadow-soft: 0 1px 2px rgb(20 28 34 / 6%), 0 8px 24px rgb(20 28 34 / 7%);
+  --inset-highlight: rgb(255 255 255 / 24%);
+  --shadow-hairline: 0 1px 2px rgb(20 28 34 / 5%);
+  --glass-panel: rgb(255 255 255 / 94%);
+  --glass-hairline: rgb(24 32 36 / 10%);
+  --glass-wash: rgb(255 255 255 / 62%);
+  --glass-shadow: 0 2px 6px rgb(20 28 34 / 8%), 0 32px 72px rgb(20 28 34 / 24%);
+  --rest-accent-eye: #2f7f72;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--fg-primary); background: #e8ebee; font-size: 14px; line-height: 1.55; }
+button, input { font: inherit; }
+
+.page-top {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 14px 28px;
+  background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.page-top strong { font-size: 15px; font-weight: 680; letter-spacing: -.01em; }
+.page-top span { color: var(--fg-secondary); font-size: 12.5px; }
+.page-top .pick { margin-left: auto; display: flex; gap: 8px; }
+.page-top .pick a {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px;
+  color: var(--fg-primary); background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-medium); text-decoration: none; font-size: 13px; font-weight: 600;
+}
+.page-top .pick a:hover { background: var(--surface-hover); }
+
+.intro { max-width: 1180px; margin: 28px auto 0; padding: 0 24px; }
+.intro h1 { margin: 0 0 8px; font-size: 26px; font-weight: 720; letter-spacing: -.03em; }
+.intro p { margin: 0; max-width: 70ch; color: var(--fg-secondary); }
+.intro ul { margin: 14px 0 0; padding-left: 18px; color: var(--fg-secondary); font-size: 13px; }
+.intro li { margin: 4px 0; }
+
+.rail {
+  display: grid; grid-template-columns: repeat(3, minmax(280px, 1fr));
+  gap: 18px; max-width: 1180px; margin: 28px auto 70px; padding: 0 24px;
+}
+@media (max-width: 980px) { .rail { grid-template-columns: 1fr; } }
+
+.col {
+  display: grid; gap: 14px; align-content: start;
+  padding: 16px; background: rgba(255,255,255,.55); border: 1px solid var(--border-subtle); border-radius: 16px;
+}
+.col-head h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
+.col-head p { margin: 4px 0 0; color: var(--fg-secondary); font-size: 12.5px; line-height: 1.55; }
+.col-head .tag {
+  display: inline-flex; margin-top: 8px; padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  color: var(--brand); background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+/* ── Shared mock chrome ─────────────────────────────────────────────── */
+.mock {
+  overflow: hidden; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+}
+.mock-header {
+  display: flex; align-items: center; gap: 16px; padding: 10px 14px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle);
+}
+.mock-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; }
+.mock-brand i {
+  display: grid; width: 22px; height: 22px; place-items: center;
+  color: var(--brand); background: var(--brand-subtle); border-radius: 6px; font-style: normal; font-size: 11px;
+}
+.mock-nav { display: flex; gap: 3px; flex: 1; }
+.mock-nav button {
+  min-height: 30px; padding: 0 10px; border: 0; border-radius: 8px;
+  color: var(--fg-secondary); background: transparent; cursor: pointer; font-size: 12.5px;
+}
+.mock-nav button[aria-current="page"] { color: var(--fg-primary); background: var(--surface-selected); font-weight: 650; }
+.mock-body { padding: 14px 16px 18px; }
+.mock-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+.mock-toolbar input {
+  flex: 1; min-height: 34px; padding: 0 10px;
+  color: var(--fg-primary); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-medium);
+}
+.mock-toolbar .ghost {
+  min-height: 34px; padding: 0 10px; color: var(--fg-primary);
+  background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); cursor: pointer;
+}
+.mock-toolbar .primary {
+  min-height: 34px; padding: 0 12px; color: var(--brand-contrast);
+  background: var(--brand); border: 1px solid var(--brand); border-radius: var(--radius-medium); cursor: pointer; font-weight: 650;
+}
+.group-label {
+  display: flex; align-items: baseline; gap: 8px; margin: 12px 0 4px;
+  color: var(--fg-secondary); font-size: 11.5px; font-weight: 700; letter-spacing: .03em;
+}
+.group-label small { color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
+
+.task {
+  display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.task:last-child { border-bottom: 0; }
+.task input { width: 15px; height: 15px; accent-color: var(--brand); }
+.task .title { flex: 1; min-width: 0; font-size: 13.5px; }
+.task time { color: var(--fg-secondary); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.task .ops { display: flex; gap: 4px; opacity: .45; }
+.task .ops button {
+  width: 28px; height: 28px; padding: 0; display: grid; place-items: center;
+  color: var(--fg-secondary); background: transparent; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.task:hover .ops { opacity: 1; }
+.task:hover { background: var(--surface-hover); }
+
+/* Complete interaction mock */
+.complete-demo {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 12px;
+  background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 12px;
+}
+.complete-demo .label { flex: 1; font-size: 13px; }
+.check {
+  position: relative; width: 18px; height: 18px; border-radius: 5px;
+  border: 1.5px solid var(--border-strong); background: var(--surface);
+}
+.check svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.check path {
+  fill: none; stroke: white; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 16; stroke-dashoffset: 16;
+}
+.check.is-on { background: var(--brand); border-color: var(--brand); }
+.check.is-on path { stroke-dashoffset: 0; transition: stroke-dashoffset 220ms var(--ease-out); }
+
+/* Rest card mock */
+.rest-mock {
+  position: relative; overflow: hidden; min-height: 280px; padding: 18px 18px 16px;
+  background: var(--glass-panel); border: 1px solid var(--glass-hairline); border-radius: 20px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgb(255 255 255 / 92%);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+.rest-mock .orb {
+  position: absolute; top: -90px; left: -30px; width: 180px; height: 180px; border-radius: 50%;
+  background: var(--rest-accent-eye); opacity: .22; filter: blur(36px);
+}
+.rest-stage-row { position: relative; display: grid; place-items: center; margin: 4px 0 14px; }
+.ring {
+  width: 92px; height: 92px; border-radius: 50%;
+  background:
+    radial-gradient(circle at center, var(--surface) 0 54%, transparent 55%),
+    conic-gradient(var(--rest-accent-eye) 0 62%, color-mix(in srgb, var(--fg-primary) 10%, transparent) 0);
+  display: grid; place-items: center;
+}
+.ring b { font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.rest-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; margin: 0 auto 8px; width: max-content;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  color: var(--fg-primary); background: color-mix(in srgb, var(--rest-accent-eye) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rest-accent-eye) 32%, transparent); border-radius: 999px;
+}
+.rest-badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--rest-accent-eye); }
+.rest-mock h3 { margin: 0; text-align: center; font-size: 20px; font-weight: 720; letter-spacing: -.02em; }
+.rest-mock p.lede { margin: 6px 0 0; text-align: center; color: var(--fg-secondary); font-size: 12.5px; }
+.steps { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.steps li {
+  display: flex; gap: 8px; align-items: center; padding: 7px 9px;
+  background: var(--glass-wash); border: 1px solid var(--glass-hairline); border-radius: 10px; font-size: 12px;
+}
+.steps b {
+  display: grid; width: 18px; height: 18px; place-items: center; border-radius: 50%;
+  color: var(--fg-secondary); background: var(--surface); border: 1px solid var(--border-subtle); font-size: 10px;
+}
+.steps li.is-active { border-color: color-mix(in srgb, var(--rest-accent-eye) 40%, transparent); }
+.steps li.is-active b { color: white; background: var(--rest-accent-eye); border-color: var(--rest-accent-eye); }
+.rest-actions { display: grid; gap: 8px; margin-top: 14px; }
+.rest-actions .primary {
+  min-height: 40px; border: 0; border-radius: 11px; cursor: pointer; font-weight: 700;
+  color: white; background: var(--rest-accent-eye);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 28%), 0 8px 18px color-mix(in srgb, var(--rest-accent-eye) 28%, transparent);
+}
+.rest-actions .row { display: grid; grid-template-columns: 1.4fr .8fr; gap: 8px; }
+.rest-actions .row button {
+  min-height: 36px; border-radius: 10px; cursor: pointer;
+  color: var(--fg-primary); background: var(--surface); border: 1px solid var(--border-subtle);
+}
+.rest-actions .row button.skip { color: var(--fg-secondary); }
+
+/* Empty / undo strip */
+.strip {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 8px 11px;
+  color: var(--fg-primary); background: var(--surface-raised);
+  border: 1px solid var(--border-subtle); border-left: 3px solid var(--brand); border-radius: 10px;
+  font-size: 12.5px;
+}
+.strip button {
+  margin-left: auto; min-height: 28px; padding: 0 10px;
+  color: var(--brand-strong); background: transparent; border: 1px solid var(--brand); border-radius: 8px; cursor: pointer; font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   A. 克制精工 — quiet editorial refined
+   ═══════════════════════════════════════════════════════════════════════ */
+.tier-a .mock { box-shadow: var(--shadow-hairline); border-radius: 12px; }
+.tier-a .mock-header { gap: 20px; padding: 11px 18px; }
+.tier-a .mock-body { padding: 16px 18px 20px; }
+.tier-a .task { min-height: 52px; padding: 0 4px; transition: none; }
+.tier-a .task:hover { background: transparent; }
+.tier-a .task:hover .title { color: var(--brand-strong); }
+.tier-a .task .ops { opacity: 0; transition: opacity var(--motion-instant) var(--ease-out); }
+.tier-a .task:hover .ops, .tier-a .task:focus-within .ops { opacity: 1; }
+.tier-a .mock-toolbar .primary {
+  box-shadow: inset 0 1px 0 var(--inset-highlight), 0 1px 2px color-mix(in srgb, var(--brand-strong) 22%, transparent);
+}
+.tier-a .mock-toolbar .primary:active { transform: scale(var(--press-scale)); }
+.tier-a .complete-demo .check { border-radius: 4px; }
+.tier-a .rest-mock { border-radius: 18px; min-height: 300px; }
+.tier-a .rest-actions .primary { box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%); border-radius: 10px; }
+.tier-a .group-label { letter-spacing: .04em; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   B. 产品感 — denser, higher contrast, shadcn/coss energy
+   ═══════════════════════════════════════════════════════════════════════ */
+.tier-b {
+  --border-subtle: #d5dde2;
+  --border-strong: #b7c4cb;
+  --fg-primary: #12181c;
+  --fg-secondary: #455158;
+  --brand: #3d5a68;
+  --brand-strong: #2f4854;
+  --surface: #ffffff;
+  --surface-hover: #f3f6f7;
+  --surface-selected: #e7eef1;
+  --shadow-soft: 0 1px 2px rgb(18 24 28 / 8%), 0 10px 28px rgb(18 24 28 / 10%);
+}
+.tier-b .mock { border-radius: 12px; box-shadow: var(--shadow-soft); background: var(--surface); }
+.tier-b .mock-body { background: var(--surface); }
+.tier-b .mock-header { background: linear-gradient(180deg, #fbfcfd, #f3f6f8); }
+.tier-b .task {
+  min-height: 44px; margin: 0 0 6px; padding: 0 10px;
+  background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 10px;
+  box-shadow: var(--shadow-hairline);
+}
+.tier-b .task:last-child { border-bottom: 1px solid var(--border-subtle); }
+.tier-b .task:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.tier-b .task .ops { opacity: .55; }
+.tier-b .task:hover .ops { opacity: 1; }
+.tier-b .task .ops button { background: var(--surface); border: 1px solid var(--border-subtle); }
+.tier-b .mock-toolbar {
+  gap: 8px; padding: 8px; margin: 0 0 12px;
+  background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: 12px;
+}
+.tier-b .mock-toolbar input { background: var(--surface); }
+.tier-b .mock-toolbar .primary {
+  box-shadow: inset 0 1px 0 var(--inset-highlight), 0 1px 0 rgb(18 24 28 / 12%);
+}
+.tier-b .group-label {
+  margin: 14px 0 8px; padding: 0 2px;
+  color: var(--fg-primary); font-size: 12px;
+}
+.tier-b .complete-demo {
+  border-radius: 12px; box-shadow: var(--shadow-hairline);
+}
+.tier-b .check { width: 20px; height: 20px; border-radius: 6px; border-width: 1.75px; }
+.tier-b .rest-mock { border-radius: 16px; background: #fff; box-shadow: var(--shadow-soft); }
+.tier-b .rest-actions .primary { border-radius: 10px; font-size: 13.5px; }
+.tier-b .steps li { background: #f7f9fa; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   C. 表达力 — restrained base + a few signature moments
+   ═══════════════════════════════════════════════════════════════════════ */
+.tier-c .mock { border-radius: 14px; }
+.tier-c .task { min-height: 50px; }
+.tier-c .task:hover { background: color-mix(in srgb, var(--brand) 5%, transparent); }
+.tier-c .task .ops { opacity: .35; }
+.tier-c .task:hover .ops { opacity: 1; }
+.tier-c .complete-demo { position: relative; overflow: hidden; }
+.tier-c .complete-demo::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle at 18px 50%, color-mix(in srgb, var(--brand) 28%, transparent), transparent 42%);
+}
+.tier-c .complete-demo.is-done::after { animation: bloom 520ms var(--ease-out) 1; }
+@keyframes bloom { 0% { opacity: 1; transform: scale(.4); } 100% { opacity: 0; transform: scale(1.4); } }
+.tier-c .check { width: 19px; height: 19px; }
+.tier-c .complete-demo.is-done .title { color: var(--fg-tertiary); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent); }
+.tier-c .mock-toolbar .primary {
+  position: relative;
+  box-shadow: inset 0 1px 0 var(--inset-highlight), 0 10px 22px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.tier-c .mock-toolbar .primary:hover { transform: translateY(-1px); }
+.tier-c .mock-toolbar .primary:active { transform: scale(var(--press-scale)) translateY(0); }
+.tier-c .rest-mock { border-radius: 22px; }
+.tier-c .ring { width: 104px; height: 104px; }
+.tier-c .rest-mock h3 { font-size: 22px; }
+.tier-c .rest-actions .primary {
+  min-height: 44px; border-radius: 999px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 30%),
+    0 12px 28px color-mix(in srgb, var(--rest-accent-eye) 30%, transparent);
+  transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+.tier-c .rest-actions .primary:hover { transform: translateY(-1px); }
+.tier-c .steps li.is-active {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rest-accent-eye) 14%, transparent);
+}
+.tier-c .strip { animation: strip-in 180ms var(--ease-out); }
+@keyframes strip-in { from { opacity: 0; transform: translateY(-4px); } }
+
+.note {
+  max-width: 1180px; margin: -40px auto 48px; padding: 0 24px;
+  color: var(--fg-secondary); font-size: 12.5px;
+}
+.note b { color: var(--fg-primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header class="page-top">
+  <strong>EyeProtect · 审美档位对比</strong>
+  <span>同一任务列表 + 完成反馈 + 休息卡内容，只改视觉语言</span>
+  <div class="pick">
+    <a href="#tier-a">A 克制精工</a>
+    <a href="#tier-b">B 产品感</a>
+    <a href="#tier-c">C 表达力</a>
+  </div>
+</header>
+
+<section class="intro">
+  <h1>先选审美，再铺 P1+P2</h1>
+  <p>仓库已有 quiet editorial 基线。下面三档都在现有设计令牌上叠样式差异，方便你对比「更安静」「更产品」「更会表达」的观感。选定后我会按完整 P1+P2 路线图（完成微交互、一键推迟、宠物微生命、休息卡同步/完成时刻、主题化对话框等）实现。</p>
+  <ul>
+    <li><b>参考气质</b>：Emil「高频路径少动画」、shadcn/coss 的清晰密度、beautifului 的控件完成度、现有玻璃休息卡。</li>
+    <li><b>硬约束不变</b>：语义色令牌、对比度、命中区、reduced-motion、forced-colors。</li>
+  </ul>
+</section>
+
+<main class="rail">
+  <!-- ═══ A ═══ -->
+  <section class="col tier-a" id="tier-a">
+    <div class="col-head">
+      <h2>A · 克制精工</h2>
+      <p>延续安静编辑感：更大呼吸、更准层级、行级几乎无装饰。高频路径零动画，只有主按钮保留材质。</p>
+      <span class="tag">RECOMMENDED BASE</span>
+    </div>
+
+    <div class="mock">
+      <div class="mock-header">
+        <div class="mock-brand"><i>◉</i> EyeProtect</div>
+        <div class="mock-nav">
+          <button aria-current="page">今天</button>
+          <button>完成</button>
+        </div>
+      </div>
+      <div class="mock-body">
+        <div class="mock-toolbar">
+          <input value="" placeholder="搜索任务" readonly>
+          <button class="ghost">全部清单</button>
+          <button class="primary">添加</button>
+        </div>
+        <div class="strip">已完成：整理周报 <button>撤销</button></div>
+        <div class="group-label">今天 <small>3</small></div>
+        <div class="task"><input type="checkbox" checked><span class="title">回复客户方案邮件</span><time>10:30</time><div class="ops"><button>⋯</button></div></div>
+        <div class="task"><input type="checkbox"><span class="title">写完护眼提醒文案</span><time></time><div class="ops"><button>◎</button><button>▶</button><button>⋯</button></div></div>
+        <div class="task"><input type="checkbox"><span class="title">下班前拉伸 3 分钟</span><time>18:00</time><div class="ops"><button>◎</button><button>▶</button><button>⋯</button></div></div>
+        <div class="group-label">未来 <small>1</small></div>
+        <div class="task"><input type="checkbox"><span class="title">整理季度备份</span><time>周五</time><div class="ops"><button>◎</button><button>⋯</button></div></div>
+      </div>
+    </div>
+
+    <div class="complete-demo" data-complete>
+      <div class="check"><svg viewBox="0 0 18 18"><path d="M4 9.5 7.4 13 14 5.5"/></svg></div>
+      <span class="label">完成反馈：画勾 → 行淡出 → 撤销条</span>
+    </div>
+
+    <div class="rest-mock">
+      <div class="orb"></div>
+      <div class="rest-badge">护眼提醒</div>
+      <div class="rest-stage-row"><div class="ring"><b>18</b></div></div>
+      <h3>让眼睛休息一下</h3>
+      <p class="lede">跟它一起看向远处，慢慢眨几次眼。</p>
+      <ol class="steps">
+        <li class="is-active"><b>1</b><span>看向 6 米外的物体</span></li>
+        <li><b>2</b><span>缓慢眨眼 10 次</span></li>
+        <li><b>3</b><span>闭眼深呼吸一次</span></li>
+      </ol>
+      <div class="rest-actions">
+        <button class="primary">完成休息</button>
+        <div class="row"><button>稍后 · 5 分钟</button><button class="skip">跳过</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ B ═══ -->
+  <section class="col tier-b" id="tier-b">
+    <div class="col-head">
+      <h2>B · 产品感</h2>
+      <p>更接近 shadcn / coss：卡片化任务行、更硬对比、工具条成组、信息密度略升。</p>
+      <span class="tag">DENSITY UP</span>
+    </div>
+
+    <div class="mock">
+      <div class="mock-header">
+        <div class="mock-brand"><i>◉</i> EyeProtect</div>
+        <div class="mock-nav">
+          <button aria-current="page">今天</button>
+          <button>完成</button>
+        </div>
+      </div>
+      <div class="mock-body">
+        <div class="mock-toolbar">
+          <input value="" placeholder="搜索任务" readonly>
+          <button class="ghost">全部清单</button>
+          <button class="primary">添加</button>
+        </div>
+        <div class="strip">已完成：整理周报 <button>撤销</button></div>
+        <div class="group-label">今天 · 3</div>
+        <div class="task"><input type="checkbox" checked><span class="title">回复客户方案邮件</span><time>10:30</time><div class="ops"><button>⋯</button></div></div>
+        <div class="task"><input type="checkbox"><span class="title">写完护眼提醒文案</span><time></time><div class="ops"><button>◎</button><button>▶</button><button>⋯</button></div></div>
+        <div class="task"><input type="checkbox"><span class="title">下班前拉伸 3 分钟</span><time>18:00</time><div class="ops"><button>◎</button><button>▶</button><button>⋯</button></div></div>
+        <div class="group-label">未来 · 1</div>
+        <div class="task"><input type="checkbox"><span class="title">整理季度备份</span><time>周五</time><div class="ops"><button>◎</button><button>⋯</button></div></div>
+      </div>
+    </div>
+
+    <div class="complete-demo" data-complete>
+      <div class="check"><svg viewBox="0 0 18 18"><path d="M4 9.5 7.4 13 14 5.5"/></svg></div>
+      <span class="label">完成反馈：更实的控件与阴影</span>
+    </div>
+
+    <div class="rest-mock">
+      <div class="orb"></div>
+      <div class="rest-badge">护眼提醒</div>
+      <div class="rest-stage-row"><div class="ring"><b>18</b></div></div>
+      <h3>让眼睛休息一下</h3>
+      <p class="lede">跟它一起看向远处，慢慢眨几次眼。</p>
+      <ol class="steps">
+        <li class="is-active"><b>1</b><span>看向 6 米外的物体</span></li>
+        <li><b>2</b><span>缓慢眨眼 10 次</span></li>
+        <li><b>3</b><span>闭眼深呼吸一次</span></li>
+      </ol>
+      <div class="rest-actions">
+        <button class="primary">完成休息</button>
+        <div class="row"><button>稍后 · 5 分钟</button><button class="skip">跳过</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ C ═══ -->
+  <section class="col tier-c" id="tier-c">
+    <div class="col-head">
+      <h2>C · 表达力</h2>
+      <p>基底仍克制，但把预算花在少数签名时刻：完成有光晕与划线、主操作有抬升、休息主按钮更「可点」。</p>
+      <span class="tag">SIGNATURE MOMENTS</span>
+    </div>
+
+    <div class="mock">
+      <div class="mock-header">
+        <div class="mock-brand"><i>◉</i> EyeProtect</div>
+        <div class="mock-nav">
+          <button aria-current="page">今天</button>
+          <button>完成</button>
+        </div>
+      </div>
+      <div class="mock-body">
+        <div class="mock-toolbar">
+          <input value="" placeholder="搜索任务" readonly>
+          <button class="ghost">全部清单</button>
+          <button class="primary">添加</button>
+        </div>
+        <div class="strip">已完成：整理周报 <button>撤销</button></div>
+        <div class="group-label">今天 <small>3</small></div>
+        <div class="task"><input type="checkbox" checked><span class="title">回复客户方案邮件</span><time>10:30</time><div class="ops"><button>⋯</button></div></div>
+        <div class="task"><input type="checkbox"><span class="title">写完护眼提醒文案</span><time></time><div class="ops"><button>◎</button><button>▶</button><button>⋯</button></div></div>
+        <div class="task"><input type="checkbox"><span class="title">下班前拉伸 3 分钟</span><time>18:00</time><div class="ops"><button>◎</button><button>▶</button><button>⋯</button></div></div>
+        <div class="group-label">未来 <small>1</small></div>
+        <div class="task"><input type="checkbox"><span class="title">整理季度备份</span><time>周五</time><div class="ops"><button>◎</button><button>⋯</button></div></div>
+      </div>
+    </div>
+
+    <div class="complete-demo" data-complete>
+      <div class="check"><svg viewBox="0 0 18 18"><path d="M4 9.5 7.4 13 14 5.5"/></svg></div>
+      <span class="label">点我：完成时有短暂光晕 + 划线</span>
+    </div>
+
+    <div class="rest-mock">
+      <div class="orb"></div>
+      <div class="rest-badge">护眼提醒</div>
+      <div class="rest-stage-row"><div class="ring"><b>18</b></div></div>
+      <h3>让眼睛休息一下</h3>
+      <p class="lede">跟它一起看向远处，慢慢眨几次眼。</p>
+      <ol class="steps">
+        <li class="is-active"><b>1</b><span>看向 6 米外的物体</span></li>
+        <li><b>2</b><span>缓慢眨眼 10 次</span></li>
+        <li><b>3</b><span>闭眼深呼吸一次</span></li>
+      </ol>
+      <div class="rest-actions">
+        <button class="primary">完成休息</button>
+        <div class="row"><button>稍后 · 5 分钟</button><button class="skip">跳过</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<p class="note">
+  <b>怎么选：</b>如果希望产品继续「安静、可长时间盯」，选 <b>A</b>；如果希望任务管理界面更像现代生产力工具，选 <b>B</b>；如果希望日常高频动作更有记忆点但仍不吵，选 <b>C</b>。也可以组合，例如「A 基底 + C 的完成时刻」。
+</p>
+
+<script>
+document.querySelectorAll('[data-complete]').forEach((el) => {
+  el.addEventListener('click', () => {
+    const on = el.classList.toggle('is-done');
+    el.querySelector('.check')?.classList.toggle('is-on', on);
+  });
+});
+</script>
+</body>
+</html>
