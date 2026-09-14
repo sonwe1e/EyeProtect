@@ -54,7 +54,7 @@ export function PetCharacter({
   const name = PIXEL_ANIMAL_NAMES[animal];
   return (
     <div
-      className={`pet-character ${isAnimating ? 'is-animating' : ''} ${reacting ? 'is-reacting' : ''}`.trim()}
+      className="pet-character"
       aria-label={name}
       title={`单击互动，${doubleClickHint}`}
     >
