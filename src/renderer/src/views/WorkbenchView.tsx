@@ -115,6 +115,7 @@ function SimpleTask({
   useEffect(() => () => { if (completeTimer.current) clearTimeout(completeTimer.current); }, []);
 
   const complete = (): void => {
+    if (completing || action.isPending) return;
     const pending = steps.filter((step) => step.status === 'open');
     void (async () => {
       if (pending.length) {
@@ -147,7 +148,7 @@ function SimpleTask({
         role="checkbox"
         aria-checked={completing}
         aria-label={`完成 ${task.title}`}
-        disabled={action.isPending}
+        disabled={action.isPending || completing}
         onClick={complete}
       >
         <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M4 9.2 7.3 12.6 14 5.4" /></svg>

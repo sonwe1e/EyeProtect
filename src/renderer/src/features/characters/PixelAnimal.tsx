@@ -61,7 +61,7 @@ export const PixelAnimal = memo(function PixelAnimal({
           setBlink(true);
           later(() => setBlink(false), 140);
           scheduleBlink();
-        }, 3_600 + Math.random() * 4_200);
+        }, 6_000 + Math.random() * 3_000);
       };
       scheduleBlink();
     };
@@ -105,6 +105,33 @@ export const PixelAnimal = memo(function PixelAnimal({
       tick();
     };
 
+    // Chained without stopAction between phases: a stop at the eye deadline
+    // would clear() the walk timer registered for the same delay.
+    const playCombined = (duration = 3_600): void => {
+      clear();
+      const eyeMs = Math.max(400, Math.floor(duration * 0.35));
+      const walkMs = Math.max(640, duration - eyeMs);
+      later(() => setPose('pose-gaze'), 30);
+      if (!reduced.matches) later(() => playBlink(2), 260);
+      later(() => {
+        setShowTail(animal === 'cat');
+        setShowEarsB(animal === 'rabbit');
+        if (reduced.matches) {
+          later(stopAction, 400);
+          return;
+        }
+        const poses: Array<string | null> = [null, 'pose-w1', 'pose-w2', 'pose-w3'];
+        let step = 0;
+        const tick = (): void => {
+          setPose(poses[step % poses.length]);
+          step += 1;
+          if (step * 160 >= walkMs) stopAction();
+          else later(tick, 160);
+        };
+        tick();
+      }, eyeMs);
+    };
+
     const playReact = (): void => {
       clear();
       setShowTongue(true);
@@ -128,10 +155,8 @@ export const PixelAnimal = memo(function PixelAnimal({
       if (kind === 'idle') stopAction();
       else if (kind === 'eye') playEye();
       else if (kind === 'walk') playWalk();
-      else if (kind === 'combined') {
-        playEye(1_200);
-        later(() => playWalk(2_400), 1_200);
-      } else if (kind === 'react') playReact();
+      else if (kind === 'combined') playCombined();
+      else if (kind === 'react') playReact();
       else playCelebrate();
     };
 

@@ -13,6 +13,7 @@ import { PixelAnimal } from '../features/characters/PixelAnimal';
 import {
   formatRestDuration,
   getActivityProgress,
+  restAnimalAction,
   restAnimalActionForStep,
   restCountdown,
   restKindCopy,
@@ -84,7 +85,9 @@ export default function AlertView(): JSX.Element {
   const upcoming = activityStates[currentIndex + 1];
   const showSteps = started && Boolean(current);
   const currentStepText = current ? current.activity.steps[current.step.stepIndex] ?? null : null;
-  const animalAction = restAnimalActionForStep(phase, current?.activity ?? null, currentStepText);
+  const animalAction = started && !current && phase !== 'finished'
+    ? restAnimalAction(active.kind, phase)
+    : restAnimalActionForStep(phase, current?.activity ?? null, currentStepText);
   const animalKey = `${animalAction}:${current?.activity?.id ?? 'none'}:${current?.step.stepIndex ?? 0}`;
   const lede = !started
     ? mergedWithPomodoro

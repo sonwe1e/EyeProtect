@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Dialog } from './Dialog';
 
 export interface ConfirmRequest {
@@ -29,11 +29,21 @@ export function useConfirm(): {
   const confirm = useCallback(
     (next: ConfirmRequest) =>
       new Promise<boolean>((resolve) => {
+        // A second confirm while one is open must not orphan the first promise.
+        const previous = resolverRef.current;
+        resolverRef.current = null;
+        previous?.(false);
         resolverRef.current = resolve;
         setRequest(next);
       }),
     []
   );
+
+  useEffect(() => () => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    resolve?.(false);
+  }, []);
 
   const dialog = request ? (
     <Dialog

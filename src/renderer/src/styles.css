@@ -139,12 +139,12 @@
   height: 100%;
   user-select: none;
   pointer-events: none;
-  transform-origin: 50% 75%;
+  transform-origin: 50% 92%;
 }
 
-.pet-character.is-animating .pixel-animal {
-  animation: pet-idle-sway 3.4s var(--ease-move) 1;
-}
+/* Legacy wrapper sway/wobble removed: PixelAnimal owns every signature motion
+   (idle breath, react windup, celebrate). Parent selectors would win the
+   cascade on specificity and silently hide those animations. */
 
 @media (prefers-reduced-motion: reduce) {
   .pixel-animal *,
@@ -158,33 +158,6 @@
     transition: none !important;
   }
 }
-
-/* Rotation reads far better than translation at 160px — every skin gets a
-   visible motion signature, at its own pace. */
-@keyframes pet-idle-sway {
-  0%,
-  100% {
-    transform: translateY(1px) rotate(-1deg);
-  }
-  50% {
-    transform: translateY(-3px) rotate(1.2deg);
-  }
-}
-
-@keyframes pet-idle-wobble {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-  25% {
-    transform: translateY(-2px) rotate(-1.5deg);
-  }
-  75% {
-    transform: translateY(-2px) rotate(1.5deg);
-  }
-}
-
-.pet-character.is-reacting .pixel-animal { animation: pet-idle-wobble 700ms var(--ease-move); }
 
 /* ── Pixel animal motion signature (idle breath / poses / click windup) ─── */
 .pixel-animal {
