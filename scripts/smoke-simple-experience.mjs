@@ -134,22 +134,19 @@ try {
       await waitFor(alert, `document.querySelector('.rest-card .rest-stage-art .pixel-animal') !== null`);
       // Settings arrive over IPC after the first paint; wait for the panel to
       // reflect the saved rest length before asserting on the copy.
-      await waitFor(alert, `document.querySelector('.rest-ring-text strong')?.textContent === '00:12'`);
+      await waitFor(alert, `document.querySelector('.rest-stage-count strong')?.textContent === '00:12'`);
       const chrome = await evaluate(alert, `(() => ({
-        badge: document.querySelector('.rest-kind-badge')?.textContent ?? '',
+        badge: document.querySelector('.rest-badge')?.textContent ?? '',
         title: document.querySelector('#rest-title')?.textContent ?? '',
-        caption: document.querySelector('.rest-stage-caption')?.textContent ?? '',
-        primary: document.querySelector('.rest-actions button.primary')?.textContent ?? '',
-        timer: document.querySelector('.rest-ring-text strong')?.textContent ?? '',
-        activities: [...document.querySelectorAll('.rest-activities .activity-guide')].map((entry) => entry.textContent ?? '')
+        primary: document.querySelector('.rest-actions .rest-primary')?.textContent ?? '',
+        timer: document.querySelector('.rest-stage-count strong')?.textContent ?? '',
+        phaseLabel: document.querySelector('.rest-stage-count small')?.textContent ?? ''
       }))()`);
       assert.equal(chrome.badge, '护眼提醒', 'the stage must label the reminder kind');
       assert.equal(chrome.title, '让眼睛休息一下', 'the panel must carry the reminder title');
       assert.equal(chrome.primary, '开始休息', 'the primary action must start the rest');
-      assert.equal(chrome.caption, '远望 · 眨眼 · 放松', 'the stage caption must match the kind');
       assert.equal(chrome.timer, '00:12', 'the ready state previews the configured rest length');
-      assert.equal(chrome.activities.length, 1, 'an eye reminder must show its picked micro-break activity');
-      assert.ok(chrome.activities[0].includes('步'), `activity guide must show its pacing, got ${chrome.activities[0]}`);
+      assert.equal(chrome.phaseLabel, '计划休息', 'the ready state must name the rest it is previewing');
       await capture(alert, 'rest-ready');
       await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
       await waitFor(alert, `document.documentElement.dataset.theme === 'dark'`);
@@ -165,21 +162,31 @@ try {
     await waitFor(pet, `(async () => !(await window.eyeProtect.getPomodoro()).running)()`);
     const paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
     if (!emergency) {
-      await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '完成休息')`);
+      // The disabled action carries the remaining wait, so the enforced pause is
+      // asserted on the primary action itself rather than on an exact caption.
+      await waitFor(alert, `document.querySelector('.rest-primary')?.disabled === true`);
       const resting = await evaluate(alert, `(() => ({
-        ringLabel: document.querySelector('.rest-ring-text span')?.textContent ?? '',
+        ringLabel: document.querySelector('.rest-stage-count small')?.textContent ?? '',
         lede: document.querySelector('.rest-lede')?.textContent ?? '',
-        completeDisabled: [...document.querySelectorAll('button')].find(b => b.textContent === '完成休息')?.disabled ?? null
+        primary: document.querySelector('.rest-primary')?.textContent ?? '',
+        completeDisabled: document.querySelector('.rest-primary')?.disabled ?? null,
+        activities: [...document.querySelectorAll('.rest-activity')].map((entry) => entry.textContent ?? '')
       }))()`);
       assert.equal(resting.ringLabel, '剩余', 'the running countdown must label its ring');
       assert.match(resting.lede, /^还有 \d+ 秒/, 'the running countdown must be visible as text');
       assert.equal(resting.completeDisabled, true, 'focused mode must enforce the rest wait');
+      assert.match(resting.primary, /^完成休息（\d+ 秒）$/, 'the disabled action must show the remaining wait');
+      // The panel only carries the activity in progress, so the picked micro-break
+      // activity and its pacing are asserted while the rest is running rather than
+      // before it starts.
+      assert.equal(resting.activities.length, 1, 'an eye reminder must show its picked micro-break activity');
+      assert.ok(resting.activities[0].includes('步'), `activity guide must show its pacing, got ${resting.activities[0]}`);
     }
     // The rest window is 12s below; waitFor's default budget is shorter.
     await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '${emergency ? '完成' : '完成休息'}' && !b.disabled)`, 30_000);
     if (!emergency) {
       const finished = await evaluate(alert, `(() => ({
-        ringLabel: document.querySelector('.rest-ring-text span')?.textContent ?? '',
+        ringLabel: document.querySelector('.rest-stage-count small')?.textContent ?? '',
         lede: document.querySelector('.rest-lede')?.textContent ?? ''
       }))()`);
       assert.equal(finished.ringLabel, '已到时间', 'the ring must settle once the rest window closed');
@@ -318,8 +325,11 @@ try {
     metrics.restarted = await evaluate(restarted, 'window.eyeProtect.getPomodoro()');
     assert.equal(metrics.restarted.running, false); assert.equal(metrics.restarted.remainingMs, metrics.paused.remainingMs);
     await evaluate(restarted, `window.eyeProtect.pomodoroAction('stop')`);
-    await waitFor(restarted, `document.querySelector('[title="开始番茄钟"]') !== null`);
-    await evaluate(restarted, `document.querySelector('[title="开始番茄钟"]').click()`);
+    // The pet's focus entry now lives in a native right-click menu, which CDP
+    // cannot drive, so this asserts the entry survived the relaunch and then
+    // follows the same free-focus call the menu item makes through the bubble.
+    assert.equal(await evaluate(restarted, `typeof window.eyeProtect.showPetContextMenu`), 'function', 'the pet context-menu entry must survive a relaunch');
+    await evaluate(restarted, `window.eyeProtect.preparePomodoro(null, true)`);
     bubble = await waitForTarget(endpoint, '#bubble');
     await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]') !== null`);
     assert.equal((await evaluate(restarted, 'window.eyeProtect.getPomodoro()')).taskId, null);

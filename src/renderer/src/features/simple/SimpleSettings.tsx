@@ -55,24 +55,23 @@ export function SimpleSettings(): JSX.Element {
         </label>
         <button type="button" onClick={() => soundPlayer.playRestComplete(settings.soundVolume)}>试听结束铃声</button>
       </div>
-      <div className="simple-button-row">
-        <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}>试一下护眼提醒</button>
-      </div>
-    </section>
-    <section><h2>智能免打扰</h2><p>在游戏、全屏看视频或专注演示时自动抑制提醒，避免打断当前关键体验。</p>
-      <label className="simple-check">
-        <input type="checkbox" checked={settings.fullscreenDndEnabled} onChange={(e) => save({ fullscreenDndEnabled: e.currentTarget.checked })} />
-        全屏应用自动免打扰（游戏、全屏播放或幻灯片演示时自动推迟提醒）
-      </label>
+      {/* 免打扰回答的是“什么时候不要提醒”，和提醒方式同属一组；设置页按精简契约保持三组。 */}
       <div className="simple-field-grid">
+        <label className="simple-check">
+          <input type="checkbox" checked={settings.fullscreenDndEnabled} onChange={(e) => save({ fullscreenDndEnabled: e.currentTarget.checked })} />
+          全屏应用自动免打扰（游戏、全屏播放或幻灯片演示时自动推迟提醒）
+        </label>
         <label className="simple-check">
           <input type="checkbox" checked={settings.quietHoursEnabled} onChange={(e) => save({ quietHoursEnabled: e.currentTarget.checked })} />
           定时免打扰时段
         </label>
-        {settings.quietHoursEnabled ? <>
-          <label>开始时间<input type="time" defaultValue={toTimeStr(settings.quietHoursStartMinutes)} onBlur={(e) => save({ quietHoursStartMinutes: fromTimeStr(e.currentTarget.value, settings.quietHoursStartMinutes) })} /></label>
-          <label>结束时间<input type="time" defaultValue={toTimeStr(settings.quietHoursEndMinutes)} onBlur={(e) => save({ quietHoursEndMinutes: fromTimeStr(e.currentTarget.value, settings.quietHoursEndMinutes) })} /></label>
-        </> : null}
+      </div>
+      {settings.quietHoursEnabled ? <div className="simple-field-grid">
+        <label>开始时间<input type="time" defaultValue={toTimeStr(settings.quietHoursStartMinutes)} onBlur={(e) => save({ quietHoursStartMinutes: fromTimeStr(e.currentTarget.value, settings.quietHoursStartMinutes) })} /></label>
+        <label>结束时间<input type="time" defaultValue={toTimeStr(settings.quietHoursEndMinutes)} onBlur={(e) => save({ quietHoursEndMinutes: fromTimeStr(e.currentTarget.value, settings.quietHoursEndMinutes) })} /></label>
+      </div> : null}
+      <div className="simple-button-row">
+        <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}>试一下护眼提醒</button>
       </div>
     </section>
     <section><h2>桌面外观</h2>      <div className="simple-animals">{PIXEL_ANIMALS.map((animal) => <button key={animal} aria-pressed={settings.petAppearance === animal} onClick={() => save({ petAppearance: animal })}><PixelAnimal animal={animal} action="idle" label={PIXEL_ANIMAL_NAMES[animal]} /><span>{PIXEL_ANIMAL_NAMES[animal]}</span></button>)}</div>

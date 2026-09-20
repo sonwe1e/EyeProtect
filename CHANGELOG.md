@@ -18,6 +18,7 @@
 ### Changed
 - 主进程 `pomodoro/runtimeState/reminderSurface/diagnostics/index` 的直接 `console.*` 收敛到 `logger`，发布日志只有一级前缀。
 - `tests/quality-step.test.ts` 锁定“无 `window.confirm` + ConfirmDialog 已接入 + logger 可用”，并改为断言桌宠的专注入口来自右键菜单。
+- `scripts/smoke-simple-experience.mjs` 重新对齐当前界面：休息卡改用“艺术舞台 + 阅读面板”的 `.rest-badge` / `.rest-stage-count` / `.rest-activity` 标记，主按钮按禁用态倒计时文案断言，桌宠专注入口改为右键菜单可达性检查。打包验收由此恢复全绿。
 - 确认弹窗收尾：`title/confirmText/danger` 可配，删除默认聚焦取消键并用 danger 样式。
 - 任务行：行内控件不再冒泡展开详情，`•••` 支持 `Esc` 关闭，带 `reminderAt` 的行显示提醒标记，搜索无匹配给空态。
 - 任务编辑：外部 revision 变化回同步 draft，未改时保存禁用并换 `CommandButton` 反馈。
@@ -26,7 +27,7 @@
 - 稍后提醒：遮罩上的“稍后”只影响当次，不再内联改全局默认；默认稍后时长移入设置页。
 - 桌宠小动作（眨眼/伸懒腰）可在设置关闭（`petMotion`）；系统“减少动态效果”始终优先。
 - 提醒遮罩与工作台改为落在鼠标所在的那块显示器上；取不到光标时回退到桌宠所在屏幕，再回退主显示器，兼容多显示器、虚拟显示器与远程桌面。
-- 设置页拆出“智能免打扰”分组，并把提醒方式（沉浸遮罩 / 浮窗卡片 / 轻柔气泡）与提示音开关集中到“休息提醒”。
+- 设置页把提醒方式（沉浸遮罩 / 浮窗卡片 / 轻柔气泡）、提示音与免打扰开关一并集中在“休息提醒”一组，保持设置页只有三组。
 - `logger.error/warn` 通过注入 sink 写入 `reminder-trace.log`（`log-warn/log-error` 事件），打包版有一条完整落盘排障链。
 
 ### Removed

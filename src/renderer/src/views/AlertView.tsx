@@ -46,21 +46,13 @@ export default function AlertView(): JSX.Element {
   const pomodoro = usePomodoro();
   const { settings } = useSettings();
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
-  if (!active) return <main className="alert-shell" />;
-
-  const phase = restPhase(active, now);
-  const copy = restKindCopy(active.kind);
-  const { remainingSeconds, totalSeconds, progress } = restCountdown(active, now, settings);
-  const activities = active.activityIds
-    .map(getActivity)
-    .filter((activity): activity is BreakActivity => activity !== null);
+  // The alert window paints once with no reminder while the main process state
+  // is still in flight. Deriving the timeline here keeps the hooks below
+  // unconditional: a hook behind the `!active` return would change the hook
+  // count between renders, and React takes the whole window down.
+  const phase = active ? restPhase(active, now) : 'ready';
   const started = phase !== 'ready';
-  const animal = settings.petAppearance;
-  const animalName = PIXEL_ANIMAL_NAMES[animal];
-  const mergedWithPomodoro =
-    pomodoro.phase === 'focus-finished' || pomodoro.phase === 'break';
-  const restStartedAt = typeof active.restStartedAt === 'number' ? active.restStartedAt : now;
-
+  const { remainingSeconds, totalSeconds, progress } = active ? restCountdown(active, now, settings) : { remainingSeconds: 0, totalSeconds: 0, progress: 0 };
   const playedStartRef = useRef<string | null>(null);
   const playedCompleteRef = useRef<string | null>(null);
 
@@ -106,6 +98,18 @@ export default function AlertView(): JSX.Element {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [action, active, started, remainingSeconds]);
+
+  if (!active) return <main className="alert-shell" />;
+
+  const copy = restKindCopy(active.kind);
+  const activities = active.activityIds
+    .map(getActivity)
+    .filter((activity): activity is BreakActivity => activity !== null);
+  const animal = settings.petAppearance;
+  const animalName = PIXEL_ANIMAL_NAMES[animal];
+  const mergedWithPomodoro =
+    pomodoro.phase === 'focus-finished' || pomodoro.phase === 'break';
+  const restStartedAt = typeof active.restStartedAt === 'number' ? active.restStartedAt : now;
 
   // Only the activity in progress is shown, with the next one named: a break is
   // followed one instruction at a time, and listing every step of every
@@ -200,13 +204,13 @@ export default function AlertView(): JSX.Element {
 
       <div className="rest-actions">
         {!started
-          ? <button className="rest-primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息 <kbd className="kbd-hint">Space</kbd></button>
-          : <button className="rest-primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>{remainingSeconds > 0 ? `完成休息（${remainingSeconds} 秒）` : <>完成休息 <kbd className="kbd-hint">Space</kbd></>}</button>}
+          ? <button className="rest-primary" data-shortcut="Space" aria-keyshortcuts="Space" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息</button>
+          : <button className="rest-primary" data-shortcut={remainingSeconds > 0 ? undefined : 'Space'} aria-keyshortcuts="Space" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>{remainingSeconds > 0 ? `完成休息（${remainingSeconds} 秒）` : '完成休息'}</button>}
         <div className="rest-actions-row">
           <div className="rest-snooze-group">
-            <button disabled={action.isPending} title={`这次稍后 ${settings.snoozeMinutes} 分钟（不改变默认设置）`} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后 {settings.snoozeMinutes} 分钟 <kbd className="kbd-hint">Esc</kbd></button>
+            <button data-shortcut="Esc" aria-keyshortcuts="Escape" disabled={action.isPending} title={`这次稍后 ${settings.snoozeMinutes} 分钟（不改变默认设置）`} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后 {settings.snoozeMinutes} 分钟</button>
           </div>
-          <button className="rest-skip" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('skip', active.id))}>跳过 <kbd className="kbd-hint">S</kbd></button>
+          <button className="rest-skip" data-shortcut="S" aria-keyshortcuts="S" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('skip', active.id))}>跳过</button>
         </div>
         <p className="rest-hint">{hint} · 默认稍后可在设置里调整</p>
         {action.error ? <p className="rest-error" role="alert">{action.error.message}</p> : null}
