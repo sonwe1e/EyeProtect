@@ -5,6 +5,75 @@ export interface WindowRectangle {
   height: number;
 }
 
+export interface TargetDisplayLike {
+  id?: number | string;
+  bounds: WindowRectangle;
+  workArea: WindowRectangle;
+  scaleFactor?: number;
+}
+
+export interface ScreenSourceLike {
+  getCursorScreenPoint?: () => { x: number; y: number };
+  getDisplayNearestPoint?: (point: { x: number; y: number }) => TargetDisplayLike;
+  getDisplayMatching?: (rect: WindowRectangle) => TargetDisplayLike;
+  getPrimaryDisplay?: () => TargetDisplayLike;
+}
+
+/**
+ * Determine which display should host the alert card or rest UI.
+ * Priority:
+ * 1. The display where the user's cursor currently is (active user attention).
+ * 2. The display where the desktop pet is located.
+ * 3. The primary display.
+ */
+export const resolveTargetDisplay = (
+  screenSource: ScreenSourceLike,
+  petBounds?: WindowRectangle | null
+): TargetDisplayLike => {
+  try {
+    if (typeof screenSource.getCursorScreenPoint === 'function' && typeof screenSource.getDisplayNearestPoint === 'function') {
+      const cursor = screenSource.getCursorScreenPoint();
+      if (cursor && Number.isFinite(cursor.x) && Number.isFinite(cursor.y)) {
+        const display = screenSource.getDisplayNearestPoint(cursor);
+        if (display && display.workArea) {
+          return display;
+        }
+      }
+    }
+  } catch {
+    // Cursor lookup failed or unsupported
+  }
+
+  if (petBounds && typeof screenSource.getDisplayMatching === 'function') {
+    try {
+      const display = screenSource.getDisplayMatching(petBounds);
+      if (display && display.workArea) {
+        return display;
+      }
+    } catch {
+      // Pet display matching failed
+    }
+  }
+
+  if (typeof screenSource.getPrimaryDisplay === 'function') {
+    try {
+      const display = screenSource.getPrimaryDisplay();
+      if (display && display.workArea) {
+        return display;
+      }
+    } catch {
+      // Primary display failed
+    }
+  }
+
+  return {
+    id: 0,
+    bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+    scaleFactor: 1
+  };
+};
+
 /** Coordinates are DIP; artwork uses the same normalized 64px canvas. */
 export const getPetBubbleLayout = (
   pet: WindowRectangle,

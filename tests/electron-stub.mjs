@@ -131,3 +131,28 @@ export const app = {
     return app._isReady;
   }
 };
+
+export const screen = {
+  getCursorScreenPoint() {
+    return { x: 500, y: 500 };
+  },
+  getDisplayNearestPoint() {
+    return screen.getPrimaryDisplay();
+  },
+  getDisplayMatching() {
+    return screen.getPrimaryDisplay();
+  },
+  getPrimaryDisplay() {
+    return {
+      id: 1,
+      bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+      workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+      scaleFactor: 1
+    };
+  },
+  getAllDisplays() {
+    return [screen.getPrimaryDisplay()];
+  },
+  on() {},
+  removeListener() {}
+};

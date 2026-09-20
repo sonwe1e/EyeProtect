@@ -186,6 +186,9 @@ const api: EyeProtectApi = {
   onBubbleLayout: (callback) => on('bubble:layout', callback),
   movePetWindow: (position) =>
     ipcRenderer.invoke('window:pet:move', position) as Promise<PetPosition | null>,
+  showPetContextMenu: () => ipcRenderer.invoke('window:pet:context-menu') as Promise<void>,
+  togglePetVisibility: () => ipcRenderer.invoke('window:pet:toggle-visibility') as Promise<boolean>,
+  recallPet: () => ipcRenderer.invoke('window:pet:recall') as Promise<void>,
   openWorkbench: (section = 'today') =>
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,

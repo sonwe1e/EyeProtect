@@ -1,7 +1,15 @@
-import { getPetBubbleLayout } from '../src/main/windowBounds';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ALERT_LAYOUT, getAlertBounds, getPetMoveBounds, type WindowRectangle } from '../src/main/windowBounds';
+import {
+  ALERT_LAYOUT,
+  getAlertBounds,
+  getPetBubbleLayout,
+  getPetMoveBounds,
+  resolveTargetDisplay,
+  type ScreenSourceLike,
+  type TargetDisplayLike,
+  type WindowRectangle
+} from '../src/main/windowBounds';
 
 const assertInsideWorkArea = (bounds: WindowRectangle, workArea: WindowRectangle): void => {
   assert.ok(bounds.width > 0);
@@ -116,3 +124,70 @@ test('legacy artwork uses its reported silhouette rather than a fixed pixel-anim
   const result = getPetBubbleLayout(pet, area, { width: 260, height: 140 }, { top: .25, bottom: .8 });
   assert.equal(result.bounds.y + result.bounds.height, 540);
 });
+
+test('resolveTargetDisplay selects the display where user cursor is located (e.g. virtual display)', () => {
+  const physicalDisplay: TargetDisplayLike = {
+    id: 1,
+    bounds: { x: 0, y: 0, width: 2560, height: 1440 },
+    workArea: { x: 0, y: 0, width: 2560, height: 1400 }
+  };
+  const virtualDisplay: TargetDisplayLike = {
+    id: 2,
+    bounds: { x: 2560, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 2560, y: 0, width: 1920, height: 1040 }
+  };
+
+  const fakeScreen: ScreenSourceLike = {
+    getCursorScreenPoint: () => ({ x: 3000, y: 500 }), // Cursor is on virtual display
+    getDisplayNearestPoint: (pt) => (pt.x >= 2560 ? virtualDisplay : physicalDisplay),
+    getDisplayMatching: (_rect) => physicalDisplay, // Pet was left on physical display
+    getPrimaryDisplay: () => physicalDisplay
+  };
+
+  const petOnPhysical = { x: 2000, y: 1200, width: 160, height: 160 };
+  const target = resolveTargetDisplay(fakeScreen, petOnPhysical);
+
+  assert.equal(target.id, 2, 'Should target virtual display where cursor is active');
+  const alertBounds = getAlertBounds(target.workArea);
+  assertInsideWorkArea(alertBounds, virtualDisplay.workArea);
+  assert.ok(alertBounds.x >= 2560, 'Alert card is placed inside virtual display bounds');
+});
+
+test('resolveTargetDisplay falls back to pet display when cursor is unavailable or outside', () => {
+  const physicalDisplay: TargetDisplayLike = {
+    id: 1,
+    bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1040 }
+  };
+
+  const fakeScreen: ScreenSourceLike = {
+    getCursorScreenPoint: () => { throw new Error('cursor unavailable'); },
+    getDisplayMatching: () => physicalDisplay,
+    getPrimaryDisplay: () => physicalDisplay
+  };
+
+  const target = resolveTargetDisplay(fakeScreen, { x: 100, y: 100, width: 160, height: 160 });
+  assert.equal(target.id, 1);
+});
+
+test('resolveTargetDisplay falls back to primary display or safe defaults when all else fails', () => {
+  const primaryDisplay: TargetDisplayLike = {
+    id: 'primary',
+    bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1040 }
+  };
+
+  const fakeScreen: ScreenSourceLike = {
+    getPrimaryDisplay: () => primaryDisplay
+  };
+
+  const target = resolveTargetDisplay(fakeScreen, null);
+  assert.equal(target.id, 'primary');
+
+  // Completely empty screen source
+  const emptyScreen: ScreenSourceLike = {};
+  const safeTarget = resolveTargetDisplay(emptyScreen, null);
+  assert.ok(safeTarget.workArea.width > 0);
+  assert.ok(safeTarget.workArea.height > 0);
+});
+

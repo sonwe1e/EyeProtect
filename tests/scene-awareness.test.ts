@@ -83,3 +83,25 @@ test('known meeting apps use a system-only notification decision', async () => {
   assert.equal(result.deferMinutes, 5);
   assert.match(result.reason ?? '', /系统轻提示/);
 });
+
+test('fullscreenDndEnabled defers any fullscreen app without manual whitelist', async () => {
+  const configured = settings({
+    fullscreenDndEnabled: true
+  });
+  const result = await evaluateReminderContext(
+    configured,
+    Date.now(),
+    async () => ({ appName: 'cyberpunk2077', fullScreen: true })
+  );
+  assert.equal(result.action, 'defer');
+  assert.equal(result.deferMinutes, 5);
+  assert.equal(result.foregroundApp, 'cyberpunk2077');
+  assert.match(result.reason ?? '', /全屏免打扰/);
+
+  const windowed = await evaluateReminderContext(
+    configured,
+    Date.now(),
+    async () => ({ appName: 'cyberpunk2077', fullScreen: false })
+  );
+  assert.equal(windowed.action, 'show');
+});

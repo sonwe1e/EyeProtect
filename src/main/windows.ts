@@ -24,7 +24,7 @@ import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
 import { selectPetTasks } from '../shared/petTasks';
-import { getAlertBounds, getPetMoveBounds, getPetBubbleLayout } from './windowBounds';
+import { getAlertBounds, getPetMoveBounds, getPetBubbleLayout, resolveTargetDisplay } from './windowBounds';
 import { getWorkbenchBackgroundColor } from './workbenchTheme';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -248,9 +248,12 @@ export class AppWindows {
     this.petWindow = null;
   }
 
-  /** True when the pet window is present and live (used to guard pet-only UI). */
+  getPetWindow(): BrowserWindow | null {
+    return this.petWindow && !this.petWindow.isDestroyed() ? this.petWindow : null;
+  }
+
   isPetWindowAlive(): boolean {
-    return Boolean(this.petWindow) && !this.petWindow!.isDestroyed();
+    return this.getPetWindow() !== null;
   }
 
   togglePetVisibility(): boolean {
@@ -264,6 +267,39 @@ export class AppWindows {
       this.applyReminderStatus(this.scheduler.getStatus());
     }
     return this.petTemporarilyHidden;
+  }
+
+  /**
+   * Determine the active display where user attention is currently focused.
+   * Prioritizes mouse cursor position (active screen), followed by pet position,
+   * then the primary display.
+   */
+  getActiveDisplay(): Electron.Display {
+    const petBounds =
+      this.petWindow && !this.petWindow.isDestroyed()
+        ? this.petWindow.getBounds()
+        : null;
+    return resolveTargetDisplay(screen, petBounds) as Electron.Display;
+  }
+
+  /**
+   * Move and un-hide the desktop pet to the bottom-right corner of the active screen.
+   * Useful when switching to a virtual monitor, remote session, or secondary screen.
+   */
+  bringPetToActiveDisplay(): void {
+    if (!this.petWindow || this.petWindow.isDestroyed()) return;
+    this.petTemporarilyHidden = false;
+    const activeDisplay = this.getActiveDisplay();
+    const size = this.getIdlePetSize(this.settingsStore.get());
+    const workArea = activeDisplay.workArea;
+    const x = workArea.x + workArea.width - size.width - 24;
+    const y = workArea.y + workArea.height - size.height - 24;
+    this.applyingBounds = true;
+    this.petWindow.setBounds({ x, y, width: size.width, height: size.height }, false);
+    this.applyingBounds = false;
+    this.petWindow.showInactive();
+    this.refreshBubble();
+    this.settingsStore.savePetPosition({ x, y }, this.getCurrentDisplayLayoutKey());
   }
 
   /**
@@ -281,7 +317,20 @@ export class AppWindows {
       | 'review' = 'today'
   ): void {
     this.workbenchSection = section;
+    const activeDisplay = this.getActiveDisplay();
+
     if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
+      const currentBounds = this.workbenchWindow.getBounds();
+      const currentDisplay = screen.getDisplayMatching(currentBounds);
+      if (currentDisplay.id !== activeDisplay.id) {
+        const targetArea = activeDisplay.workArea;
+        const w = Math.min(currentBounds.width, targetArea.width);
+        const h = Math.min(currentBounds.height, targetArea.height);
+        const nextX = targetArea.x + Math.round((targetArea.width - w) / 2);
+        const nextY = targetArea.y + Math.round((targetArea.height - h) / 2);
+        this.workbenchWindow.setBounds({ x: nextX, y: nextY, width: w, height: h });
+      }
+
       // A window already exists: if its renderer is mid-load, let that load
       // finish instead of creating a second window for the same surface.
       if (this.workbenchLoading) {
@@ -300,11 +349,15 @@ export class AppWindows {
       return;
     }
 
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-    const initialWidth = Math.max(960, Math.min(1280, Math.round(width * 0.7)));
-    const initialHeight = Math.max(600, Math.min(800, Math.round(height * 0.75)));
+    const { workArea } = activeDisplay;
+    const initialWidth = Math.max(960, Math.min(1280, Math.round(workArea.width * 0.7)));
+    const initialHeight = Math.max(600, Math.min(800, Math.round(workArea.height * 0.75)));
+    const initialX = workArea.x + Math.round((workArea.width - initialWidth) / 2);
+    const initialY = workArea.y + Math.round((workArea.height - initialHeight) / 2);
 
     const window = new BrowserWindow({
+      x: initialX,
+      y: initialY,
       width: initialWidth,
       height: initialHeight,
       minWidth: 880,
@@ -648,6 +701,12 @@ export class AppWindows {
     if (active) {
       if (active.mode === 'gentle') {
         if (this.petWindow && !this.petWindow.isDestroyed()) {
+          const petBounds = this.petWindow.getBounds();
+          const petDisplay = screen.getDisplayMatching(petBounds);
+          const activeDisplay = this.getActiveDisplay();
+          if (petDisplay.id !== activeDisplay.id) {
+            this.bringPetToActiveDisplay();
+          }
           this.petWindow.showInactive();
         }
         this.destroyAlertWindow();
@@ -701,7 +760,7 @@ export class AppWindows {
 
     this.alertLoading = (async () => {
       const window = new BrowserWindow({
-        ...this.getAlertBoundsForPetDisplay(),
+        ...this.getAlertBoundsForActiveDisplay(),
         frame: false,
         transparent: true,
         resizable: false,
@@ -749,6 +808,7 @@ export class AppWindows {
 
       this.alertWindow = window;
       window.show();
+      window.focus();
       window.flashFrame(true);
       return window.isVisible();
     })().finally(() => {
@@ -767,17 +827,14 @@ export class AppWindows {
 
   private positionAlertWindow(): void {
     if (this.alertWindow && !this.alertWindow.isDestroyed()) {
-      this.alertWindow.setBounds(this.getAlertBoundsForPetDisplay());
+      this.alertWindow.setBounds(this.getAlertBoundsForActiveDisplay());
     }
   }
 
-  /** Center the alert on the display the pet lives on. */
-  private getAlertBoundsForPetDisplay(): Electron.Rectangle {
-    const anchor =
-      this.petWindow && !this.petWindow.isDestroyed()
-        ? this.petWindow.getBounds()
-        : { x: 0, y: 0, width: 0, height: 0 };
-    return getAlertBounds(screen.getDisplayMatching(anchor).workArea);
+  /** Center the alert on the display where the user is actively working. */
+  private getAlertBoundsForActiveDisplay(): Electron.Rectangle {
+    const targetDisplay = this.getActiveDisplay();
+    return getAlertBounds(targetDisplay.workArea);
   }
 
   private updateDimWindows(active: boolean, settings: Settings): void {

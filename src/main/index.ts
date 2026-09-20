@@ -230,8 +230,13 @@ const createTray = (
       { type: 'separator' },
       { label: `待办：${pendingTodos} 项未完成`, enabled: false },
       { label: '打开工作台', click: (): void => void windows.showWorkbenchWindow('today') },
-
       { label: '打开设置', click: (): void => windows.showWorkbenchWindow('settings') },
+      {
+        label: '召回桌宠到当前屏幕',
+        click: (): void => {
+          windows.bringPetToActiveDisplay();
+        }
+      },
       {
         label: '重新加载宠物',
         click: (): void => {
@@ -1214,6 +1219,100 @@ app.whenReady().then(async () => {
     return Number.isFinite(x) && Number.isFinite(y)
       ? windows.movePetWindow({ x, y })
       : null;
+  });
+  handleIpc('window:pet:toggle-visibility', () => windows.togglePetVisibility());
+  handleIpc('window:pet:recall', () => windows.bringPetToActiveDisplay());
+  handleIpc('window:pet:context-menu', () => {
+    const petWin = windows.getPetWindow();
+    if (!petWin) return;
+    const status = scheduler.getStatus();
+    const paused = status.pausedUntil !== null && status.pausedUntil > Date.now();
+    const settings = settingsStore.get();
+    const pomodoroState = pomodoro.getState();
+
+    const menu = Menu.buildFromTemplate([
+      {
+        label: '🍵 立即休息',
+        enabled: !status.activeReminder,
+        submenu: [
+          { label: '护眼休息', click: () => void scheduler.triggerTest('eye') },
+          { label: '走动休息', click: () => void scheduler.triggerTest('walk') },
+          { label: '合并提醒', click: () => void scheduler.triggerTest('combined') }
+        ]
+      },
+      {
+        label: paused ? '▶ 恢复提醒' : '⏸ 暂停提醒',
+        submenu: paused
+          ? [
+              { label: '立即恢复', click: () => void scheduler.resume() },
+              { label: '重新开始计时', click: () => void scheduler.restartCycle() }
+            ]
+          : [
+              { label: '暂停 30 分钟', click: () => void scheduler.pause(30) },
+              { label: '暂停 1 小时', click: () => void scheduler.pause(60) },
+              { label: '暂停至明天', click: () => void scheduler.pause(1440) }
+            ]
+      },
+      {
+        label: pomodoroState.phase === 'focus' ? '⏹ 停止专注' : '⏱ 开始专注 (25分钟)',
+        click: () => {
+          if (pomodoroState.phase === 'focus') {
+            void pomodoro.act('stop');
+          } else {
+            void pomodoro.start(null, settings.pomodoroMinutes || 25, true);
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: '🐾 切换桌宠',
+        submenu: [
+          {
+            label: '橘猫',
+            type: 'radio',
+            checked: settings.petAppearance === 'cat',
+            click: () => void settingsStore.save({ petAppearance: 'cat' })
+          },
+          {
+            label: '小狗',
+            type: 'radio',
+            checked: settings.petAppearance === 'dog',
+            click: () => void settingsStore.save({ petAppearance: 'dog' })
+          },
+          {
+            label: '白兔',
+            type: 'radio',
+            checked: settings.petAppearance === 'rabbit',
+            click: () => void settingsStore.save({ petAppearance: 'rabbit' })
+          }
+        ]
+      },
+      {
+        label: '桌宠小动作',
+        type: 'checkbox',
+        checked: settings.petMotion,
+        click: () => void settingsStore.save({ petMotion: !settings.petMotion })
+      },
+      { type: 'separator' },
+      {
+        label: '📋 打开工作台',
+        submenu: [
+          { label: '待办任务', click: () => void windows.showWorkbenchWindow('today') },
+          { label: '完成记录', click: () => void windows.showWorkbenchWindow('review') },
+          { label: '设置', click: () => void windows.showWorkbenchWindow('settings') }
+        ]
+      },
+      {
+        label: '🎯 召回桌宠到当前屏幕',
+        click: () => { windows.bringPetToActiveDisplay(); }
+      },
+      {
+        label: '👁 隐藏桌宠 (可在托盘唤醒)',
+        click: () => { windows.togglePetVisibility(); }
+      }
+    ]);
+
+    menu.popup({ window: petWin });
   });
 
   // Start the pet renderer as soon as its IPC surface exists so first paint

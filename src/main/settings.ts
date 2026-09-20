@@ -329,6 +329,18 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         ? input.foregroundDetectionEnabled
         : DEFAULT_SETTINGS.foregroundDetectionEnabled,
     quietAppWhitelist: sanitizeQuietAppWhitelist(input.quietAppWhitelist),
+    soundEnabled:
+      typeof input.soundEnabled === 'boolean'
+        ? input.soundEnabled
+        : DEFAULT_SETTINGS.soundEnabled,
+    soundVolume:
+      typeof input.soundVolume === 'number' && Number.isFinite(input.soundVolume)
+        ? Math.min(1, Math.max(0, input.soundVolume))
+        : DEFAULT_SETTINGS.soundVolume,
+    fullscreenDndEnabled:
+      typeof input.fullscreenDndEnabled === 'boolean'
+        ? input.fullscreenDndEnabled
+        : DEFAULT_SETTINGS.fullscreenDndEnabled,
     hotkeysEnabled:
       typeof input.hotkeysEnabled === 'boolean'
         ? input.hotkeysEnabled

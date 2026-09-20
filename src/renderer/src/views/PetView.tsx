@@ -1,28 +1,15 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
-import { Clock3, ListChecks, Settings as SettingsIcon } from 'lucide-react';
 import { PetCharacter } from '../features/pet/PetCharacter';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { usePendingTaskCount } from '../hooks/usePendingTaskCount';
 import { useSettings } from '../hooks/useSettings';
-import { useConfirm } from '../hooks/useConfirm';
-import { ConfirmDialog } from '../components/ConfirmDialog';
-import { CommandButton } from '../components/CommandButton';
-import { commands, run } from '../lib/commands';
-import { useCommand } from '../hooks/useCommand';
 
 const REACTION_MS = 1_100;
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
-  const confirmState = useConfirm();
-  const startFocus = useCommand(() => run(async () => {
-    const state = await window.eyeProtect.getPomodoro();
-    if (['focus', 'break'].includes(state.phase) && !(await confirmState.confirm('当前计时会被替换。', { title: '开始新一轮专注？', confirmText: '开始新一轮' }))) return;
-    return window.eyeProtect.preparePomodoro(null, true);
-  }));
-  const pendingCount = usePendingTaskCount();
   const { settings } = useSettings();
   const animal = settings.petAppearance;
+
   useLayoutEffect(() => {
     const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
     if (!svg) return;
@@ -34,6 +21,7 @@ export default function PetView(): JSX.Element {
       bottom: Math.min(1, (box.y + box.height - viewBox.y) / viewBox.height)
     });
   }, [animal]);
+
   const dragRef = useRef<{
     pointerId: number;
     screenX: number;
@@ -47,24 +35,20 @@ export default function PetView(): JSX.Element {
   const [reacting, setReacting] = useState(false);
   const [dragging, setDragging] = useState(false);
 
-  const handleOpenTodos = useCallback(() => {
-    void window.eyeProtect.openWorkbench('today');
-  }, []);
-  const handlePetDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement).closest('button')) {
-      return;
-    }
+  const handlePetDoubleClick = useCallback(() => {
     const active = reminderStatus.activeReminder;
     if (active?.mode === 'gentle') {
-      void commands.reminderActions.act('complete', active.id);
+      void window.eyeProtect.reminderAction('complete', active.id);
       return;
     }
     void window.eyeProtect.openWorkbench('today');
   }, [reminderStatus.activeReminder]);
+
   const handleContextMenu = useCallback((event: MouseEvent) => {
     event.preventDefault();
-    void window.eyeProtect.openWorkbench('settings');
+    void window.eyeProtect.showPetContextMenu();
   }, []);
+
   const handlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     // Capture before the pointer moves. A small transparent always-on-top
@@ -80,6 +64,7 @@ export default function PetView(): JSX.Element {
       moved: false
     };
   }, []);
+
   const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
@@ -90,6 +75,7 @@ export default function PetView(): JSX.Element {
     setDragging(true);
     void window.eyeProtect.movePetWindow({ x: drag.windowX + dx, y: drag.windowY + dy });
   }, []);
+
   const handlePointerEnd = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
@@ -116,29 +102,6 @@ export default function PetView(): JSX.Element {
 
   return (
     <main className={`pet-shell ${compactPet ? 'pet-compact' : ''}`.trim()} onContextMenu={handleContextMenu}>
-      <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
-      {!compactPet ? <div className="pet-toolbar">
-        <button
-          className={`pet-todo-tab ${pendingCount > 0 ? 'has-todos' : ''}`.trim()}
-          title="待办"
-          onClick={handleOpenTodos}
-        >
-          <ListChecks size={16} />
-          <span className="pet-todo-tab-label">待办</span>
-          {pendingCount > 0 ? <span className="todo-count">{pendingCount}</span> : null}
-        </button>
-        <CommandButton className="pet-alarm" state={startFocus.state} errorReason={startFocus.error?.message} successFeedback="none" title={startFocus.error?.message ?? '开始番茄钟'} aria-label="开始番茄钟" onClick={() => void startFocus.run()}>
-          <Clock3 size={18} />
-        </CommandButton>
-        <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openWorkbench('settings')}>
-          <SettingsIcon size={18} />
-        </button>
-      </div> : <div className="pet-toolbar pet-toolbar-compact">
-        <CommandButton className="pet-alarm" state={startFocus.state} errorReason={startFocus.error?.message} successFeedback="none" title={startFocus.error?.message ?? '开始番茄钟'} aria-label="开始番茄钟" onClick={() => void startFocus.run()}>
-          <Clock3 size={18} />
-        </CommandButton>
-      </div>}
-
       <div className="character-stage">
         <div
           className={`pet-drag-surface ${dragging ? 'is-dragging' : ''}`.trim()}
@@ -170,7 +133,6 @@ export default function PetView(): JSX.Element {
         </div>
         <div className="pet-drag-handle" aria-hidden="true" title="按住拖动桌宠" />
       </div>
-
     </main>
   );
 }

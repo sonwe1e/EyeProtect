@@ -27,11 +27,10 @@ test('blocking window.confirm is gone from renderer views', () => {
   }
 });
 
-test('confirm dialog is wired into the three views', () => {
+test('confirm dialog is wired into the views with interactive actions', () => {
   for (const path of [
     'src/renderer/src/views/WorkbenchView.tsx',
     'src/renderer/src/views/BubbleView.tsx',
-    'src/renderer/src/views/PetView.tsx',
   ]) {
     assert.ok(read(path).includes('ConfirmDialog'), `${path} missing ConfirmDialog`);
   }
@@ -68,9 +67,9 @@ test('bubble actions meet a usable hit target', () => {
   assert.ok(css.includes('min-height: 36px'), 'bubble actions regressed below 36px');
 });
 
-test('compact pet keeps a focus entry point', () => {
-  const view = read('src/renderer/src/views/PetView.tsx');
-  assert.ok(view.includes('pet-toolbar-compact'), 'compact pet hides focus entry');
+test('pet keeps a focus entry point via context menu', () => {
+  const index = read('src/main/index.ts');
+  assert.ok(index.includes('pomodoro') && index.includes('window:pet:context-menu'), 'pet context menu provides focus entry');
 });
 
 test('logger persists warn/error through the injectable sink', async () => {

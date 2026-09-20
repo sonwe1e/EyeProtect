@@ -1,4 +1,5 @@
-import { Check } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { Check, Volume2, VolumeX } from 'lucide-react';
 import { useClock } from '../hooks/useClock';
 import { useCommand } from '../hooks/useCommand';
 import { usePomodoro } from '../hooks/usePomodoro';
@@ -8,6 +9,7 @@ import { getActivity } from '../../../shared/breakActivities';
 import { PIXEL_ANIMAL_NAMES } from '../../../shared/pixelAnimals';
 import type { BreakActivity } from '../../../shared/types';
 import { run } from '../lib/commands';
+import { soundPlayer } from '../lib/audio';
 import { PixelAnimal } from '../features/characters/PixelAnimal';
 import {
   formatRestDuration,
@@ -58,6 +60,53 @@ export default function AlertView(): JSX.Element {
   const mergedWithPomodoro =
     pomodoro.phase === 'focus-finished' || pomodoro.phase === 'break';
   const restStartedAt = typeof active.restStartedAt === 'number' ? active.restStartedAt : now;
+
+  const playedStartRef = useRef<string | null>(null);
+  const playedCompleteRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    if (settings.soundEnabled && playedStartRef.current !== active.id) {
+      playedStartRef.current = active.id;
+      soundPlayer.playRestStart(settings.soundVolume);
+    }
+  }, [active?.id, settings.soundEnabled, settings.soundVolume]);
+
+  useEffect(() => {
+    if (!active) return;
+    if (started && phase === 'finished' && playedCompleteRef.current !== active.id) {
+      playedCompleteRef.current = active.id;
+      if (settings.soundEnabled) {
+        soundPlayer.playRestComplete(settings.soundVolume);
+      }
+    }
+  }, [active?.id, started, phase, settings.soundEnabled, settings.soundVolume]);
+
+  useEffect(() => {
+    if (!active) return;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (action.isPending) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.code === 'Space' || e.code === 'Enter') {
+        e.preventDefault();
+        if (!started) {
+          void action.run(() => window.eyeProtect.beginHealthRest(active.id));
+        } else if (remainingSeconds <= 0) {
+          void action.run(() => window.eyeProtect.reminderAction('complete', active.id));
+        }
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        void action.run(() => window.eyeProtect.reminderAction('snooze', active.id));
+      } else if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        void action.run(() => window.eyeProtect.reminderAction('skip', active.id));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [action, active, started, remainingSeconds]);
+
   // Only the activity in progress is shown, with the next one named: a break is
   // followed one instruction at a time, and listing every step of every
   // activity pushed the panel into a scroll it does not need.
@@ -79,6 +128,15 @@ export default function AlertView(): JSX.Element {
 
   return <main className={`alert-shell simple-rest kind-${active.kind}`}>
     <section className={`rest-card${showSteps ? ' has-steps' : ''}`} aria-labelledby="rest-title">
+      <button
+        className="rest-sound-toggle"
+        aria-label={settings.soundEnabled ? '静音提示音' : '开启提示音'}
+        title={settings.soundEnabled ? '提示音已开启（点击静音）' : '提示音已静音（点击开启）'}
+        onClick={() => void window.eyeProtect.saveSettings({ soundEnabled: !settings.soundEnabled })}
+      >
+        {settings.soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+      </button>
+
       <div className="rest-ambient" aria-hidden="true">
         <span className="rest-orb is-1" />
         <span className="rest-orb is-2" />
@@ -142,13 +200,13 @@ export default function AlertView(): JSX.Element {
 
       <div className="rest-actions">
         {!started
-          ? <button className="rest-primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息</button>
-          : <button className="rest-primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>{remainingSeconds > 0 ? `完成休息（${remainingSeconds} 秒）` : '完成休息'}</button>}
+          ? <button className="rest-primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息 <kbd className="kbd-hint">Space</kbd></button>
+          : <button className="rest-primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>{remainingSeconds > 0 ? `完成休息（${remainingSeconds} 秒）` : <>完成休息 <kbd className="kbd-hint">Space</kbd></>}</button>}
         <div className="rest-actions-row">
           <div className="rest-snooze-group">
-            <button disabled={action.isPending} title={`这次稍后 ${settings.snoozeMinutes} 分钟（不改变默认设置）`} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后 {settings.snoozeMinutes} 分钟</button>
+            <button disabled={action.isPending} title={`这次稍后 ${settings.snoozeMinutes} 分钟（不改变默认设置）`} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后 {settings.snoozeMinutes} 分钟 <kbd className="kbd-hint">Esc</kbd></button>
           </div>
-          <button className="rest-skip" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('skip', active.id))}>跳过</button>
+          <button className="rest-skip" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('skip', active.id))}>跳过 <kbd className="kbd-hint">S</kbd></button>
         </div>
         <p className="rest-hint">{hint} · 默认稍后可在设置里调整</p>
         {action.error ? <p className="rest-error" role="alert">{action.error.message}</p> : null}

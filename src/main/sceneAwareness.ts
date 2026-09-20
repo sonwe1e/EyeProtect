@@ -130,13 +130,32 @@ export const evaluateReminderContext = async (
     }
   }
 
-  if (!settings.foregroundDetectionEnabled || settings.quietAppWhitelist.length === 0) {
+  const shouldCheckForeground =
+    settings.fullscreenDndEnabled ||
+    (settings.foregroundDetectionEnabled && settings.quietAppWhitelist.length > 0);
+
+  if (!shouldCheckForeground) {
     return { action: 'show' };
   }
+
   const scene = await detector();
-  if (!scene || !settings.quietAppWhitelist.includes(scene.appName)) {
+  if (!scene) {
     return { action: 'show' };
   }
+
+  if (settings.fullscreenDndEnabled && scene.fullScreen) {
+    return {
+      action: 'defer',
+      deferMinutes: 5,
+      reason: `${scene.appName} 正在全屏显示（全屏免打扰）`,
+      foregroundApp: scene.appName
+    };
+  }
+
+  if (!settings.foregroundDetectionEnabled || !settings.quietAppWhitelist.includes(scene.appName)) {
+    return { action: 'show' };
+  }
+
   if (MEETING_APPS.has(scene.appName)) {
     return {
       action: 'notify',

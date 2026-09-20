@@ -7,7 +7,23 @@ import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
 import { useCommand } from '../../hooks/useCommand';
 import { PixelAnimal } from '../characters/PixelAnimal';
+import { soundPlayer } from '../../lib/audio';
 import { run } from '../../lib/commands';
+
+const toTimeStr = (minOfDay: number): string => {
+  const h = String(Math.floor(minOfDay / 60)).padStart(2, '0');
+  const m = String(minOfDay % 60).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
+const fromTimeStr = (timeStr: string, fallback: number): number => {
+  const parts = timeStr.split(':');
+  if (parts.length !== 2) return fallback;
+  const h = Number(parts[0]);
+  const m = Number(parts[1]);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return fallback;
+  return Math.min(1439, Math.max(0, h * 60 + m));
+};
 
 export function SimpleSettings(): JSX.Element {
   const { settings } = useSettings();
@@ -19,11 +35,45 @@ export function SimpleSettings(): JSX.Element {
   const number = (key: 'eyeIntervalMinutes' | 'walkIntervalMinutes' | 'eyeRestSeconds' | 'walkRestSeconds' | 'petScale', label: string, min: number, max: number, step = 1): JSX.Element =>
     <label>{label}<input type="number" key={`${key}-${settings[key]}`} min={min} max={max} step={step} defaultValue={settings[key]} onBlur={(event) => { const value = Number(event.currentTarget.value); if (Number.isFinite(value) && value !== settings[key]) save({ [key]: value }); }} /></label>;
   return <div className="simple-settings"><h1>设置</h1>
-    <section><h2>休息提醒</h2><p>到时显示遮罩提醒，开始休息后暂停正在进行的专注。稍后只影响这一次，默认时长在这里改。</p>
+    <section><h2>休息提醒</h2><p>到时提醒休息，开始休息后暂停正在进行的专注。稍后只影响这一次，默认时长在这里改。</p>
       <div className="simple-field-grid"><label className="simple-check"><input type="checkbox" checked={settings.eyeEnabled} onChange={(e) => save({ eyeEnabled: e.currentTarget.checked })} />护眼提醒</label>{number('eyeIntervalMinutes', '间隔（分钟）', 1, 240)}{number('eyeRestSeconds', '休息（秒）', SIMPLE_SETTING_LIMITS.eyeRestSeconds.min, SIMPLE_SETTING_LIMITS.eyeRestSeconds.max)}</div>
       <div className="simple-field-grid"><label className="simple-check"><input type="checkbox" checked={settings.walkEnabled} onChange={(e) => save({ walkEnabled: e.currentTarget.checked })} />走动提醒</label>{number('walkIntervalMinutes', '间隔（分钟）', 1, 240)}{number('walkRestSeconds', '休息（秒）', SIMPLE_SETTING_LIMITS.walkRestSeconds.min, SIMPLE_SETTING_LIMITS.walkRestSeconds.max)}</div>
-      <div className="simple-field-grid"><label>默认稍后（分钟）<select value={settings.snoozeMinutes} onChange={(e) => save({ snoozeMinutes: Number(e.currentTarget.value) })}>{[1, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select></label></div>
-      <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}>试一下护眼提醒</button>
+      <div className="simple-field-grid">
+        <label>提醒方式
+          <select value={settings.reminderMode} onChange={(e) => save({ reminderMode: e.currentTarget.value as Settings['reminderMode'] })}>
+            <option value="focused">沉浸遮罩（全屏变暗 + 专注休息）</option>
+            <option value="guided">浮窗卡片（适度提醒，屏幕中央卡片）</option>
+            <option value="gentle">轻柔气泡（仅在桌宠旁显示轻气泡）</option>
+          </select>
+        </label>
+        <label>默认稍后（分钟）<select value={settings.snoozeMinutes} onChange={(e) => save({ snoozeMinutes: Number(e.currentTarget.value) })}>{[1, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select></label>
+      </div>
+      <div className="simple-field-grid">
+        <label className="simple-check">
+          <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => save({ soundEnabled: e.currentTarget.checked })} />
+          休息提示音（开始与结束轻柔铃声，便于闭目养神）
+        </label>
+        <button type="button" onClick={() => soundPlayer.playRestComplete(settings.soundVolume)}>试听结束铃声</button>
+      </div>
+      <div className="simple-button-row">
+        <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}>试一下护眼提醒</button>
+      </div>
+    </section>
+    <section><h2>智能免打扰</h2><p>在游戏、全屏看视频或专注演示时自动抑制提醒，避免打断当前关键体验。</p>
+      <label className="simple-check">
+        <input type="checkbox" checked={settings.fullscreenDndEnabled} onChange={(e) => save({ fullscreenDndEnabled: e.currentTarget.checked })} />
+        全屏应用自动免打扰（游戏、全屏播放或幻灯片演示时自动推迟提醒）
+      </label>
+      <div className="simple-field-grid">
+        <label className="simple-check">
+          <input type="checkbox" checked={settings.quietHoursEnabled} onChange={(e) => save({ quietHoursEnabled: e.currentTarget.checked })} />
+          定时免打扰时段
+        </label>
+        {settings.quietHoursEnabled ? <>
+          <label>开始时间<input type="time" defaultValue={toTimeStr(settings.quietHoursStartMinutes)} onBlur={(e) => save({ quietHoursStartMinutes: fromTimeStr(e.currentTarget.value, settings.quietHoursStartMinutes) })} /></label>
+          <label>结束时间<input type="time" defaultValue={toTimeStr(settings.quietHoursEndMinutes)} onBlur={(e) => save({ quietHoursEndMinutes: fromTimeStr(e.currentTarget.value, settings.quietHoursEndMinutes) })} /></label>
+        </> : null}
+      </div>
     </section>
     <section><h2>桌面外观</h2>      <div className="simple-animals">{PIXEL_ANIMALS.map((animal) => <button key={animal} aria-pressed={settings.petAppearance === animal} onClick={() => save({ petAppearance: animal })}><PixelAnimal animal={animal} action="idle" label={PIXEL_ANIMAL_NAMES[animal]} /><span>{PIXEL_ANIMAL_NAMES[animal]}</span></button>)}</div>
       <div className="simple-field-grid">{number('petScale', '桌宠大小', .5, 1.8, .1)}<label>主题<select value={settings.theme} onChange={(e) => save({ theme: e.currentTarget.value as Settings['theme'] })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div>

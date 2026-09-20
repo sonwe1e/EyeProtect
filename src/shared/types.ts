@@ -563,6 +563,9 @@ export interface Settings {
    */
   foregroundDetectionEnabled: boolean;
   quietAppWhitelist: string[];
+  soundEnabled: boolean;
+  soundVolume: number;
+  fullscreenDndEnabled: boolean;
   hotkeysEnabled: boolean;
   theme: ThemePreference;
   density: DensityPreference;
@@ -955,6 +958,9 @@ export interface EyeProtectApi {
   resume: () => Promise<ReminderStatus>;
   /** Discard pause/progress and start both cycles over. */
   restartCycle: () => Promise<ReminderStatus>;
+  showPetContextMenu: () => Promise<void>;
+  togglePetVisibility: () => Promise<boolean>;
+  recallPet: () => Promise<void>;
 }
 
 export const SIMPLE_SETTING_LIMITS = {
@@ -997,6 +1003,9 @@ export const DEFAULT_SETTINGS: Settings = {
   quietHoursEndMinutes: 8 * 60,
   foregroundDetectionEnabled: false,
   quietAppWhitelist: [],
+  soundEnabled: true,
+  soundVolume: 0.6,
+  fullscreenDndEnabled: false,
   hotkeysEnabled: true,
   theme: 'system',
   density: 'comfortable',

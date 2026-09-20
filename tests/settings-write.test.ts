@@ -109,3 +109,27 @@ test('a removed collectible-character id falls back to a built-in animal', () =>
     assert.equal(new SettingsStore().get().petAppearance, 'cat');
   });
 });
+
+test('sound and fullscreen DND settings are persisted and sanitized within bounds', () => {
+  withTempStore((store) => {
+    assert.equal(store.get().soundEnabled, true);
+    assert.equal(store.get().soundVolume, 0.6);
+    assert.equal(store.get().fullscreenDndEnabled, false);
+
+    store.save({
+      soundEnabled: false,
+      soundVolume: 1.5, // should clamp to 1
+      fullscreenDndEnabled: true
+    });
+
+    const reloaded = new SettingsStore().get();
+    assert.equal(reloaded.soundEnabled, false);
+    assert.equal(reloaded.soundVolume, 1);
+    assert.equal(reloaded.fullscreenDndEnabled, true);
+
+    store.save({
+      soundVolume: -0.2 // should clamp to 0
+    });
+    assert.equal(new SettingsStore().get().soundVolume, 0);
+  });
+});

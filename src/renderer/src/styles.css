@@ -1833,6 +1833,39 @@
   border-radius: 10px;
 }
 
+.rest-sound-toggle {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--fg-secondary);
+  background: var(--surface);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+}
+.rest-sound-toggle:hover {
+  color: var(--fg-primary);
+  background: var(--surface-hover);
+}
+
+.kbd-hint {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  opacity: 0.75;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
 .rest-note { margin: 12px 0 0; color: var(--fg-secondary); font-size: 12px; }
 
 /* ── Actions ────────────────────────────────────────────────────────────── */

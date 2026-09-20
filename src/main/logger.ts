@@ -34,7 +34,7 @@ const currentLevel = (): LogLevel => {
 const shouldLog = (level: LogLevel): boolean =>
   LEVEL_ORDER[level] >= LEVEL_ORDER[currentLevel()];
 
-const formatArgs = (args: readonly unknown[]): unknown[] => args;
+const formatArgs = (args: readonly unknown[]): unknown[] => [...args];
 
 const write = (level: LogLevel, message: string, args: unknown[]): void => {
   if ((level === 'warn' || level === 'error') && sink) {
