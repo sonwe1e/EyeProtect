@@ -26,3 +26,10 @@ npm-debug.log*
 # Local env
 .env
 .env.local
+
+# Other tool local state (not part of EyeProtect)
+.serena/
+.superpowers/
+.workbuddy-ai/
+.zcode/
+.claude/
