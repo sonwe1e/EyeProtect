@@ -4,23 +4,37 @@
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。本机运行数据不会随版本升级迁移
 到云端；安装版使用稳定的用户数据目录，portable 继续使用 EXE 同目录数据，见 README。
 
-## [Unreleased]
+## [1.6.0] - 2026-09-20
 
 ### Added
 - 主进程统一日志入口 `src/main/logger.ts`（`debug/info/warn/error`，`EYEPROTECT_VERBOSE=1` 开启 debug）。
 - 渲染器 `useConfirm + ConfirmDialog`：替代三处 `window.confirm`（任务完成确认、删除确认、专注替换确认），走 `Dialog` 焦点陷阱。
+- 休息提示音：新增 `soundEnabled` / `soundVolume`（默认开启、音量 0.6）。开始与结束播放 Web Audio 合成的轻柔铃声，不打包音频文件；遮罩右上角可一键静音，设置页可试听。
+- 全屏免打扰：新增 `fullscreenDndEnabled`（默认关闭）。检测到全屏应用时把这次提醒推迟 5 分钟，不需要手工维护白名单；原有会议应用白名单的判定保持不变。
+- 桌宠右键菜单：立即休息（护眼 / 走动 / 合并）、暂停与恢复提醒、开始或停止专注、切换桌宠外观与小动作、打开工作台各页、召回桌宠到当前屏幕、隐藏桌宠。
+- 遮罩提醒支持键盘操作：`Space` / `Enter` 开始或完成休息，`Esc` 稍后，`S` 跳过，按钮上直接标出对应快捷键。
+- 托盘菜单新增“召回桌宠到当前屏幕”。
 
 ### Changed
 - 主进程 `pomodoro/runtimeState/reminderSurface/diagnostics/index` 的直接 `console.*` 收敛到 `logger`，发布日志只有一级前缀。
-- `tests/quality-step.test.ts` 锁定“无 `window.confirm` + ConfirmDialog 已接入 + logger 可用”。
+- `tests/quality-step.test.ts` 锁定“无 `window.confirm` + ConfirmDialog 已接入 + logger 可用”，并改为断言桌宠的专注入口来自右键菜单。
 - 确认弹窗收尾：`title/confirmText/danger` 可配，删除默认聚焦取消键并用 danger 样式。
 - 任务行：行内控件不再冒泡展开详情，`•••` 支持 `Esc` 关闭，带 `reminderAt` 的行显示提醒标记，搜索无匹配给空态。
 - 任务编辑：外部 revision 变化回同步 draft，未改时保存禁用并换 `CommandButton` 反馈。
-- 气泡按钮最小 36px，关闭键 32px；compact 桌宠保留专注入口，时钟按钮换 `CommandButton` 透出失败原因。
+- 气泡按钮最小 36px，关闭键 32px。
 - 休息文案统一：Alert 与 gentle 气泡共用 `restLede`；主按钮禁用时显示剩余秒数。
 - 稍后提醒：遮罩上的“稍后”只影响当次，不再内联改全局默认；默认稍后时长移入设置页。
 - 桌宠小动作（眨眼/伸懒腰）可在设置关闭（`petMotion`）；系统“减少动态效果”始终优先。
+- 提醒遮罩与工作台改为落在鼠标所在的那块显示器上；取不到光标时回退到桌宠所在屏幕，再回退主显示器，兼容多显示器、虚拟显示器与远程桌面。
+- 设置页拆出“智能免打扰”分组，并把提醒方式（沉浸遮罩 / 浮窗卡片 / 轻柔气泡）与提示音开关集中到“休息提醒”。
 - `logger.error/warn` 通过注入 sink 写入 `reminder-trace.log`（`log-warn/log-error` 事件），打包版有一条完整落盘排障链。
+
+### Removed
+- 桌宠窗口的常驻工具栏（待办页签、专注按钮、设置齿轮）与 `pet-toolbar-compact` 样式：这些入口合并进右键菜单。
+
+### Fixed
+- `logger` 不再把调用方的参数数组直接交给 sink 处理。
+- 遮罩窗口弹出时主动取得焦点，键盘快捷键在提醒出现后立即可用。
 
 ## [1.4.0] - 2026-09-11
 
