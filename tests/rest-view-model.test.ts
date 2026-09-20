@@ -6,6 +6,7 @@ import {
   restAnimalAction,
   restCountdown,
   restKindCopy,
+  restLede,
   restPhase
 } from '../src/renderer/src/features/reminders/restViewModel';
 import { DEFAULT_SETTINGS, type ActiveReminder, type BreakActivity, type ReminderKind } from '../src/shared/types';
@@ -86,6 +87,16 @@ test('countdown reads total from the reminder, not from settings', () => {
   assert.equal(state.totalSeconds, 300);
   assert.equal(state.remainingSeconds, 300);
   assert.equal(state.progress, 0);
+});
+
+test('lede copy is shared between the alert window and the gentle bubble', () => {
+  assert.equal(restLede('ready', 30), '准备好后，点击开始休息。');
+  assert.equal(
+    restLede('ready', 30, { mergedWithPomodoro: true }),
+    '将与本轮番茄休息合并，点击开始休息。'
+  );
+  assert.equal(restLede('finished', 0), '这次休息时间已到');
+  assert.equal(restLede('resting', 12), '还有 12 秒，跟着节奏放松');
 });
 
 test('animal action stays idle until the break starts', () => {

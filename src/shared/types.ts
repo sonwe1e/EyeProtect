@@ -535,6 +535,13 @@ export interface Settings {
   todoBubbleTaskIds: string[];
   petAppearance: PixelAnimal;
   petScale: number;
+  /**
+   * Whether the idle pet animates its small periodic actions (blink/fidget).
+   * The user's own `prefers-reduced-motion` always wins; this is the manual
+   * override for users who have not set an OS-level preference but want a
+   * still pet.
+   */
+  petMotion: boolean;
   petPosition: PetPosition | null;
   /** One absolute pet position per connected-display topology. */
   petPositionsByLayout: Record<string, PetPosition>;
@@ -978,6 +985,7 @@ export const DEFAULT_SETTINGS: Settings = {
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
   petScale: 1,
+  petMotion: true,
   petPosition: null,
   petPositionsByLayout: {},
   dimDesktop: true,

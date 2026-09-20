@@ -9,6 +9,7 @@ import {
   getActivityProgress,
   restCountdown,
   restKindCopy,
+  restLede,
   restPhase
 } from './restViewModel';
 
@@ -47,11 +48,7 @@ export function GentleReminderBubble({
   const current = activities
     .map((activity) => ({ activity, step: getActivityProgress(activity, restStartedAt, now) }))
     .find((entry) => !entry.step.complete) ?? null;
-  const lede = !started
-    ? '准备好后开始这次休息。'
-    : phase === 'finished'
-      ? '时间到了，可以完成本次休息。'
-      : `还有 ${remainingSeconds} 秒`;
+  const lede = restLede(phase, remainingSeconds);
   const skip = (): void => void action.run(() => window.eyeProtect.reminderAction('skip', active.id));
 
   return <div className={`bubble-shell bubble-reminder kind-${active.kind}`}>
@@ -92,7 +89,7 @@ export function GentleReminderBubble({
       <div className="bubble-actions">
         {!started
           ? <button className="primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息</button>
-          : <button className="primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>完成休息</button>}
+          : <button className="primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>{remainingSeconds > 0 ? `完成休息（${remainingSeconds} 秒）` : '完成休息'}</button>}
         <div className="bubble-actions-row">
           <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后</button>
           <button disabled={action.isPending} onClick={skip}>跳过</button>

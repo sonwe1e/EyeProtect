@@ -19,13 +19,15 @@ export function SimpleSettings(): JSX.Element {
   const number = (key: 'eyeIntervalMinutes' | 'walkIntervalMinutes' | 'eyeRestSeconds' | 'walkRestSeconds' | 'petScale', label: string, min: number, max: number, step = 1): JSX.Element =>
     <label>{label}<input type="number" key={`${key}-${settings[key]}`} min={min} max={max} step={step} defaultValue={settings[key]} onBlur={(event) => { const value = Number(event.currentTarget.value); if (Number.isFinite(value) && value !== settings[key]) save({ [key]: value }); }} /></label>;
   return <div className="simple-settings"><h1>设置</h1>
-    <section><h2>休息提醒</h2><p>到时显示遮罩提醒，开始休息后暂停正在进行的专注。</p>
+    <section><h2>休息提醒</h2><p>到时显示遮罩提醒，开始休息后暂停正在进行的专注。稍后只影响这一次，默认时长在这里改。</p>
       <div className="simple-field-grid"><label className="simple-check"><input type="checkbox" checked={settings.eyeEnabled} onChange={(e) => save({ eyeEnabled: e.currentTarget.checked })} />护眼提醒</label>{number('eyeIntervalMinutes', '间隔（分钟）', 1, 240)}{number('eyeRestSeconds', '休息（秒）', SIMPLE_SETTING_LIMITS.eyeRestSeconds.min, SIMPLE_SETTING_LIMITS.eyeRestSeconds.max)}</div>
       <div className="simple-field-grid"><label className="simple-check"><input type="checkbox" checked={settings.walkEnabled} onChange={(e) => save({ walkEnabled: e.currentTarget.checked })} />走动提醒</label>{number('walkIntervalMinutes', '间隔（分钟）', 1, 240)}{number('walkRestSeconds', '休息（秒）', SIMPLE_SETTING_LIMITS.walkRestSeconds.min, SIMPLE_SETTING_LIMITS.walkRestSeconds.max)}</div>
+      <div className="simple-field-grid"><label>默认稍后（分钟）<select value={settings.snoozeMinutes} onChange={(e) => save({ snoozeMinutes: Number(e.currentTarget.value) })}>{[1, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select></label></div>
       <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}>试一下护眼提醒</button>
     </section>
     <section><h2>桌面外观</h2>      <div className="simple-animals">{PIXEL_ANIMALS.map((animal) => <button key={animal} aria-pressed={settings.petAppearance === animal} onClick={() => save({ petAppearance: animal })}><PixelAnimal animal={animal} action="idle" label={PIXEL_ANIMAL_NAMES[animal]} /><span>{PIXEL_ANIMAL_NAMES[animal]}</span></button>)}</div>
       <div className="simple-field-grid">{number('petScale', '桌宠大小', .5, 1.8, .1)}<label>主题<select value={settings.theme} onChange={(e) => save({ theme: e.currentTarget.value as Settings['theme'] })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div>
+      <label className="simple-check"><input type="checkbox" checked={settings.petMotion} onChange={(e) => save({ petMotion: e.currentTarget.checked })} />桌宠小动作（眨眼/伸懒腰；系统开启“减少动态效果”时始终静止）</label>
     </section>
     <section><h2>应用</h2><label className="simple-check"><input type="checkbox" checked={settings.startWithWindows} onChange={(e) => save({ startWithWindows: e.currentTarget.checked })} />开机启动</label>
       <div className="simple-button-row"><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.exportBackup())}>导出备份</button><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.importBackup())}>恢复备份</button></div>

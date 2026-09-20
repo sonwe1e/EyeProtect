@@ -294,6 +294,10 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       SETTINGS_LIMITS.petScale.min,
       SETTINGS_LIMITS.petScale.max
     ),
+    petMotion:
+      typeof input.petMotion === 'boolean'
+        ? input.petMotion
+        : DEFAULT_SETTINGS.petMotion,
     petPosition: normalizePosition(input.petPosition),
     petPositionsByLayout: sanitizePetPositionsByLayout(input.petPositionsByLayout),
     dimDesktop:

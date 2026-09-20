@@ -43,6 +43,7 @@ import { DEFAULT_SETTINGS, isLocalDateKey, sanitizeStandaloneReminderSchedule } 
 import { startOfLocalDate } from '../shared/calendar';
 import { createBackup, parseBackup } from './backup';
 import { startDiagnostics } from './diagnostics';
+import { logger, setLoggerSink } from './logger';
 import { ReminderScheduler } from './reminders';
 import { ReminderSurfaceManager } from './reminderSurface';
 import { buildCareStatus, ReminderHistoryStore } from './reminderHistory';
@@ -108,11 +109,11 @@ const recordMainProcessFailure = (source: string, error: unknown): void => {
   }
 };
 process.on('uncaughtException', (error) => {
-  console.error('[fatal] uncaught exception:', error);
+  logger.error('uncaught exception', error);
   recordMainProcessFailure('uncaught-exception', error);
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[fatal] unhandled rejection:', reason);
+  logger.error('unhandled rejection', reason);
   recordMainProcessFailure('unhandled-rejection', reason);
 });
 
@@ -236,7 +237,7 @@ const createTray = (
         click: (): void => {
           // Best-effort: a pet-window reload must never throw into the tray.
           void windows.loadPetWindowBestEffort().catch((error) => {
-            console.error('[tray] reload pet failed:', error);
+            logger.error('reload pet failed from tray', error);
           });
         }
       },
@@ -417,6 +418,20 @@ app.whenReady().then(async () => {
   // diagnosed from data instead of guesswork (USERPLAN §四.B).
   const reminderTrace: ReminderTraceSink = new ReminderTrace(settingsStore.getDataDir());
   crashTraceSink = reminderTrace;
+  // Errors logged anywhere in the main process land in the rolling trace file,
+  // so a packaged build has one on-disk trail to hand over for diagnosis.
+  setLoggerSink((level, message, args) => {
+    const first = args[0];
+    reminderTrace.append({
+      t: Date.now(),
+      src: 'system',
+      event: `log-${level}`,
+      data: {
+        message,
+        detail: first instanceof Error ? first.message : typeof first === 'string' ? first : undefined
+      }
+    });
+  });
   const kernel = new SchedulerKernel({
     trace: (message, data) =>
       reminderTrace.append({ t: Date.now(), src: 'kernel', event: message, data })
@@ -875,7 +890,7 @@ app.whenReady().then(async () => {
       // A failed export (disk full, permission, portable read-only dir) must
       // not surface as an unhandled rejection; report it like the other data
       // actions do.
-      console.error('[history] export failed:', error);
+      logger.error('reminder history export failed', error);
       return false;
     }
   });

@@ -1,6 +1,7 @@
 import { BrowserWindow, Notification, app } from 'electron';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { logger } from './logger';
 import type { ActiveReminder } from '../shared/types';
 import { emergencyTitleFor, renderEmergencyHtml } from './scheduling/emergencyTemplate';
 import { runReminderSurfaceFallback } from './scheduling/surfaceFallback';
@@ -262,7 +263,7 @@ export class ReminderSurfaceManager {
       });
       return window.isVisible();
     } catch (error) {
-      console.error('[surface] emergency window failed to load:', error);
+      logger.error('emergency window failed to load', error);
       if (!window.isDestroyed()) {
         window.destroy();
       }
@@ -300,7 +301,7 @@ export class ReminderSurfaceManager {
       notification.show();
       return true;
     } catch (error) {
-      console.warn('[surface] notification failed:', error);
+      logger.warn('native notification failed', error);
       return false;
     }
   }
@@ -326,7 +327,7 @@ export class ReminderSurfaceManager {
         return;
       }
     } catch (error) {
-      console.error('[surface] notification click could not restore emergency surface:', error);
+      logger.error('notification click could not restore emergency surface', error);
     }
     this.onFailOpen();
     this.openWorkbench();

@@ -15,6 +15,7 @@ import {
   restAnimalAction,
   restCountdown,
   restKindCopy,
+  restLede,
   restPhase
 } from '../features/reminders/restViewModel';
 
@@ -69,13 +70,7 @@ export default function AlertView(): JSX.Element {
   const current = activityStates[currentIndex];
   const upcoming = activityStates[currentIndex + 1];
   const showSteps = started && Boolean(current);
-  const lede = !started
-    ? mergedWithPomodoro
-      ? '将与本轮番茄休息合并，点击开始休息。'
-      : '准备好后，点击开始休息。'
-    : phase === 'finished'
-      ? '这次休息时间已到'
-      : `还有 ${remainingSeconds} 秒，跟着节奏放松`;
+  const lede = restLede(phase, remainingSeconds, { mergedWithPomodoro });
   const hint = !started
     ? `本次休息 ${totalSeconds} 秒`
     : phase === 'finished'
@@ -148,15 +143,14 @@ export default function AlertView(): JSX.Element {
       <div className="rest-actions">
         {!started
           ? <button className="rest-primary" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.beginHealthRest(active.id))}>开始休息</button>
-          : <button className="rest-primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>完成休息</button>}
+          : <button className="rest-primary" disabled={remainingSeconds > 0 || action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('complete', active.id))}>{remainingSeconds > 0 ? `完成休息（${remainingSeconds} 秒）` : '完成休息'}</button>}
         <div className="rest-actions-row">
           <div className="rest-snooze-group">
-            <button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后提醒</button>
-            <select aria-label="稍后分钟数" value={settings.snoozeMinutes} onChange={(e) => void action.run(() => window.eyeProtect.saveSettings({ snoozeMinutes: Number(e.currentTarget.value) }))}>{[1, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select>
+            <button disabled={action.isPending} title={`这次稍后 ${settings.snoozeMinutes} 分钟（不改变默认设置）`} onClick={() => void action.run(() => window.eyeProtect.reminderAction('snooze', active.id))}>稍后 {settings.snoozeMinutes} 分钟</button>
           </div>
           <button className="rest-skip" disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.reminderAction('skip', active.id))}>跳过</button>
         </div>
-        <p className="rest-hint">{hint}</p>
+        <p className="rest-hint">{hint} · 默认稍后可在设置里调整</p>
         {action.error ? <p className="rest-error" role="alert">{action.error.message}</p> : null}
       </div>
     </section>

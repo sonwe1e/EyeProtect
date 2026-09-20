@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { logger } from './logger';
 import type { ReminderSnapshot } from './reminders';
 
 const STATE_FILE = 'runtime-state.json';
@@ -163,7 +164,7 @@ export class RuntimeStateStore {
       renameSync(tempPath, this.filePath);
     } catch (error) {
       // Persistence is best-effort; a failed write must never crash the app.
-      console.error('[runtime-state] failed to persist:', error);
+      logger.error('failed to persist runtime state', error);
     }
   }
 

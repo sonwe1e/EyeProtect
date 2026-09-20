@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { logger } from './logger';
 import { SIMPLE_SETTING_LIMITS } from '../shared/types';
 import type { PomodoroState } from '../shared/types';
 import type { SchedulerKernel, ScheduledEvent } from './scheduling/kernel';
@@ -38,9 +39,9 @@ export class PomodoroService extends EventEmitter {
         this.state = { ...data, revision: 0, running: false };
         if (data.taskId && !options.taskAvailable(data.taskId)) this.state = idle();
       } catch (error) {
-        console.warn('[pomodoro] quarantining invalid snapshot', error);
+        logger.warn('quarantining invalid pomodoro snapshot', error);
         try { renameSync(this.path, `${this.path}.corrupt-${this.now()}`); }
-        catch (quarantineError) { console.error('[pomodoro] cannot quarantine snapshot; keeping original file', quarantineError); }
+        catch (quarantineError) { logger.error('cannot quarantine pomodoro snapshot; keeping original file', quarantineError); }
       }
     }
     this.sampledMono = this.monotonic();

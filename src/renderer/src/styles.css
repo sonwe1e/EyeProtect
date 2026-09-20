@@ -1054,6 +1054,20 @@
   transform: scale(var(--press-scale));
 }
 
+/* Compact pets hide the full toolbar, but focus entry must stay reachable. */
+.pet-toolbar-compact {
+  top: 4.375vw;
+  right: 4.375vw;
+}
+
+.pet-shell:has(.pixel-animal) .pet-toolbar-compact {
+  opacity: 0;
+}
+
+.pet-shell:has(.pixel-animal):is(:hover, :focus-within) .pet-toolbar-compact {
+  opacity: 1;
+}
+
 
 /* Pet-anchored todo speech bubble (#bubble route) */
 .bubble-shell {
@@ -1088,8 +1102,8 @@
   right: 6px;
   z-index: 2;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   place-items: center;
   color: var(--fg-secondary);
@@ -1340,8 +1354,8 @@
   justify-content: center;
   gap: 3px;
   min-width: 0;
-  min-height: 30px;
-  padding: 0 4px;
+  min-height: 36px;
+  padding: 0 8px;
   color: var(--fg-primary);
   font-size: 11px;
   background: var(--surface-hover);
@@ -1515,7 +1529,7 @@
 .pomodoro-preset-chip:hover { background: var(--surface-hover); color: var(--fg-primary); }
 .pomodoro-preset-chip.is-active { background: var(--brand-subtle); color: var(--brand-strong); border-color: var(--brand); font-weight: 600; }
 .bubble-card .bubble-actions { display: flex; gap: 6px; }
-.bubble-card .bubble-actions button { flex: 1; min-height: 32px; }
+.bubble-card .bubble-actions button { flex: 1; min-height: 36px; }
 /* ── Rest / reminder surfaces (alert window + gentle bubble) ──────────────
    Both windows are transparent and float over the desktop, so every panel here
    is a glass card built from the --glass-* tokens in theme.css. Two rules

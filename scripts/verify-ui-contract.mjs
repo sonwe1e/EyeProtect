@@ -112,6 +112,12 @@ requireMatch(workbench, /@media \(forced-colors: active\)/, 'Workbench must prov
 requireMatch(plan, /touch-action:\s*none/, 'Plan drag handles must support direct pointer manipulation');
 requireMatch(primitives, /@media \(prefers-reduced-motion: reduce\)/, 'Motion primitives must honor reduced motion');
 
+// Floating widgets (bubble/pet) must not fall below a usable hit target. The
+// compact bubble is the tightest surface; a button smaller than 36px regresses
+// trackpad users to guesswork.
+requireMatch(legacyStyles, /\.bubble-actions\s+button\s*\{[^}]*min-height:\s*36px/s, 'Bubble action buttons must be at least 36px high');
+requireMatch(legacyStyles, /\.bubble-close\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px/s, 'Bubble close button must be at least 32px');
+
 // ── Design-system ownership (USERPLAN 1.2 B1/B8) ────────────────────────
 // theme.css owns semantic colors; tokens.css owns foundation. The same token
 // name must not appear in both. We compare the set of --custom-property names

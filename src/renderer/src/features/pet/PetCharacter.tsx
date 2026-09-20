@@ -8,16 +8,20 @@ const IDLE_ACTION_MAX_MS = 5_200;
 export function PetCharacter({
   animal,
   reacting,
-  doubleClickHint
+  doubleClickHint,
+  motion = true
 }: {
   animal: PixelAnimal;
   reacting: boolean;
   doubleClickHint: string;
+  /** Manual override: false freezes idle fidget. prefers-reduced-motion still wins. */
+  motion?: boolean;
 }): JSX.Element {
   const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!motion) return;
     let actionTimer: number | null = null;
     let settleTimer: number | null = null;
     const clearTimers = (): void => {
@@ -49,7 +53,7 @@ export function PetCharacter({
       document.removeEventListener('visibilitychange', sync);
       reducedMotion.removeEventListener('change', sync);
     };
-  }, [animal]);
+  }, [animal, motion]);
 
   const name = PIXEL_ANIMAL_NAMES[animal];
   return (

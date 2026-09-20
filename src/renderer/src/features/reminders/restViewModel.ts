@@ -18,6 +18,28 @@ export interface RestKindCopy {
   caption: string;
 }
 
+/** Phase lede shared by the alert window and the gentle bubble. */
+export type RestLedeOptions = {
+  /** True when a pomodoro break will merge into this rest. */
+  mergedWithPomodoro?: boolean;
+};
+
+export const restLede = (
+  phase: RestPhase,
+  remainingSeconds: number,
+  options: RestLedeOptions = {}
+): string => {
+  if (phase === 'ready') {
+    return options.mergedWithPomodoro
+      ? '将与本轮番茄休息合并，点击开始休息。'
+      : '准备好后，点击开始休息。';
+  }
+  if (phase === 'finished') {
+    return '这次休息时间已到';
+  }
+  return `还有 ${remainingSeconds} 秒，跟着节奏放松`;
+};
+
 const REST_COPY: Record<ReminderKind, RestKindCopy> = {
   eye: {
     badge: '护眼提醒',

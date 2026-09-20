@@ -113,4 +113,4 @@ npm run verify:ui-contract
 npm run package
 ```
 
-产品和功能规划以 README、AGENTS、CLAUDE 和现有测试为准（根目录 `USERPLAN.md` 是历史归档，不作为待办清单）。
+产品和功能规划以 README、AGENTS、CLAUDE 和现有测试为准。

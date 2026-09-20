@@ -4,6 +4,24 @@
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。本机运行数据不会随版本升级迁移
 到云端；安装版使用稳定的用户数据目录，portable 继续使用 EXE 同目录数据，见 README。
 
+## [Unreleased]
+
+### Added
+- 主进程统一日志入口 `src/main/logger.ts`（`debug/info/warn/error`，`EYEPROTECT_VERBOSE=1` 开启 debug）。
+- 渲染器 `useConfirm + ConfirmDialog`：替代三处 `window.confirm`（任务完成确认、删除确认、专注替换确认），走 `Dialog` 焦点陷阱。
+
+### Changed
+- 主进程 `pomodoro/runtimeState/reminderSurface/diagnostics/index` 的直接 `console.*` 收敛到 `logger`，发布日志只有一级前缀。
+- `tests/quality-step.test.ts` 锁定“无 `window.confirm` + ConfirmDialog 已接入 + logger 可用”。
+- 确认弹窗收尾：`title/confirmText/danger` 可配，删除默认聚焦取消键并用 danger 样式。
+- 任务行：行内控件不再冒泡展开详情，`•••` 支持 `Esc` 关闭，带 `reminderAt` 的行显示提醒标记，搜索无匹配给空态。
+- 任务编辑：外部 revision 变化回同步 draft，未改时保存禁用并换 `CommandButton` 反馈。
+- 气泡按钮最小 36px，关闭键 32px；compact 桌宠保留专注入口，时钟按钮换 `CommandButton` 透出失败原因。
+- 休息文案统一：Alert 与 gentle 气泡共用 `restLede`；主按钮禁用时显示剩余秒数。
+- 稍后提醒：遮罩上的“稍后”只影响当次，不再内联改全局默认；默认稍后时长移入设置页。
+- 桌宠小动作（眨眼/伸懒腰）可在设置关闭（`petMotion`）；系统“减少动态效果”始终优先。
+- `logger.error/warn` 通过注入 sink 写入 `reminder-trace.log`（`log-warn/log-error` 事件），打包版有一条完整落盘排障链。
+
 ## [1.4.0] - 2026-09-11
 
 ### Added

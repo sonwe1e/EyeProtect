@@ -1,0 +1,1100 @@
+<!doctype html>
+<!-- EyeProtect 体验提案交互 Demo（配套 docs/ux-research.md）
+     纯静态单文件：直接在浏览器打开即可，不参与构建，不进 verify:ui-contract 扫描范围。
+     设计令牌拷贝自 src/renderer/src/styles/tokens.css 与 theme.css；
+     桌宠 SVG 路径拷贝自 src/renderer/src/features/characters/PixelAnimal.tsx。 -->
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeProtect 体验提案 Demo</title>
+<style>
+/* ── 令牌（拷贝自 tokens.css / theme.css） ─────────────────────────────── */
+:root {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
+  --radius-small: 6px; --radius-medium: 8px; --radius-large: 12px;
+  --motion-instant: 90ms; --motion-fast: 140ms; --motion-standard: 220ms; --motion-slow: 360ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  /* 提案 3.4：新增强调档（demo 内先直接使用） */
+  --ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --press-scale: 0.97;
+  --hit-target-min: 44px;
+
+  color-scheme: light;
+  --bg-app: #f5f6f7;
+  --bg-sidebar: #eceff1;
+  --surface: #ffffff;
+  --surface-raised: #fbfcfd;
+  --surface-hover: #eef1f3;
+  --surface-selected: #e5ecef;
+  --border-subtle: #dce3e7;
+  --border-strong: #c4d0d6;
+  --fg-primary: #182024;
+  --fg-secondary: #505d63;
+  --fg-tertiary: #65737a;
+  --fg-inverse: #ffffff;
+  --brand: #526b78;
+  --brand-strong: #405865;
+  --brand-contrast: #ffffff;
+  --brand-subtle: #e7eef2;
+  --danger: #a0433b;
+  --danger-subtle: #f8e8e5;
+  --focus-ring: #526b78;
+  --overlay: rgb(23 30 35 / 44%);
+  --shadow-overlay: 0 2px 4px rgb(20 28 34 / 6%), 0 24px 64px rgb(20 28 34 / 16%);
+  --shadow-soft: 0 1px 2px rgb(20 28 34 / 6%), 0 8px 24px rgb(20 28 34 / 7%);
+  --inset-highlight: rgb(255 255 255 / 24%);
+  --inset-press: rgb(23 30 35 / 10%);
+  --shadow-hairline: 0 1px 2px rgb(20 28 34 / 5%);
+  --glass-panel: rgb(255 255 255 / 94%);
+  --glass-highlight: rgb(255 255 255 / 92%);
+  --glass-hairline: rgb(24 32 36 / 10%);
+  --glass-wash: rgb(255 255 255 / 62%);
+  --glass-shadow: 0 2px 6px rgb(20 28 34 / 8%), 0 32px 72px rgb(20 28 34 / 24%);
+  --rest-accent-eye: #2f7f72;
+  --rest-accent-walk: #a86b1f;
+  --rest-accent-combined: #a8505c;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-app: #111518;
+  --bg-sidebar: #0b1013;
+  --surface: #171e23;
+  --surface-raised: #1d262c;
+  --surface-hover: #222d34;
+  --surface-selected: #293942;
+  --border-subtle: #29353c;
+  --border-strong: #3a4852;
+  --fg-primary: #eef4f7;
+  --fg-secondary: #b6c2c8;
+  --fg-tertiary: #8d9aa1;
+  --fg-inverse: #ffffff;
+  --brand: #9dbfc9;
+  --brand-strong: #b8d2da;
+  --brand-contrast: #102127;
+  --brand-subtle: #1b323a;
+  --danger: #ef9a90;
+  --danger-subtle: #3a2523;
+  --focus-ring: #9dbfc9;
+  --overlay: rgb(0 0 0 / 64%);
+  --shadow-overlay: 0 2px 4px rgb(0 0 0 / 40%), 0 24px 64px rgb(0 0 0 / 44%);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 32%), 0 8px 24px rgb(0 0 0 / 26%);
+  --inset-highlight: rgb(255 255 255 / 8%);
+  --inset-press: rgb(0 0 0 / 20%);
+  --shadow-hairline: 0 1px 2px rgb(0 0 0 / 24%);
+  --glass-panel: rgb(23 30 35 / 94%);
+  --glass-highlight: rgb(238 244 247 / 12%);
+  --glass-hairline: rgb(238 244 247 / 12%);
+  --glass-wash: rgb(23 30 35 / 58%);
+  --glass-shadow: 0 2px 6px rgb(0 0 0 / 40%), 0 32px 72px rgb(0 0 0 / 52%);
+  --rest-accent-eye: #7fd0bd;
+  --rest-accent-walk: #e2b96b;
+  --rest-accent-combined: #f0a09a;
+}
+
+/* ── 页面骨架 ─────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg-app); color: var(--fg-primary); font-size: 14px; line-height: 1.6; }
+.demo-top {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 12px 28px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle);
+}
+.demo-top strong { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.demo-top .demo-note { color: var(--fg-secondary); font-size: 12px; }
+.demo-top nav { display: flex; gap: 4px; margin-left: auto; }
+.demo-top nav a {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 13px;
+  color: var(--fg-secondary); font-size: 13px; text-decoration: none;
+  border-radius: var(--radius-medium);
+}
+.demo-top nav a:hover { color: var(--fg-primary); background: var(--surface-hover); }
+.seg { display: inline-flex; }
+.seg button {
+  min-height: 32px; padding: 0 13px; font: inherit; font-size: 12.5px; cursor: pointer;
+  color: var(--fg-secondary); background: transparent;
+  border: 1px solid var(--border-subtle); border-right-width: 0;
+}
+.seg button:first-child { border-radius: var(--radius-medium) 0 0 var(--radius-medium); }
+.seg button:last-child { border-right-width: 1px; border-radius: 0 var(--radius-medium) var(--radius-medium) 0; }
+.seg button[aria-pressed='true'] { color: var(--fg-primary); background: var(--surface-selected); font-weight: 600; }
+.seg button:hover { color: var(--fg-primary); }
+.demo-motion-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-secondary); font-size: 12.5px; user-select: none; cursor: pointer; }
+.demo-motion-toggle input { width: 15px; height: 15px; accent-color: var(--brand); }
+main { max-width: 1020px; margin: 0 auto; padding: 30px 28px 90px; }
+.demo-card {
+  margin-top: 30px; padding: 26px 30px 30px;
+  background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-large);
+  box-shadow: var(--shadow-soft);
+}
+.demo-card > h2 { margin: 0 0 4px; font-size: 21px; font-weight: 680; letter-spacing: -.02em; }
+.demo-card > p.demo-lead { margin: 0 0 20px; color: var(--fg-secondary); font-size: 13px; }
+.demo-anno {
+  margin: 22px 0 0; padding: 14px 16px;
+  color: var(--fg-secondary); font-size: 12.5px; line-height: 1.8;
+  background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: var(--radius-medium);
+}
+.demo-anno b { color: var(--fg-primary); font-weight: 650; }
+.demo-row { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── 桌宠（区块 A） ───────────────────────────────────────────────────── */
+.pet-stage {
+  position: relative;
+  display: grid; place-items: end center;
+  width: 220px; height: 210px; padding-bottom: 10px;
+  background:
+    radial-gradient(circle at 50% 38%, var(--brand-subtle) 0%, transparent 68%),
+    var(--surface-raised);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-large);
+  user-select: none;
+}
+.pet-wrap { position: relative; width: 160px; height: 160px; cursor: pointer; transform-origin: 50% 92%; }
+.pet-wrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.pet-hint { position: absolute; top: 8px; left: 0; right: 0; text-align: center; color: var(--fg-tertiary); font-size: 11.5px; pointer-events: none; }
+
+/* 待机呼吸：躯干 + 头部 1 网格单位起伏，steps 保持像素对齐（提案 A1） */
+svg.pa-idle .pa-bob, svg.pa-idle .pa-head-bob { animation: pa-breath 4.4s steps(1, end) infinite; }
+@keyframes pa-breath {
+  0% { transform: translateY(0); }
+  14% { transform: translateY(-1px); }
+  48% { transform: translateY(-1px); }
+  62% { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+/* 走动姿势：JS 按 160ms 轮换 pose-w0..w3（提案 A2） */
+svg.pose-w1 .pa-bob, svg.pose-w1 .pa-head-bob, svg.pose-w3 .pa-bob, svg.pose-w3 .pa-head-bob { transform: translateY(-1px); }
+svg.pose-w2 .pa-leg-l { transform: translateY(-1px); }
+svg.pose-w3 .pa-leg-r { transform: translateY(-1px); }
+/* 远望姿势（提案 A2 eye） */
+svg.pose-gaze .pa-bob, svg.pose-gaze .pa-head-bob { transform: translateY(-1px); }
+/* 点击反应：先挤压蓄力再回弹（提案 A4 windup） */
+.pet-wrap.is-react { animation: pa-react 700ms var(--ease-out) 1; }
+@keyframes pa-react {
+  0% { transform: none; }
+  12% { transform: scale(1.05, .9); }
+  34% { transform: translateY(-5px) scale(.985, 1.015); }
+  58% { transform: none; }
+  74% { transform: scale(1.015, .985); }
+  100% { transform: none; }
+}
+/* 庆祝小跳（提案 A3） */
+.pet-wrap.is-celebrate { animation: pa-cheer 620ms var(--ease-out) 1; }
+@keyframes pa-cheer {
+  0% { transform: none; }
+  16% { transform: scale(1.06, .88); }
+  42% { transform: translateY(-12px) scale(.97, 1.05); }
+  72% { transform: none; }
+  86% { transform: scale(1.01, .99); }
+  100% { transform: none; }
+}
+.pa-bit {
+  position: absolute; left: 50%; top: 42%;
+  width: 5px; height: 5px;
+  background: var(--bit-c, var(--brand));
+  animation: pa-bit 620ms var(--ease-out) forwards;
+  pointer-events: none;
+}
+@keyframes pa-bit {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--bit-x), var(--bit-y)) scale(.6); opacity: 0; }
+}
+.pet-controls { display: grid; gap: 10px; }
+.pet-controls .demo-field-label { color: var(--fg-secondary); font-size: 12px; margin-bottom: 2px; }
+
+/* ── 休息卡（区块 B，样式结构对齐 styles.css .rest-*） ────────────────── */
+.rest-shell { display: grid; justify-items: center; }
+.rest-shell.kind-eye .rest-card { --rest-accent: var(--rest-accent-eye); }
+.rest-shell.kind-walk .rest-card { --rest-accent: var(--rest-accent-walk); }
+.rest-shell.kind-combined .rest-card { --rest-accent: var(--rest-accent-combined); }
+.rest-card {
+  position: relative; display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 540px; max-width: 100%; min-height: 660px;
+  padding: 28px 34px 24px; overflow: hidden;
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-hairline); border-radius: 28px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(24px) saturate(1.4);
+  isolation: isolate;
+  animation: rest-card-in var(--motion-standard) var(--ease-out) 1;
+}
+@keyframes rest-card-in { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }
+.rest-ambient { position: absolute; inset: 0 0 auto; height: 40%; z-index: 0; overflow: hidden; pointer-events: none; }
+.rest-orb { position: absolute; background: var(--rest-accent); border-radius: 50%; filter: blur(46px); }
+.rest-orb.is-1 { top: -140px; left: -60px; width: 280px; height: 280px; opacity: .26; }
+.rest-orb.is-2 { top: -110px; right: -70px; width: 240px; height: 240px; opacity: .18; }
+.rest-stage { position: relative; z-index: 1; display: grid; width: min(268px, 40vh); aspect-ratio: 1 / 1; margin: 0 auto; place-items: center; }
+.rest-card.has-steps .rest-stage { width: min(196px, 30vh); }
+.rest-stage-glow {
+  position: absolute; inset: 12%; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--rest-accent) 34%, transparent) 0%, transparent 70%);
+  filter: blur(18px);
+}
+/* 呼吸引导：休息进行中光晕以 4s 周期脉动，与眨眼/呼吸步骤同节奏（提案 B2） */
+.rest-shell.is-resting .rest-stage-glow { animation: rest-glow-breath 4s ease-in-out infinite; }
+@keyframes rest-glow-breath {
+  0%, 100% { transform: scale(1); opacity: .85; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+.rest-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.rest-ring-track { fill: none; stroke: color-mix(in srgb, var(--fg-primary) 9%, transparent); stroke-width: 6; }
+.rest-ring-value { fill: none; stroke: var(--rest-accent); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 360ms linear; }
+.rest-ring.is-flash { animation: rest-ring-flash 620ms var(--ease-out) 1; }
+@keyframes rest-ring-flash {
+  0% { filter: none; }
+  30% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--rest-accent) 70%, transparent)); }
+  100% { filter: none; }
+}
+.rest-stage-art { position: absolute; top: 41%; left: 50%; width: 50%; aspect-ratio: 1 / 1; transform: translate(-50%, -50%); }
+.rest-stage-art .pet-wrap { width: 100%; height: 100%; cursor: default; }
+.rest-stage-count {
+  position: absolute; bottom: -4px; left: 50%; z-index: 2;
+  display: inline-flex; align-items: baseline; gap: 5px; width: max-content; margin: 0; padding: 6px 16px;
+  color: var(--fg-primary); background: var(--glass-wash);
+  border: 1px solid var(--glass-hairline); border-radius: 999px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg-primary) 8%, transparent);
+  transform: translateX(-50%); backdrop-filter: blur(10px);
+}
+.rest-stage-count strong { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.rest-stage-count small { color: var(--fg-secondary); font-size: 11px; white-space: nowrap; }
+.rest-scroll { position: relative; z-index: 1; display: grid; align-content: safe center; min-height: 0; margin-top: 22px; text-align: center; overflow-y: auto; }
+.rest-badge {
+  justify-self: center; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  color: var(--fg-primary); font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  background: color-mix(in srgb, var(--rest-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rest-accent) 34%, transparent);
+  border-radius: 999px;
+}
+.rest-badge::before { content: ''; width: 6px; height: 6px; background: var(--rest-accent); border-radius: 50%; }
+.rest-title { margin: 14px 0 0; font-size: clamp(24px, 3vw, 31px); font-weight: 700; line-height: 1.16; letter-spacing: -.02em; text-wrap: balance; }
+.rest-card.has-steps .rest-title { font-size: clamp(21px, 2.4vw, 26px); }
+.rest-lede { margin: 10px 0 0; color: var(--fg-secondary); font-size: 15px; line-height: 1.6; text-wrap: pretty; }
+.rest-activity { display: grid; gap: 8px; margin-top: 20px; text-align: left; }
+.rest-activity-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0; }
+.rest-activity-head strong { color: var(--fg-primary); font-size: 13px; font-weight: 650; }
+.rest-activity-head span { color: var(--fg-secondary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rest-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rest-step {
+  display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 7px 12px;
+  color: var(--fg-secondary); font-size: 13px;
+  background: color-mix(in srgb, var(--fg-primary) 4%, transparent);
+  border: 1px solid transparent; border-radius: 10px;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+.rest-step b {
+  display: grid; flex: none; width: 22px; height: 22px; place-items: center;
+  color: var(--fg-secondary); font-size: 11px; font-weight: 700;
+  background: color-mix(in srgb, var(--fg-primary) 8%, transparent); border-radius: 50%;
+}
+.rest-step.is-active { color: var(--fg-primary); background: color-mix(in srgb, var(--rest-accent) 12%, transparent); border-color: color-mix(in srgb, var(--rest-accent) 38%, transparent); }
+.rest-step.is-active b { color: var(--fg-primary); background: transparent; box-shadow: inset 0 0 0 2px var(--rest-accent); }
+.rest-step.is-done b { color: var(--fg-inverse); background: var(--rest-accent); }
+.rest-next { margin: 0; color: var(--fg-secondary); font-size: 12px; }
+.rest-progress { height: 5px; overflow: hidden; background: color-mix(in srgb, var(--fg-primary) 10%, transparent); border-radius: 999px; }
+.rest-progress i { display: block; height: 100%; background: var(--rest-accent); border-radius: inherit; transition: width 360ms linear; }
+.rest-note { margin: 12px 0 0; color: var(--fg-secondary); font-size: 12px; }
+.rest-actions { position: relative; z-index: 1; display: grid; gap: 10px; margin-top: 20px; }
+.rest-actions button, .rest-actions select { font: inherit; cursor: pointer; }
+.rest-primary {
+  min-height: 48px; color: var(--brand-contrast); font-size: 15px; font-weight: 650;
+  background: var(--brand); border: 1px solid var(--brand); border-radius: 14px;
+  box-shadow: inset 0 1px 0 var(--inset-highlight), 0 1px 2px color-mix(in srgb, var(--brand-strong) 26%, transparent);
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-instant) var(--ease-out), transform var(--motion-instant) var(--ease-out);
+}
+.rest-primary:hover:not(:disabled) { background: var(--brand-strong); border-color: var(--brand-strong); }
+.rest-primary:active:not(:disabled) { transform: scale(var(--press-scale)); box-shadow: inset 0 1px 0 var(--inset-press); }
+.rest-primary:disabled { color: var(--fg-secondary); background: color-mix(in srgb, var(--fg-primary) 8%, transparent); border-color: var(--glass-hairline); box-shadow: none; cursor: not-allowed; }
+/* 完成解锁的强调入场（提案 B3） */
+.rest-primary.is-unlocked { animation: rest-unlock var(--motion-fast) var(--ease-emphasized) 1; }
+@keyframes rest-unlock { from { transform: scale(1.04); box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 18%, transparent); } to { transform: none; } }
+.rest-actions-row { display: flex; gap: 10px; }
+.rest-snooze-group { display: inline-flex; flex: 1; }
+.rest-snooze-group button {
+  flex: 1; min-height: 42px; padding: 0 14px;
+  color: var(--fg-primary); font-size: 13.5px;
+  background: color-mix(in srgb, var(--fg-primary) 5%, transparent);
+  border: 1px solid var(--glass-hairline); border-right: 0; border-radius: 12px 0 0 12px;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.rest-snooze-group button:hover { background: color-mix(in srgb, var(--fg-primary) 9%, transparent); }
+.rest-snooze-group select {
+  min-height: 42px; padding: 0 10px; color: var(--fg-primary); font-size: 13px;
+  background: color-mix(in srgb, var(--fg-primary) 5%, transparent);
+  border: 1px solid var(--glass-hairline); border-radius: 0 12px 12px 0;
+}
+.rest-skip {
+  min-height: 42px; padding: 0 18px; color: var(--fg-secondary); font-size: 13.5px;
+  background: transparent; border: 1px solid transparent; border-radius: 12px;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+.rest-skip:hover { color: var(--fg-primary); background: color-mix(in srgb, var(--fg-primary) 6%, transparent); }
+.rest-hint { margin: 0; color: var(--fg-secondary); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ── 待办（区块 C，样式结构对齐 simple.css） ──────────────────────────── */
+.todo-wrap { width: 600px; max-width: 100%; }
+.todo-composer { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; }
+.todo-composer input {
+  flex: 1; min-height: 38px; padding: 8px 11px; font: inherit;
+  color: var(--fg-primary); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-medium);
+  box-shadow: var(--shadow-hairline);
+}
+.todo-composer input:focus { border-color: var(--brand); outline: 2px solid color-mix(in srgb, var(--focus-ring) 22%, transparent); outline-offset: 0; }
+.todo-wrap button { font: inherit; cursor: pointer; }
+.tb-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 38px; padding: 6px 14px;
+  color: var(--fg-primary); background: var(--surface);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-medium);
+  box-shadow: var(--shadow-hairline);
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+.tb-button:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.tb-button:active { transform: scale(var(--press-scale)); }
+.tb-button.primary {
+  color: var(--brand-contrast); background: var(--brand); border-color: var(--brand);
+  box-shadow: inset 0 1px 0 var(--inset-highlight), 0 1px 2px color-mix(in srgb, var(--brand-strong) 26%, transparent);
+}
+.tb-button.primary:hover { background: var(--brand-strong); border-color: var(--brand-strong); }
+.tb-group { margin-top: 24px; }
+.tb-group h3 { display: flex; gap: 8px; align-items: baseline; margin: 0 0 4px; color: var(--fg-secondary); font-size: 12.5px; font-weight: 650; letter-spacing: .02em; }
+.tb-group h3 small { color: var(--fg-tertiary); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.tb-group h3 .tb-commit { color: var(--brand-strong); background: var(--brand-subtle); border-radius: 999px; padding: 1px 9px; font-size: 11.5px; }
+.tb-list { list-style: none; margin: 0; padding: 0; }
+.tb-row { overflow: hidden; max-height: 88px; border-bottom: 1px solid var(--border-subtle); transition: opacity 160ms var(--ease-out), max-height 220ms var(--ease-move) 120ms; }
+.tb-row.is-leaving { opacity: 0; max-height: 0; border-bottom-color: transparent; }
+.tb-row.is-entering { animation: tb-row-in var(--motion-fast) var(--ease-out); }
+@keyframes tb-row-in { from { opacity: 0; transform: translateY(4px); } }
+.tb-row-in { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 8px; border-radius: var(--radius-medium); }
+.tb-row-in:hover { background: var(--surface-hover); }
+.tb-check {
+  position: relative; flex: none;
+  display: grid; place-items: center;
+  width: 20px; height: 20px; padding: 0; cursor: pointer;
+  color: transparent; background: var(--surface);
+  border: 1.5px solid var(--border-strong); border-radius: var(--radius-small);
+  transition: background var(--motion-instant) var(--ease-out), border-color var(--motion-instant) var(--ease-out), transform var(--motion-instant) var(--ease-out);
+}
+.tb-check:hover { border-color: var(--brand); }
+.tb-check:active { transform: scale(.94); }
+.tb-check svg { width: 13px; height: 13px; }
+.tb-check svg path {
+  stroke: currentColor; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+}
+/* 完成微交互：勾以强调曲线画出（提案 C1） */
+.tb-check.is-done { color: var(--brand-contrast); background: var(--brand); border-color: var(--brand); }
+.tb-check.is-done svg path { stroke-dashoffset: 0; transition: stroke-dashoffset 220ms var(--ease-emphasized); }
+.tb-name { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.tb-name time { color: var(--fg-secondary); font-size: 12px; margin-left: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tb-row-actions { display: flex; gap: 4px; opacity: .38; transition: opacity var(--motion-instant) var(--ease-out); }
+.tb-row-in:hover .tb-row-actions, .tb-row-in:focus-within .tb-row-actions { opacity: 1; }
+.tb-row-actions button {
+  min-height: 32px; padding: 0 9px; font-size: 12.5px;
+  color: var(--fg-secondary); background: transparent;
+  border: 1px solid transparent; border-radius: var(--radius-small);
+}
+.tb-row-actions button:hover { color: var(--fg-primary); background: var(--surface-hover); }
+.tb-row-actions button.is-danger { color: var(--danger); }
+.tb-row-actions button.is-danger:hover { background: var(--danger-subtle); }
+.tb-empty { padding: 22px 0; color: var(--fg-tertiary); font-size: 12.5px; text-align: center; }
+/* undo / 反馈横幅（对齐 .simple-undo） */
+.tb-undo {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 16px; margin: 0 0 6px;
+  color: var(--fg-primary); background: var(--surface-raised);
+  border: 1px solid var(--border-subtle); border-left: 3px solid var(--brand);
+  border-radius: var(--radius-medium); box-shadow: var(--shadow-soft);
+  animation: tb-banner-in var(--motion-fast) var(--ease-out);
+}
+.tb-undo.is-hidden { display: none; }
+@keyframes tb-banner-in { from { opacity: 0; transform: translateY(-4px); } }
+.tb-undo > span { flex: 1; min-width: 0; font-size: 13px; }
+.tb-undo button {
+  min-height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 500;
+  color: var(--brand-strong); background: transparent;
+  border: 1px solid var(--brand); border-radius: var(--radius-medium); cursor: pointer;
+}
+.tb-undo button:hover { background: var(--brand-subtle); }
+/* 主题化确认对话框（提案 C3，替代 window.confirm） */
+.tb-dialog-layer { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; background: var(--overlay); }
+.tb-dialog-layer.is-open { display: grid; animation: tb-banner-in var(--motion-fast) var(--ease-out); }
+.tb-dialog {
+  width: 380px; max-width: calc(100vw - 48px); padding: 22px 24px 20px;
+  color: var(--fg-primary); background: var(--surface);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-large);
+  box-shadow: var(--shadow-overlay);
+}
+.tb-dialog h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.tb-dialog p { margin: 8px 0 18px; color: var(--fg-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.tb-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.tb-dialog-actions .tb-button.danger { color: var(--brand-contrast); background: var(--danger); border-color: var(--danger); }
+.tb-dialog-actions .tb-button.danger:hover { filter: brightness(1.08); }
+
+/* ── reduced motion：手动模拟开关 + 真实媒体查询 ──────────────────────── */
+.demo-reduced *, .demo-reduced *::before, .demo-reduced *::after {
+  animation: none !important; transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header class="demo-top">
+  <strong>EyeProtect 体验提案 Demo</strong>
+  <span class="demo-note">配套文档 docs/ux-research.md · 数据为演示假数据</span>
+  <label class="demo-motion-toggle"><input type="checkbox" id="motion-toggle">模拟「减少动态效果」</label>
+  <div class="seg" role="group" aria-label="主题">
+    <button type="button" data-set-theme="light" aria-pressed="true">亮色</button>
+    <button type="button" data-set-theme="dark" aria-pressed="false">暗色</button>
+  </div>
+  <nav>
+    <a href="#a">A 桌宠</a>
+    <a href="#b">B 休息卡</a>
+    <a href="#c">C 待办</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ═══ 区块 A：桌宠 ═══ -->
+  <section id="a" class="demo-card">
+    <h2>A · 桌宠：从「摆件」到「伙伴」</h2>
+    <p class="demo-lead">点一下桌宠试试。所有动作由真实路径驱动，与产品共用同一套像素数据。</p>
+    <div class="demo-row">
+      <div class="pet-stage">
+        <span class="pet-hint">单击 · 双击 / 右键在真机由窗口处理</span>
+        <div class="pet-wrap" id="pet-demo" title="点我"></div>
+      </div>
+      <div class="pet-controls">
+        <div>
+          <p class="demo-field-label">同伴</p>
+          <div class="seg" role="group" aria-label="同伴">
+            <button type="button" data-pet="cat" aria-pressed="true">橘猫</button>
+            <button type="button" data-pet="dog" aria-pressed="false">小狗</button>
+            <button type="button" data-pet="rabbit" aria-pressed="false">白兔</button>
+          </div>
+        </div>
+        <div>
+          <p class="demo-field-label">动作提案</p>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; max-width:330px;">
+            <button type="button" class="tb-button" data-act="idle">回到待机</button>
+            <button type="button" class="tb-button" data-act="eye">护眼 · 远望眨眼</button>
+            <button type="button" class="tb-button" data-act="walk">走动 · 原地踏步</button>
+            <button type="button" class="tb-button" data-act="combined">合并 · 先看后走</button>
+            <button type="button" class="tb-button" data-act="celebrate">完成待办 · 庆祝</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-anno">
+      <b>演示对应提案</b>：待机呼吸 + 随机眨眼（A1，注意幅度只有 1 像素单位、4.4s 慢循环，符合「默认静止」精神）·
+      按提醒类型区分的动作（A2，替代现在所有类型共用一个三帧抖动）·
+      完成待办的一次性庆祝小跳（A3，无惩罚设计：只有正向时刻才有大动作）·
+      点击先挤压后回弹的 windup（A4）。
+      勾选顶部「减少动态效果」可验证全部动作退化为静止。
+    </div>
+  </section>
+
+  <!-- ═══ 区块 B：休息卡 ═══ -->
+  <section id="b" class="demo-card">
+    <h2>B · 休息卡：跟着节奏，而不是盯着倒计时</h2>
+    <p class="demo-lead">点「开始休息」走完 ready → resting → finished 全流程（演示压缩为 20 秒）。注意宠物在每个步骤做对应的动作，而不是开场动一下就冻住。</p>
+    <div class="demo-row">
+      <div class="rest-shell kind-eye" id="rest-shell">
+        <section class="rest-card" aria-labelledby="rest-title">
+          <div class="rest-ambient" aria-hidden="true">
+            <span class="rest-orb is-1"></span>
+            <span class="rest-orb is-2"></span>
+          </div>
+          <div class="rest-stage">
+            <span class="rest-stage-glow" aria-hidden="true"></span>
+            <svg class="rest-ring" id="rest-ring" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+              <circle class="rest-ring-track" cx="60" cy="60" r="52"></circle>
+              <circle class="rest-ring-value" id="rest-ring-value" cx="60" cy="60" r="52"></circle>
+            </svg>
+            <div class="rest-stage-art"><div class="pet-wrap" id="pet-rest"></div></div>
+            <p class="rest-stage-count" role="timer" aria-live="off" aria-label="休息剩余时间">
+              <strong id="rest-count">00:20</strong>
+              <small id="rest-count-label">计划休息</small>
+            </p>
+          </div>
+          <div class="rest-scroll">
+            <span class="rest-badge" id="rest-badge">护眼休息</span>
+            <h1 class="rest-title" id="rest-title">停下来，看看远处</h1>
+            <p class="rest-lede" id="rest-lede">准备好后，点击开始休息。</p>
+            <section class="rest-activity" id="rest-activity" hidden>
+              <p class="rest-activity-head"><strong id="rest-activity-name">看向远处，缓慢眨眼</strong><span id="rest-activity-step">第 1/3 步</span></p>
+              <ol class="rest-steps" id="rest-steps"></ol>
+              <div class="rest-progress" aria-hidden="true"><i id="rest-progress-bar" style="width:0%"></i></div>
+              <p class="rest-next" id="rest-next"></p>
+            </section>
+          </div>
+          <div class="rest-actions">
+            <button class="rest-primary" id="rest-primary">开始休息</button>
+            <div class="rest-actions-row">
+              <div class="rest-snooze-group">
+                <button type="button" id="rest-snooze">稍后提醒</button>
+                <select aria-label="稍后分钟数"><option>1 分钟</option><option selected>5 分钟</option><option>10 分钟</option><option>15 分钟</option></select>
+              </div>
+              <button class="rest-skip" type="button" id="rest-skip">跳过</button>
+            </div>
+            <p class="rest-hint" id="rest-hint">本次休息 20 秒</p>
+          </div>
+        </section>
+      </div>
+      <div class="pet-controls">
+        <div>
+          <p class="demo-field-label">提醒类型</p>
+          <div class="seg" role="group" aria-label="提醒类型">
+            <button type="button" data-kind="eye" aria-pressed="true">护眼</button>
+            <button type="button" data-kind="walk" aria-pressed="false">走动</button>
+            <button type="button" data-kind="combined" aria-pressed="false">合并</button>
+          </div>
+        </div>
+        <div class="demo-anno" style="margin-top:6px;">
+          <b>演示对应提案</b>：步骤与宠物动作逐帧同步（B1：远望步骤宠物真的抬头眨眼，走动步骤原地踏步）·
+          光晕 4s 呼吸脉动（B2，与眨眼/深呼吸步骤同节奏）·
+          归零瞬间的一次性庆祝：环闪 → 宠物小跳 →「完成休息」强调解锁（B3）·
+          出口层级维持现状（B5：跳过常开、稍后分体按钮、完成锁定）。
+          休息期间随时可跳过；完成后可重置再玩。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 区块 C：待办 ═══ -->
+  <section id="c" class="demo-card">
+    <h2>C · 待办：把最高频的动作打磨到位</h2>
+    <p class="demo-lead">试试：勾选完成（画勾 → 行淡出 → 可撤销）、一键「明天」推迟、删除走应用内确认框。</p>
+    <div class="demo-row">
+      <div class="todo-wrap">
+        <div class="todo-composer">
+          <input id="todo-input" type="text" placeholder="添加今天要做的事，回车确认" aria-label="新待办">
+          <button type="button" class="tb-button primary" id="todo-add">添加</button>
+        </div>
+        <div class="tb-undo is-hidden" id="todo-undo" role="status">
+          <span id="todo-undo-text"></span>
+          <button type="button" id="todo-undo-btn">撤销</button>
+        </div>
+        <div id="todo-groups"></div>
+      </div>
+      <div class="pet-controls">
+        <div class="demo-anno" style="margin-top:0;">
+          <b>演示对应提案</b>：完成微交互（C1：画勾 220ms 强调曲线 → 行淡出，全链路 &lt;400ms，可撤销）·
+          一键「明天」（C2：最高频规划动作不再进表单）·
+          行内操作常态低可见、悬停/键盘聚焦全显（C6）·
+          主题化确认对话框（C3，替代原生 window.confirm）·
+          空分组安静提示。
+          「明天」分组顶部的「今日承诺」徽标是轻量规划仪式（C4）的落点示意。
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 主题化确认对话框 -->
+<div class="tb-dialog-layer" id="dialog-layer" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+  <div class="tb-dialog">
+    <h3 id="dialog-title">删除这条待办？</h3>
+    <p id="dialog-text"></p>
+    <div class="tb-dialog-actions">
+      <button type="button" class="tb-button" id="dialog-cancel">取消</button>
+      <button type="button" class="tb-button danger" id="dialog-ok">删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ═══ 通用 ═══ */
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+const reduced = () => document.documentElement.classList.contains('demo-reduced')
+  || matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* 主题切换 */
+$$('.seg [data-set-theme]').forEach((btn) => btn.addEventListener('click', () => {
+  document.documentElement.dataset.theme = btn.dataset.setTheme;
+  $$('.seg [data-set-theme]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+}));
+/* 减少动态效果 */
+$('#motion-toggle').addEventListener('change', (e) => {
+  document.documentElement.classList.toggle('demo-reduced', e.target.checked);
+});
+
+/* ═══ 桌宠：SVG 构建（路径拷贝自 PixelAnimal.tsx） ═══ */
+function petSVG(animal) {
+  const cat = animal === 'cat', rabbit = animal === 'rabbit';
+  const ink = '#34303d';
+  const dark = rabbit ? '#a5a1b0' : cat ? '#b5673e' : '#987055';
+  const mid = rabbit ? '#dddce3' : cat ? '#eaa35d' : '#cca57a';
+  const light = rabbit ? '#fff9f0' : cat ? '#ffd797' : '#f4dab0';
+  const cream = '#fff0d4', pink = '#eaa4a9';
+  const ears = rabbit
+    ? `<path class="pa-ears-a" fill="${ink}" d="M18 8H25V10H27V28H18ZM37 10H39V8H46V28H37Z"/>
+       <path class="pa-ears-b" fill="${ink}" style="display:none" d="M19 8H25V10H27V28H18V12H19ZM37 10H40V8H46V12H47V28H37Z"/>
+       <path fill="${light}" d="M20 10H24V26H20ZM40 10H44V26H39V14H40Z"/>
+       <path fill="${pink}" d="M22 12H24V26H22ZM41 12H43V26H40V16H41Z"/>`
+    : cat
+      ? `<path fill="${ink}" d="M13 8H18V10H21V12H24V20H12V10H13ZM46 8H51V10H52V20H40V12H43V10H46Z"/>
+         <path fill="${mid}" d="M14 10H17V12H20V15H22V20H14ZM47 10H50V20H42V15H44V12H47Z"/>
+         <path fill="${pink}" d="M15 13H17V15H20V19H15ZM47 13H49V19H44V15H47Z"/>`
+      : `<path fill="${ink}" d="M13 8H22V12H24V28H12V26H9V15H11V11H13ZM42 8H51V11H53V15H55V26H52V28H40V12H42Z"/>
+         <path fill="${dark}" d="M14 10H21V24H12V16H14ZM43 10H50V16H52V24H43Z"/>
+         <path fill="${mid}" d="M15 11H19V21H14V15H15ZM44 11H48V15H50V21H46V17H44Z"/>`;
+  const headInk = rabbit
+    ? 'M24 22H40V24H46V27H50V30H52V38H50V42H46V45H40V47H24V45H18V42H14V38H12V30H14V27H18V24H24Z'
+    : 'M24 14H40V16H46V19H50V24H52V36H50V40H46V43H40V45H24V43H18V40H14V36H12V24H14V19H18V16H24Z';
+  const headDark = rabbit
+    ? 'M24 24H40V26H46V29H48V31H50V37H48V41H44V43H39V45H25V43H19V40H16V37H14V31H16V29H20V26H24Z'
+    : 'M24 16H40V18H46V21H48V25H50V35H48V39H44V41H39V43H25V41H19V38H16V34H14V25H16V21H20V18H24Z';
+  const headMid = rabbit
+    ? 'M24 24H40V26H45V29H47V31H48V36H46V39H43V41H21V39H18V36H16V31H18V29H21V26H24Z'
+    : 'M24 16H40V18H45V21H47V25H48V34H46V37H43V39H21V37H18V34H16V25H18V21H21V18H24Z';
+  const headLight = rabbit
+    ? 'M24 26H39V28H44V30H46V32H42V30H23V32H18V30H20V29H24Z'
+    : 'M24 18H39V20H44V22H46V25H42V23H23V25H18V23H20V21H24Z';
+  const muzzle = `<g transform="${rabbit ? 'translate(0 4)' : ''}">
+    <path fill="${light}" d="M21 32H27V34H37V32H43V37H40V40H24V38H21Z"/>
+    <path fill="${cream}" d="M26 33H38V38H26Z"/>
+    ${cat ? `<path fill="${dark}" d="M27 17H30V23H27ZM33 17H36V23H33ZM16 28H21V30H16ZM43 28H48V30H43Z"/>` : ''}
+    ${(!cat && !rabbit) ? `<path fill="${cream}" d="M30 19H34V28H37V32H27V28H30Z"/>` : ''}
+    <g class="pa-eyes-open">
+      <path fill="${ink}" d="M23 26H27V32H23ZM37 26H41V32H37Z"/>
+      <path fill="#fff9f0" d="M23 26H25V28H23ZM37 26H39V28H37Z"/>
+    </g>
+    <g class="pa-eyes-closed" style="display:none">
+      <path fill="${ink}" d="M22 29H27V31H22ZM37 29H42V31H37Z"/>
+    </g>
+    <path fill="${pink}" d="M19 32H23V34H19ZM41 32H45V34H41Z"/>
+    <path fill="${ink}" d="M30 32H34V34H33V36H31V34H30ZM28 36H31V37H28ZM33 36H36V37H33Z"/>
+    <path class="pa-tongue" fill="${pink}" style="display:none" d="M31 37H33V39H31Z"/>
+  </g>`;
+  return `<svg viewBox="0 0 64 64" shape-rendering="crispEdges" role="img" aria-label="桌宠" class="pa-idle">
+    <path fill="${ink}" opacity=".15" d="M18 59H46V61H18Z"/>
+    ${cat ? `<g class="pa-tail-a"><path fill="${ink}" d="M43 49H49V45H53V51H51V55H43Z"/><path fill="${mid}" d="M45 51H49V49H51V51H49V53H45Z"/></g>
+             <g class="pa-tail-b" style="display:none"><path fill="${ink}" d="M44 47H50V41H54V49H52V53H44Z"/><path fill="${mid}" d="M46 49H50V45H52V49H50V51H46Z"/></g>` : ''}
+    <g class="pa-bob">
+      <path fill="${ink}" d="M23 39H41V43H44V54H42V60H33V57H31V60H22V54H20V44H23Z"/>
+      <path fill="${dark}" d="M24 41H40V45H42V53H40V58H35V54H29V58H24V53H22V46H24Z"/>
+      <path fill="${mid}" d="M24 42H38V49H40V54H35V52H28V56H24Z"/>
+      <path fill="${light}" d="M27 43H37V45H39V51H36V53H28V51H25V46H27Z"/>
+      <path fill="${cream}" d="M28 44H35V49H28Z"/>
+    </g>
+    <g class="pa-legs">
+      <g class="pa-leg-l">
+        <path fill="${ink}" d="M20 43H24V51H22V53H18V50H16V46H18V44H20Z"/>
+        <path fill="${mid}" d="M20 45H22V50H19V48H18V46H20Z"/>
+        <path fill="${light}" d="M19 46H21V49H19Z"/>
+      </g>
+      <g class="pa-leg-r">
+        <path fill="${ink}" d="M40 43H44V44H46V46H48V50H46V53H42V51H40Z"/>
+        <path fill="${mid}" d="M42 45H44V46H46V49H44V51H42Z"/>
+        <path fill="${light}" d="M43 46H45V49H43Z"/>
+      </g>
+    </g>
+    <g class="pa-head-bob">${ears}
+      <path fill="${ink}" d="${headInk}"/>
+      <path fill="${dark}" d="${headDark}"/>
+      <path fill="${mid}" d="${headMid}"/>
+      <path fill="${light}" d="${headLight}"/>
+      ${muzzle}
+    </g>
+    <path fill="${light}" d="M24 56H28V58H24ZM36 56H40V58H36Z"/>
+  </svg>`;
+}
+
+/* ═══ 桌宠：动作编排 ═══
+   idle：呼吸（CSS）+ 随机眨眼（JS）
+   eye：抬头远望 + 两次慢眨眼（提案 A2 eye / A1 blink）
+   walk：4 帧 160ms 原地踏步（提案 A2 walk）
+   combined：eye → walk 序列
+   react / celebrate：wrapper 一次性动画（A4 / A3） */
+function createPet(container) {
+  let animal = 'cat';
+  let timers = [];
+  let blinkTimer = 0;
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+
+  function mount(next) {
+    animal = next || animal;
+    timers.forEach(clearTimeout); timers = [];
+    if (blinkTimer) { clearInterval(blinkTimer); blinkTimer = 0; }
+    container.innerHTML = petSVG(animal);
+    idle();
+  }
+  const svg = () => container.querySelector('svg');
+  const setEyes = (closed) => {
+    const open = $('.pa-eyes-open', svg()), shut = $('.pa-eyes-closed', svg());
+    if (open) open.style.display = closed ? 'none' : '';
+    if (shut) shut.style.display = closed ? '' : 'none';
+  };
+  const pose = (name) => { const s = svg(); if (!s) return; ['pose-w1', 'pose-w2', 'pose-w3', 'pose-gaze'].forEach((c) => s.classList.remove(c)); if (name) s.classList.add(name); };
+  const variant = (sel, show) => { const el = $(sel, svg()); if (el) el.style.display = show ? '' : 'none'; };
+  const fx = (cls, ms, done) => {
+    container.classList.add(cls);
+    later(() => { container.classList.remove(cls); if (done) done(); }, ms);
+  };
+
+  function blink(times) {
+    for (let i = 0; i < (times || 1); i += 1) {
+      later(() => setEyes(true), 40 + i * 420);
+      later(() => setEyes(false), 170 + i * 420);
+    }
+  }
+
+  function idle() {
+    timers.forEach(clearTimeout); timers = [];
+    pose(null);
+    variant('.pa-tongue', false);
+    variant('.pa-tail-b', false);
+    variant('.pa-ears-b', false);
+    setEyes(false);
+    const s = svg(); if (s) s.classList.add('pa-idle');
+    if (blinkTimer) clearInterval(blinkTimer);
+    if (!reduced()) {
+      const schedule = () => { blinkTimer = setTimeout(() => { blink(1); schedule(); }, 3600 + Math.random() * 4200); };
+      schedule();
+    }
+  }
+
+  function eyeAction(duration) {
+    timers.forEach(clearTimeout); timers = [];
+    const s = svg(); if (s) s.classList.remove('pa-idle');
+    later(() => pose('pose-gaze'), 30);
+    if (!reduced()) { later(() => blink(2), 260); later(() => blink(1), 1400); }
+    later(() => { pose(null); idle(); }, duration || 2600);
+  }
+
+  function walkAction(duration) {
+    timers.forEach(clearTimeout); timers = [];
+    const s = svg(); if (s) s.classList.remove('pa-idle');
+    variant('.pa-tail-b', animal === 'cat');
+    variant('.pa-ears-b', animal === 'rabbit');
+    if (reduced()) { later(() => { pose(null); variant('.pa-tail-b', false); variant('.pa-ears-b', false); idle(); }, 500); return; }
+    const poses = [null, 'pose-w1', 'pose-w2', 'pose-w3'];
+    let i = 0;
+    const step = () => {
+      pose(poses[i % 4]);
+      i += 1;
+      if (i * 160 >= (duration || 3200)) {
+        pose(null); variant('.pa-tail-b', false); variant('.pa-ears-b', false); idle();
+      } else { later(step, 160); }
+    };
+    step();
+  }
+
+  function react() {
+    timers.forEach(clearTimeout); timers = [];
+    const s = svg(); if (s) s.classList.remove('pa-idle');
+    variant('.pa-tongue', true);
+    fx('is-react', 720, () => idle());
+  }
+
+  function celebrate() {
+    timers.forEach(clearTimeout); timers = [];
+    const s = svg(); if (s) s.classList.remove('pa-idle');
+    variant('.pa-tongue', true);
+    if (!reduced()) spawnBits(container);
+    fx('is-celebrate', 640, () => idle());
+  }
+
+  function spawnBits(host) {
+    const colors = ['var(--rest-accent-eye)', 'var(--rest-accent-walk)', 'var(--brand)', '#eaa4a9'];
+    for (let i = 0; i < 8; i += 1) {
+      const bit = document.createElement('span');
+      bit.className = 'pa-bit';
+      const angle = (Math.PI * 2 * i) / 8 + Math.random() * 0.5;
+      const dist = 26 + Math.random() * 22;
+      bit.style.setProperty('--bit-x', `${Math.round(Math.cos(angle) * dist)}px`);
+      bit.style.setProperty('--bit-y', `${Math.round(Math.sin(angle) * dist - 14)}px`);
+      bit.style.setProperty('--bit-c', colors[i % colors.length]);
+      host.appendChild(bit);
+      setTimeout(() => bit.remove(), 700);
+    }
+  }
+
+  mount(animal);
+  return {
+    mount,
+    idle, eyeAction, walkAction, react, celebrate,
+    click: () => { if (!reduced()) react(); else celebrate(); }
+  };
+}
+
+const petDemo = createPet($('#pet-demo'));
+$('#pet-demo').addEventListener('click', () => petDemo.click());
+$$('.seg [data-pet]').forEach((btn) => btn.addEventListener('click', () => {
+  $$('.seg [data-pet]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  petDemo.mount(btn.dataset.pet);
+}));
+$$('[data-act]').forEach((btn) => btn.addEventListener('click', () => {
+  const act = btn.dataset.act;
+  if (act === 'idle') petDemo.idle();
+  else if (act === 'eye') petDemo.eyeAction(2800);
+  else if (act === 'walk') petDemo.walkAction(3400);
+  else if (act === 'combined') { petDemo.eyeAction(1400); setTimeout(() => petDemo.walkAction(2400), 1450); }
+  else if (act === 'celebrate') petDemo.celebrate();
+}));
+
+/* ═══ 休息卡状态机 ═══ */
+const KIND_COPY = {
+  eye: { badge: '护眼休息', title: '停下来，看看远处', activities: [{ id: 'eye-far-gaze', title: '看向远处，缓慢眨眼', steps: ['找一个 5 米外的目标', '放松地盯着它', '缓慢地眨眼 10 次'] }] },
+  walk: { badge: '走动提醒', title: '起身，走一走', activities: [{ id: 'walk-water', title: '去接一杯水', steps: ['站起来走向饮水机', '接一杯温水', '慢慢喝完再回来'] }] },
+  combined: { badge: '护眼 + 走动', title: '远望一下，再起身走走', activities: [
+    { id: 'eye-far-gaze', title: '看向远处，缓慢眨眼', steps: ['找一个 5 米外的目标', '放松地盯着它', '缓慢地眨眼 10 次'] },
+    { id: 'walk-water', title: '去接一杯水', steps: ['站起来走向饮水机', '接一杯温水', '慢慢喝完再回来'] }
+  ] }
+};
+const REST_SECONDS = 20;
+const RING_C = 2 * Math.PI * 52;
+const rest = {
+  shell: $('#rest-shell'), kind: 'eye', phase: 'ready',
+  startedAt: 0, tick: 0,
+  pet: createPet($('#pet-rest'))
+};
+$('#rest-ring-value').setAttribute('stroke-dasharray', RING_C.toFixed(2));
+$('#rest-ring-value').setAttribute('stroke-dashoffset', RING_C.toFixed(2));
+
+const fmt = (s) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
+
+function restCopy() { return KIND_COPY[rest.kind]; }
+
+function renderRest() {
+  const copy = restCopy();
+  const started = rest.phase !== 'ready';
+  const elapsed = started ? Math.min(REST_SECONDS, (Date.now() - rest.startedAt) / 1000) : 0;
+  const remaining = Math.max(0, Math.ceil(REST_SECONDS - elapsed));
+  const finished = started && remaining === 0;
+  const steps = copy.activities.flatMap((a) => a.steps.map((text, si) => ({ ...a, text, stepsIndex: si })));
+  const stepLen = REST_SECONDS / steps.length;
+  const doneAll = started && elapsed >= REST_SECONDS;
+  const currentIdx = started ? Math.min(steps.length - 1, Math.floor(elapsed / stepLen)) : 0;
+
+  $('.rest-card', rest.shell).classList.toggle('has-steps', started);
+  rest.shell.classList.toggle('is-resting', started && !finished);
+  $('#rest-badge').textContent = copy.badge;
+  $('#rest-title').textContent = finished ? '休息完成' : copy.title;
+  $('#rest-lede').textContent = !started ? '准备好后，点击开始休息。' : finished ? '已到时间，可以完成本次休息。' : `还有 ${remaining} 秒，跟着节奏放松`;
+  $('#rest-count').textContent = fmt(remaining);
+  $('#rest-count-label').textContent = finished ? '已到时间' : started ? '剩余' : '计划休息';
+  $('#rest-hint').textContent = !started ? `本次休息 ${REST_SECONDS} 秒` : finished ? '已到时间，可以完成本次休息。' : `还剩 ${remaining} 秒 · 提前完成不会被记录`;
+
+  const activity = $('#rest-activity');
+  activity.hidden = !started;
+  if (started) {
+    const current = steps[currentIdx];
+    const activityStepIndex = doneAll ? current.steps.length : current.stepsIndex;
+    $('#rest-activity-name').textContent = current.title;
+    $('#rest-activity-step').textContent = doneAll ? '建议时长已完成' : `第 ${current.stepsIndex + 1}/${current.steps.length} 步`;
+    $('#rest-steps').innerHTML = current.steps.map((text, i) =>
+      `<li class="rest-step ${i < activityStepIndex ? 'is-done' : i === activityStepIndex ? 'is-active' : ''}"><b>${i < activityStepIndex ? '✓' : i + 1}</b><span>${text}</span></li>`).join('');
+    $('#rest-progress-bar').style.width = `${Math.round(((elapsed % stepLen) / stepLen) * 100)}%`;
+    const nextActivity = copy.activities.find((a) => a.id !== current.id);
+    $('#rest-next').textContent = nextActivity ? `接下来：${nextActivity.title}` : '';
+    if (rest.lastStepKey !== current.id + current.stepsIndex) {
+      rest.lastStepKey = current.id + current.stepsIndex;
+      /* 提案 B1：当前步骤 = 宠物动作。眼睛类动作短暂远望，走动类动作持续踏步 */
+      if (!reduced()) {
+        if (current.id.startsWith('walk')) rest.pet.walkAction(Math.round(stepLen * 1000 * 0.8));
+        else rest.pet.eyeAction(Math.round(stepLen * 1000 * 0.9));
+      }
+    }
+  } else {
+    rest.lastStepKey = null;
+  }
+
+  const progress = started ? elapsed / REST_SECONDS : 0;
+  $('#rest-ring-value').setAttribute('stroke-dashoffset', (RING_C * (1 - progress)).toFixed(2));
+
+  const primary = $('#rest-primary');
+  primary.textContent = started ? '完成休息' : '开始休息';
+  primary.disabled = started && !finished;
+  primary.classList.toggle('is-unlocked', finished && !rest.unlockAnimated);
+  if (finished && !rest.unlockAnimated) {
+    rest.unlockAnimated = true;
+    clearInterval(rest.tick);
+    $('#rest-ring').classList.add('is-flash');
+    rest.pet.celebrate();
+    setTimeout(() => $('#rest-ring').classList.remove('is-flash'), 700);
+  }
+}
+
+function restReset(kind) {
+  clearInterval(rest.tick);
+  rest.phase = 'ready';
+  rest.kind = kind || rest.kind;
+  rest.unlockAnimated = false;
+  rest.shell.className = `rest-shell kind-${rest.kind}`;
+  rest.pet.idle();
+  renderRest();
+}
+
+$('#rest-primary').addEventListener('click', () => {
+  if (rest.phase === 'ready') {
+    rest.phase = 'resting';
+    rest.startedAt = Date.now();
+    clearInterval(rest.tick);
+    rest.tick = setInterval(renderRest, 200);
+    renderRest();
+  } else if (rest.phase === 'resting') {
+    restReset();
+  }
+});
+$('#rest-snooze').addEventListener('click', () => restReset());
+$('#rest-skip').addEventListener('click', () => restReset());
+$$('.seg [data-kind]').forEach((btn) => btn.addEventListener('click', () => {
+  $$('.seg [data-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  restReset(btn.dataset.kind);
+}));
+restReset('eye');
+
+/* ═══ 待办列表 ═══ */
+let todoSeq = 0;
+const todos = [
+  { id: ++todoSeq, title: '整理季度汇报的大纲', group: 'today', time: '今天 14:00' },
+  { id: ++todoSeq, title: '回复设计评审的留言', group: 'today', time: '' },
+  { id: ++todoSeq, title: '预约年度体检', group: 'today', time: '' },
+  { id: ++todoSeq, title: '给项目周报补上数据截图', group: 'tomorrow', time: '' },
+  { id: ++todoSeq, title: '读完《微交互》第 4 章', group: 'later', time: '周五' }
+];
+const GROUP_TITLES = { today: '今天', tomorrow: '明天', later: '稍后' };
+let undoSlot = null;   /* 单槽：新完成会覆盖上一个撤销机会（与真机一致） */
+let pendingDelete = null;
+
+const groupsEl = $('#todo-groups');
+const undoEl = $('#todo-undo');
+const undoText = $('#todo-undo-text');
+
+function rowHTML(task) {
+  return `<li class="tb-row" data-id="${task.id}">
+    <div class="tb-row-in">
+      <button type="button" class="tb-check" aria-pressed="false" aria-label="完成「${task.title}」">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8.6 6.4 11.6 12.8 4.8" pathLength="100"/></svg>
+      </button>
+      <span class="tb-name">${task.title}${task.time ? `<time>${task.time}</time>` : ''}</span>
+      <span class="tb-row-actions">
+        <button type="button" data-op="defer" aria-label="推迟「${task.title}」到明天">明天</button>
+        <button type="button" data-op="delete" class="is-danger" aria-label="删除「${task.title}」">删除</button>
+      </span>
+    </div>
+  </li>`;
+}
+
+function renderTodos(enterId) {
+  const committed = todos.filter((t) => t.group === 'today').slice(0, 3).length;
+  groupsEl.innerHTML = ['today', 'tomorrow', 'later'].map((g) => {
+    const list = todos.filter((t) => t.group === g);
+    const commit = g === 'today' && committed > 0 ? `<span class="tb-commit">今日承诺 ${Math.min(committed, 3)}/3</span>` : '';
+    return `<div class="tb-group">
+      <h3>${GROUP_TITLES[g]} <small>${list.length}</small> ${commit}</h3>
+      ${list.length ? `<ul class="tb-list">${list.map((t) => rowHTML(t)).join('')}</ul>` : '<p class="tb-empty">这一组暂时没有待办</p>'}
+    </div>`;
+  }).join('');
+  if (enterId) {
+    const row = groupsEl.querySelector(`.tb-row[data-id="${enterId}"]`);
+    if (row) row.classList.add('is-entering');
+  }
+}
+renderTodos();
+
+function showUndo(text, restore) {
+  undoSlot = restore;
+  undoText.textContent = text;
+  undoEl.classList.remove('is-hidden');
+  clearTimeout(showUndo.timer);
+  showUndo.timer = setTimeout(() => { undoEl.classList.add('is-hidden'); undoSlot = null; }, 6000);
+}
+$('#todo-undo-btn').addEventListener('click', () => {
+  if (!undoSlot) return;
+  const { task } = undoSlot;
+  todos.push(task);
+  undoSlot = null;
+  undoEl.classList.add('is-hidden');
+  renderTodos(task.id);
+});
+
+groupsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-op], .tb-check');
+  if (!btn) return;
+  const row = btn.closest('.tb-row');
+  const id = Number(row.dataset.id);
+  const index = todos.findIndex((t) => t.id === id);
+  if (index < 0) return;
+  const task = todos[index];
+
+  if (btn.classList.contains('tb-check')) {
+    /* C1：画勾（强调曲线）→ 行淡出 → 可撤销 */
+    btn.classList.add('is-done');
+    btn.setAttribute('aria-pressed', 'true');
+    setTimeout(() => row.classList.add('is-leaving'), reduced() ? 0 : 220);
+    setTimeout(() => {
+      todos.splice(index, 1);
+      renderTodos();
+      showUndo(`已完成「${task.title}」`, { task });
+    }, reduced() ? 0 : 560);
+  } else if (btn.dataset.op === 'defer') {
+    /* C2：一键推迟到明天 */
+    row.classList.add('is-leaving');
+    setTimeout(() => {
+      todos.splice(index, 1);
+      const moved = { ...task, group: 'tomorrow', time: '明天' };
+      todos.push(moved);
+      renderTodos(moved.id);
+      showUndo(`已把「${task.title}」推迟到明天`, { task });
+    }, reduced() ? 0 : 320);
+  } else if (btn.dataset.op === 'delete') {
+    /* C3：应用内确认对话框，替代 window.confirm */
+    pendingDelete = { id, index, task };
+    $('#dialog-text').textContent = `「${task.title}」将被移除，可以撤销。`;
+    $('#dialog-layer').classList.add('is-open');
+    $('#dialog-cancel').focus();
+  }
+});
+
+/* 对话框交互：Esc 关闭、焦点回到行 */
+function closeDialog() {
+  $('#dialog-layer').classList.remove('is-open');
+  pendingDelete = null;
+}
+$('#dialog-cancel').addEventListener('click', closeDialog);
+$('#dialog-layer').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeDialog(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#dialog-layer').classList.contains('is-open')) closeDialog();
+});
+$('#dialog-ok').addEventListener('click', () => {
+  if (!pendingDelete) return closeDialog();
+  const { index, task } = pendingDelete;
+  const row = groupsEl.querySelector(`.tb-row[data-id="${task.id}"]`);
+  const finish = () => {
+    todos.splice(todos.findIndex((t) => t.id === task.id), 1);
+    renderTodos();
+    showUndo(`已删除「${task.title}」`, { task });
+    closeDialog();
+  };
+  if (row && !reduced()) { row.classList.add('is-leaving'); setTimeout(finish, 420); }
+  else finish();
+});
+
+/* 快速添加 */
+function addTodo() {
+  const input = $('#todo-input');
+  const title = input.value.trim();
+  if (!title) { input.focus(); return; }
+  const task = { id: ++todoSeq, title, group: 'today', time: '' };
+  todos.unshift(task);
+  input.value = '';
+  renderTodos(task.id);
+}
+$('#todo-add').addEventListener('click', addTodo);
+$('#todo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addTodo(); });
+</script>
+</body>
+</html>
