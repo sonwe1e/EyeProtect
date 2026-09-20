@@ -4,12 +4,17 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const preloadCjsPath = join(rootDir, 'out', 'preload', 'index.cjs');
+const emergencyPreloadCjsPath = join(rootDir, 'out', 'preload', 'emergency.cjs');
 const preloadMjsPath = join(rootDir, 'out', 'preload', 'index.mjs');
 const mainPath = join(rootDir, 'out', 'main', 'index.js');
 const failures = [];
 
 if (!existsSync(preloadCjsPath)) {
   failures.push('missing sandbox-compatible out/preload/index.cjs');
+}
+
+if (!existsSync(emergencyPreloadCjsPath)) {
+  failures.push('missing sandbox-compatible out/preload/emergency.cjs');
 }
 
 if (existsSync(preloadMjsPath)) {
@@ -32,6 +37,9 @@ if (!existsSync(mainPath)) {
   }
   if (!main.includes('../preload/index.cjs')) {
     failures.push('compiled windows do not reference index.cjs');
+  }
+  if (!main.includes('../preload/emergency.cjs')) {
+    failures.push('compiled emergency window does not reference emergency.cjs');
   }
   if (!main.includes('sandbox: true')) {
     failures.push('compiled windows no longer enforce renderer sandboxing');

@@ -1,55 +1,39 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+EyeProtect 是本地优先的 Windows 休息提醒与待办助手，使用 Electron、electron-vite、React、严格 TypeScript。所有工作遵循 [RULES.md](RULES.md)；项目当前架构以 [docs/architecture.md](docs/architecture.md) 为准。
 
-## Project
+## 当前产品边界
 
-EyeProtect — a Windows desktop eye-care reminder ("护眼桌宠提醒工具"). Runs in the system tray with a transparent, draggable pet window. On a schedule it scales up, pins on top, and plays animations to remind the user to rest their eyes or get up and walk; eye + walk reminders close in time are merged into one. Settings are persisted locally; ships as a Windows x64 portable `.exe`.
+主界面只有待办、完成记录、设置。任务按截止日期分组，使用简单清单；点击任务原地展开备注、日期、单次提醒与一层步骤。桌宠旁气泡展示手选任务或番茄钟。休息统一用遮罩，点击开始休息暂停专注，手动继续恢复。
 
-**Stack:** Electron 33 + electron-vite 2.3 + React 18 + Vite 5, TypeScript (strict), ESM throughout.
+旧项目/规划/工时/独立提醒界面不在当前主流程；旧组合收藏角色系统已随像素动物方案删除。旧数据保留供备份、只读查看与恢复，不重新启用旧自动规则。
 
-## Commands
+## 查找位置
 
-```bash
-npm install        # install from package-lock.json
-npm run dev        # electron-vite dev server with hot reload
-npm run typecheck  # tsc --noEmit (primary quality gate — there is no linter/formatter)
-npm test           # tsx --test tests/*.test.ts  — Node built-in test runner
-npm run build      # electron-vite build → out/
-npm run start      # electron-vite preview (runs the built app)
-npm run package    # build + electron-builder --win portable --x64 → release/
-```
+| 领域 | 入口 |
+| --- | --- |
+| 主任务、清单、步骤 | src/main/taskService.ts、src/main/taskStore.ts、src/shared/simpleTasks.ts |
+| 日期与 IPC | src/shared/types.ts、src/main/ipcTaskInput.ts、src/preload/index.ts、src/main/index.ts |
+| 休息节奏与生命周期 | src/main/reminders.ts、src/main/scheduling/kernel.ts、src/main/activityMonitor.ts |
+| 提醒界面（遮罩卡片） | src/renderer/src/views/AlertView.tsx、src/renderer/src/features/reminders/restViewModel.ts、src/renderer/src/features/reminders/ActivityGuide.tsx |
+| 番茄钟 | src/main/pomodoro.ts、src/renderer/src/features/simple/PomodoroCard.tsx |
+| 主界面与设置 | src/renderer/src/views/WorkbenchView.tsx、src/renderer/src/features/simple/SimpleSettings.tsx |
+| 桌宠与像素动物 | src/renderer/src/views/PetView.tsx、src/shared/pixelAnimals.ts、src/renderer/src/features/characters/PixelAnimal.tsx |
+| 窗口与兜底 | src/main/windows.ts、src/main/windowBounds.ts、src/main/reminderSurface.ts |
+| 数据兼容 | src/main/backup.ts；数据库 v5、备份 v7 |
 
-Before shipping, run `npm run typecheck` and `npm test`. Changes to reminder scheduling must also update `tests/reminders.test.ts`.
+## 开发约定
 
-## Architecture
+- 严格 TypeScript、两空格、单引号、分号；共享接口定义在 src/shared/types.ts。
+- Renderer 不访问 Node/Electron，仅使用 window.eyeProtect。变更 IPC 同步更新类型、preload、主进程清洗与发送方限制。
+- 变更通过命令层呈现错误；任务并发修改保留 baseRevision；批量完成/撤销先提交事务再推送。
+- 颜色使用语义令牌；simple.css 拥有精简工作台样式，styles.css 拥有桌宠、气泡和休息窗口。
+- 桌宠不订阅全量任务；拖动每次重申固定窗口尺寸，防止 Windows 分数 DPI 尺寸漂移。
+- 所有倒计时由主进程拥有，复用 SchedulerKernel；不要在 renderer 创建计时权威或恢复旧工时追踪。
+- data/、out/、release/、artifacts/、node_modules/ 为本地数据、生成物或依赖，不提交。
 
-Classic Electron 3-process split, each in its own electron-vite build target:
+## 验证
 
-- **`src/main/`** — Main process. Entry in `index.ts` owns the single-instance lock, dynamic tray, sender-validated IPC, power lifecycle, and startup wiring. `ReminderScheduler` uses one-shot deadline timers, frozen pause/resume semantics, action locks, and persisted `runtime-state.json`; `SettingsStore` uses domain-scoped events and atomic `settings.json` writes; `AlarmClock` removes fired one-shot alarms; `AppWindows` keeps only the pet resident while creating/destroying Alert, Bubble, Panel, Settings, and overlay windows on demand.
-- **`src/preload/`** — `contextBridge` exposing `window.eyeProtect: EyeProtectApi`. The renderer must never touch Node or Electron APIs directly.
-- **`src/renderer/`** — `App.tsx` is a small hash router that dynamically imports `#pet`, `#alert`, `#bubble`, `#panel`, and `#settings` views. Window-level UI lives in `views/`, reusable domain UI in `features/`, IPC-backed state hooks in `hooks/`, and common controls in `components/`. Each view subscribes only to the data it consumes. `styles/tokens.css` and `styles/base.css` hold shared foundations; `styles.css` holds the current view rules.
-- **`src/shared/types.ts`** — The **cross-process contract**. Types (`ReminderKind`, `Settings`, `ActiveReminder`, `ReminderStatus`, `RuntimeInfo`, `EyeProtectApi`) plus `DEFAULT_SETTINGS` and `SETTINGS_LIMITS`. If you add data that crosses the process boundary, define it here — do not duplicate across main/preload/renderer.
+交付前运行 npm run typecheck、npm test、npm run verify:ui-contract。资源/窗口变化运行 npm run package，并运行 npm run smoke:simple 的 1、1.25、1.5 缩放验收；--emergency 覆盖应急窗口。npm run smoke:pet-failure 验证桌宠失效仍能记任务和休息。
 
-**IPC convention:** request channels include `settings:*`, `runtime:get`, `reminder:*`, `alarm:*`, `todo:*`, and `window:*`; push channels are scoped to their consumer domain (`settings:changed`, `reminder:changed`, `alarm:*`, `todo:changed`, `panel:*`). To add a capability: extend `EyeProtectApi` in `src/shared/types.ts`, wire it in `src/preload/index.ts`, and register the same channel in `src/main/index.ts`. All invoke handlers must keep the renderer URL trust check.
-
-**Default settings:** eye interval 20 min, walk interval 60 min, snooze 5 min, pet scale 1, skin `stable`. Limits: intervals 1–240 min, snooze 1–60 min, pet scale 0.7–1.8. Skins: `stable` | `eye` | `fu` | `sleep`.
-
-## Coding conventions
-
-- Strict TypeScript. 2-space indent, single quotes, semicolons, `camelCase` vars/functions, `PascalCase` types and React components.
-- Renderer must not access Node/Electron directly — only `window.eyeProtect`.
-- Cross-process data lives in `src/shared/types.ts`, not triplicated.
-- Window transparency/drag relies on `-webkit-app-region`; interactive elements must stay `no-drag` (`styles.css`).
-- Do not add a catch-all renderer state hook: Pet, Alert, Bubble, Panel, and Settings have intentionally separate IPC subscriptions so hidden or lightweight windows avoid unrelated data and updates.
-
-## Generated / runtime directories — do not edit or commit
-
-`data/` (created at runtime, holds `settings.json` and `runtime-state.json`), `out/`, `release/`, `node_modules/`.
-
-## Notes
-
-- The repository has Git history but no CI workflow. Do not commit runtime data or secrets.
-- The tray icon has an inline base64 PNG fallback baked into `src/main/index.ts`.
-- `scripts/strip_pet_bg.py` (numpy + PIL, ROOT hardcoded to this project dir) converts `Pics/statu_*.png` → RGBA `public/assets/pet/pet-*.png`; run only when source artwork changes.
-- A more detailed Chinese-language guide exists in `AGENTS.md` — it aligns with this file.
+修改休息调度必须补 tests/reminders.test.ts 或 tests/pomodoro.test.ts 的对应行为测试；迁移、步骤和数据完整性测试放 tests/simple-experience.test.ts。记录实际通过的验证与未完成的硬件验证。

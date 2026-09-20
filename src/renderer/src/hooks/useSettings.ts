@@ -10,7 +10,7 @@ export const useSettings = (): {
   useEffect(() => {
     let mounted = true;
     void window.eyeProtect.getSettings().then((next) => {
-      if (mounted) {
+      if (mounted && next) {
         setSettings(next);
       }
     });

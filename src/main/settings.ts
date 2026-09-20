@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -11,9 +12,10 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
+import { isPixelAnimal } from '../shared/pixelAnimals';
 import {
   DEFAULT_SETTINGS,
-  PET_SKINS,
+  SIMPLE_SETTING_LIMITS,
   REMINDER_MODES,
   SETTINGS_LIMITS,
   TODO_PRIORITIES,
@@ -22,7 +24,6 @@ import {
   sanitizeTodos,
   type Alarm,
   type PetPosition,
-  type PetSkin,
   type ReminderMode,
   type Settings,
   type TodoItem,
@@ -48,6 +49,7 @@ export interface RuntimePathInputs {
   cwd: string;
   portableExecutableDir?: string;
   portableExecutableFile?: string;
+  userDataDir?: string;
 }
 
 const normalizeAbsolutePath = (value: string | undefined): string | null => {
@@ -78,12 +80,51 @@ export const resolveLaunchExecutable = ({
   return normalizeAbsolutePath(portableExecutableFile) ?? execPath;
 };
 
+export const resolveDataDir = (inputs: RuntimePathInputs): string => {
+  if (!inputs.isPackaged) {
+    return join(inputs.cwd, 'data');
+  }
+  const portableDir = normalizeAbsolutePath(inputs.portableExecutableDir);
+  if (portableDir) {
+    return join(portableDir, 'data');
+  }
+  return join(normalizeAbsolutePath(inputs.userDataDir) ?? dirname(inputs.execPath), 'data');
+};
+
+export const migrateLegacyDataDirectory = (sourceDir: string, targetDir: string): boolean => {
+  if (!existsSync(sourceDir) || existsSync(targetDir) || sourceDir === targetDir) {
+    return false;
+  }
+  const parentDir = dirname(targetDir);
+  const stagingDir = `${targetDir}.migrating-${process.pid}-${randomUUID()}`;
+  mkdirSync(parentDir, { recursive: true });
+  try {
+    cpSync(sourceDir, stagingDir, { recursive: true, errorOnExist: true, force: false });
+    renameSync(stagingDir, targetDir);
+    return true;
+  } catch (error) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw error;
+  }
+};
+
+const prepareDataDir = (inputs: RuntimePathInputs): string => {
+  const targetDir = resolveDataDir(inputs);
+  if (
+    inputs.isPackaged &&
+    !normalizeAbsolutePath(inputs.portableExecutableDir) &&
+    normalizeAbsolutePath(inputs.userDataDir)
+  ) {
+    migrateLegacyDataDirectory(join(dirname(inputs.execPath), 'data'), targetDir);
+  }
+  return targetDir;
+};
+
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.min(max, Math.max(min, parsed));
+  return Math.min(max, Math.max(min, value));
 };
 
 const normalizePosition = (value: unknown): PetPosition | null => {
@@ -152,6 +193,12 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
   const input = value && typeof value === 'object' ? (value as Partial<Settings>) : {};
 
   return {
+    eyeEnabled: input.eyeEnabled !== false,
+    walkEnabled: input.walkEnabled !== false,
+    eyeRestSeconds: Math.round(clampNumber(input.eyeRestSeconds, DEFAULT_SETTINGS.eyeRestSeconds, SIMPLE_SETTING_LIMITS.eyeRestSeconds.min, SIMPLE_SETTING_LIMITS.eyeRestSeconds.max)),
+    walkRestSeconds: Math.round(clampNumber(input.walkRestSeconds, DEFAULT_SETTINGS.walkRestSeconds, SIMPLE_SETTING_LIMITS.walkRestSeconds.min, SIMPLE_SETTING_LIMITS.walkRestSeconds.max)),
+    pomodoroMinutes: Math.round(clampNumber(input.pomodoroMinutes, DEFAULT_SETTINGS.pomodoroMinutes, SIMPLE_SETTING_LIMITS.pomodoroMinutes.min, SIMPLE_SETTING_LIMITS.pomodoroMinutes.max)),
+    pomodoroBreakMinutes: Math.round(clampNumber(input.pomodoroBreakMinutes, DEFAULT_SETTINGS.pomodoroBreakMinutes, SIMPLE_SETTING_LIMITS.pomodoroBreakMinutes.min, SIMPLE_SETTING_LIMITS.pomodoroBreakMinutes.max)),
     eyeIntervalMinutes: Math.round(
       clampNumber(
         input.eyeIntervalMinutes,
@@ -176,6 +223,48 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
         SETTINGS_LIMITS.snoozeMinutes.max
       )
     ),
+    naturalBreakMinutes: Math.round(
+      clampNumber(
+        input.naturalBreakMinutes,
+        DEFAULT_SETTINGS.naturalBreakMinutes,
+        SETTINGS_LIMITS.naturalBreakMinutes.min,
+        SETTINGS_LIMITS.naturalBreakMinutes.max
+      )
+    ),
+    dailyCapacityMinutes: Math.round(
+      clampNumber(
+        input.dailyCapacityMinutes,
+        DEFAULT_SETTINGS.dailyCapacityMinutes,
+        SETTINGS_LIMITS.dailyCapacityMinutes.min,
+        SETTINGS_LIMITS.dailyCapacityMinutes.max
+      )
+    ),
+    // Working window (Plan timeline). An inverted/empty window is invalid as a
+    // whole, so both sides fall back to the defaults together.
+    ...(() => {
+      const start = Math.round(
+        clampNumber(
+          input.workStartMinutes,
+          DEFAULT_SETTINGS.workStartMinutes,
+          SETTINGS_LIMITS.workStartMinutes.min,
+          SETTINGS_LIMITS.workStartMinutes.max
+        )
+      );
+      const end = Math.round(
+        clampNumber(
+          input.workEndMinutes,
+          DEFAULT_SETTINGS.workEndMinutes,
+          SETTINGS_LIMITS.workEndMinutes.min,
+          SETTINGS_LIMITS.workEndMinutes.max
+        )
+      );
+      return start < end
+        ? { workStartMinutes: start, workEndMinutes: end }
+        : {
+            workStartMinutes: DEFAULT_SETTINGS.workStartMinutes,
+            workEndMinutes: DEFAULT_SETTINGS.workEndMinutes
+          };
+    })(),
     reminderMode: REMINDER_MODES.includes(input.reminderMode as ReminderMode)
       ? (input.reminderMode as ReminderMode)
       : DEFAULT_SETTINGS.reminderMode,
@@ -191,17 +280,26 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.startWithWindows === 'boolean'
         ? input.startWithWindows
         : DEFAULT_SETTINGS.startWithWindows,
+    todoBubbleTaskIds: Array.isArray(input.todoBubbleTaskIds)
+      ? [...new Set(input.todoBubbleTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
+      : [],
+    petAppearance: isPixelAnimal(input.petAppearance) ? input.petAppearance : 'cat',
+    todoBubbleEnabled:
+      typeof input.todoBubbleEnabled === 'boolean'
+        ? input.todoBubbleEnabled
+        : DEFAULT_SETTINGS.todoBubbleEnabled,
     petScale: clampNumber(
       input.petScale,
       DEFAULT_SETTINGS.petScale,
       SETTINGS_LIMITS.petScale.min,
       SETTINGS_LIMITS.petScale.max
     ),
+    petMotion:
+      typeof input.petMotion === 'boolean'
+        ? input.petMotion
+        : DEFAULT_SETTINGS.petMotion,
     petPosition: normalizePosition(input.petPosition),
     petPositionsByLayout: sanitizePetPositionsByLayout(input.petPositionsByLayout),
-    petSkin: PET_SKINS.includes(input.petSkin as PetSkin)
-      ? (input.petSkin as PetSkin)
-      : DEFAULT_SETTINGS.petSkin,
     dimDesktop:
       typeof input.dimDesktop === 'boolean' ? input.dimDesktop : DEFAULT_SETTINGS.dimDesktop,
     historyEnabled:
@@ -235,8 +333,20 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       typeof input.hotkeysEnabled === 'boolean'
         ? input.hotkeysEnabled
         : DEFAULT_SETTINGS.hotkeysEnabled,
+    theme:
+      input.theme === 'light' || input.theme === 'dark' || input.theme === 'system'
+        ? input.theme
+        : DEFAULT_SETTINGS.theme,
+    density:
+      input.density === 'compact' || input.density === 'comfortable'
+        ? input.density
+        : DEFAULT_SETTINGS.density,
     alarms: sanitizeAlarms(input.alarms),
-    todos: sanitizeTodos(input.todos)
+    todos: sanitizeTodos(input.todos),
+    activeTaskId:
+      typeof input.activeTaskId === 'string' && input.activeTaskId
+        ? input.activeTaskId
+        : null
   };
 };
 
@@ -251,13 +361,13 @@ export const getDataDir = (): string => {
   // packaged-app path — never in tests, which set EYEPROTECT_DATA_DIR.
   const require = createRequire(import.meta.url);
   const { app } = require('electron');
-  const baseDir = resolveAppBaseDir({
+  return prepareDataDir({
     isPackaged: app.isPackaged,
     execPath: process.execPath,
     cwd: process.cwd(),
-    portableExecutableDir: env.PORTABLE_EXECUTABLE_DIR
+    portableExecutableDir: env.PORTABLE_EXECUTABLE_DIR,
+    userDataDir: app.getPath('userData')
   });
-  return join(baseDir, 'data');
 };
 
 /**
@@ -267,9 +377,10 @@ export const getDataDir = (): string => {
  *                      shortcut, pet window). Todo/alarm mutations no longer
  *                      fire this, so checking a todo can never re-sync the
  *                      startup shortcut or resize the pet window.
- * - 'todos-changed'  — todo list changed; only pet/bubble/panel care.
- * Alarm persistence (persistAlarms) and pet-position saves are silent: the
- * AlarmClock owns alarm notifications, and nobody needs position echoes.
+ * - 'todos-changed'  — todo list changed; only pet/bubble care.
+ * Alarm persistence (persistAlarms) and pet-position saves are silent:
+ * nobody needs position echoes (legacy AlarmClock was removed; the alarms
+ * field survives only as migration input to the Task Core).
  */
 export class SettingsStore extends EventEmitter {
   private readonly dataDir: string;
@@ -298,6 +409,7 @@ export class SettingsStore extends EventEmitter {
         ])
       ),
       quietAppWhitelist: [...this.settings.quietAppWhitelist],
+      todoBubbleTaskIds: [...this.settings.todoBubbleTaskIds],
       alarms: this.settings.alarms.map((alarm) => ({ ...alarm })),
       todos: this.settings.todos.map((todo) => ({ ...todo }))
     };
@@ -306,8 +418,8 @@ export class SettingsStore extends EventEmitter {
   save(partial: Partial<Settings>): Settings {
     const previous = this.get();
     const next = sanitizeSettings({ ...previous, ...partial });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
     return this.get();
   }
@@ -323,8 +435,8 @@ export class SettingsStore extends EventEmitter {
       petPosition: position,
       petPositionsByLayout: Object.fromEntries(Object.entries(positions).slice(-20))
     });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
   }
 
   addTodo(rawText: string): TodoItem[] {
@@ -425,13 +537,19 @@ export class SettingsStore extends EventEmitter {
   }
 
   /**
-   * AlarmClock is the source of truth and announces changes itself; this only
-   * mirrors its list to disk — no 'changed' cascade.
+   * Persist legacy alarm fields for the one-time Task Core migration; emits
+   * no 'changed' cascade (the migration is the only consumer).
    */
   persistAlarms(alarms: Alarm[]): void {
     const next = sanitizeSettings({ ...this.get(), alarms });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
+  }
+
+  /** Remove v1.0 collections after their verified SQLite migration. */
+  clearLegacyTaskData(): void {
+    this.settings = sanitizeSettings({ ...this.get(), todos: [], alarms: [], activeTaskId: null });
+    this.write(this.settings);
   }
 
   onChanged(callback: (payload: SettingsChangedPayload) => void): void {
@@ -440,8 +558,8 @@ export class SettingsStore extends EventEmitter {
 
   private commitTodos(todos: TodoItem[]): TodoItem[] {
     const next = sanitizeSettings({ ...this.get(), todos });
-    this.settings = next;
     this.write(next);
+    this.settings = next;
     const result = this.get().todos;
     this.emit('todos-changed', result);
     return result;
@@ -449,7 +567,7 @@ export class SettingsStore extends EventEmitter {
 
   private read(): Settings {
     if (!existsSync(this.filePath)) {
-      return sanitizeSettings({});
+      return sanitizeSettings(DEFAULT_SETTINGS);
     }
 
     try {
@@ -473,7 +591,10 @@ export class SettingsStore extends EventEmitter {
   private write(settings: Settings): void {
     mkdirSync(this.dataDir, { recursive: true });
     const tempPath = `${this.filePath}.tmp`;
-    const payload = { version: SETTINGS_SCHEMA_VERSION, ...settings };
+    // These fields are accepted by read() solely for one-time v1.0 migration;
+    // v1.1 never writes them back to settings.json.
+    const { todos: _todos, alarms: _alarms, activeTaskId: _activeTaskId, ...preferences } = settings;
+    const payload = { version: SETTINGS_SCHEMA_VERSION, ...preferences };
     writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     renameSync(tempPath, this.filePath);
   }

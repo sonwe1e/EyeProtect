@@ -1,10 +1,10 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
+import { useSettings } from './hooks/useSettings';
 
 const AlertView = lazy(() => import('./views/AlertView'));
 const BubbleView = lazy(() => import('./views/BubbleView'));
-const PanelView = lazy(() => import('./views/PanelView'));
 const PetView = lazy(() => import('./views/PetView'));
-const SettingsView = lazy(() => import('./views/SettingsView'));
+const WorkbenchView = lazy(() => import('./views/WorkbenchView'));
 
 const route = window.location.hash.replace('#', '') || 'pet';
 
@@ -14,10 +14,10 @@ const resolveView = () => {
       return AlertView;
     case 'bubble':
       return BubbleView;
-    case 'panel':
-      return PanelView;
     case 'settings':
-      return SettingsView;
+      return WorkbenchView;
+    case 'workbench':
+      return WorkbenchView;
     default:
       return PetView;
   }
@@ -25,6 +25,16 @@ const resolveView = () => {
 
 export function App(): JSX.Element {
   const View = resolveView();
+  const { settings } = useSettings();
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+    document.documentElement.dataset.density = settings.density;
+    // Theme authority lives in ONE place: styles/theme.css maps
+    // [data-theme] (including the `system` media query) to `color-scheme`
+    // and the token set. Setting `style.colorScheme` here created a second
+    // authority that could disagree with the computed CSS value (USERPLAN
+    // 1.2 PR0: theme runtime authority).
+  }, [settings.theme, settings.density]);
   return (
     <Suspense fallback={null}>
       <View />

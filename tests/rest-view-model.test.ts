@@ -1,0 +1,142 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  formatRestDuration,
+  getActivityProgress,
+  restAnimalAction,
+  restCountdown,
+  restKindCopy,
+  restLede,
+  restPhase
+} from '../src/renderer/src/features/reminders/restViewModel';
+import { DEFAULT_SETTINGS, type ActiveReminder, type BreakActivity, type ReminderKind } from '../src/shared/types';
+
+const settings = { ...DEFAULT_SETTINGS, eyeRestSeconds: 30, walkRestSeconds: 60 };
+
+const makeReminder = (kind: ReminderKind, overrides: Partial<ActiveReminder> = {}): ActiveReminder => ({
+  id: 'reminder-1',
+  kind,
+  kinds: kind === 'combined' ? ['eye', 'walk'] : [kind],
+  startedAt: 1_000_000,
+  restStartedAt: null,
+  scheduledAt: 1_000_000,
+  unlockAt: 1_030_000,
+  snoozeAllowedAt: 1_000_000,
+  mode: 'focused',
+  snoozeCount: 0,
+  activityIds: [],
+  breakTask: null,
+  ...overrides
+});
+
+test('every reminder kind has complete, distinct copy', () => {
+  const kinds: ReminderKind[] = ['eye', 'walk', 'combined'];
+  const titles = new Set(kinds.map((kind) => restKindCopy(kind).title));
+  assert.equal(titles.size, 3);
+  for (const kind of kinds) {
+    const copy = restKindCopy(kind);
+    assert.ok(copy.badge.length > 0, `${kind} badge`);
+    assert.ok(copy.title.length > 0, `${kind} title`);
+    assert.ok(copy.caption.length > 0, `${kind} caption`);
+  }
+});
+
+test('phase follows restStartedAt and unlockAt only', () => {
+  const ready = makeReminder('eye');
+  assert.equal(restPhase(ready, ready.startedAt), 'ready');
+
+  const started = makeReminder('eye', { restStartedAt: 1_000_000, unlockAt: 1_030_000 });
+  assert.equal(restPhase(started, 1_029_999), 'resting');
+  assert.equal(restPhase(started, 1_030_000), 'finished');
+  assert.equal(restPhase(started, 1_060_000), 'finished');
+});
+
+test('before starting, the countdown previews the configured rest', () => {
+  assert.deepEqual(restCountdown(makeReminder('eye'), 1_000_000, settings), {
+    remainingSeconds: 30,
+    totalSeconds: 30,
+    progress: 0
+  });
+  assert.equal(restCountdown(makeReminder('walk'), 1_000_000, settings).totalSeconds, 60);
+  // Combined reminders wait out the longer of the two rests.
+  assert.equal(restCountdown(makeReminder('combined'), 1_000_000, settings).totalSeconds, 60);
+});
+
+test('while resting, progress tracks the main-process unlock window', () => {
+  const active = makeReminder('eye', { restStartedAt: 1_000_000, unlockAt: 1_060_000 });
+  const halfway = restCountdown(active, 1_030_000, settings);
+  assert.equal(halfway.totalSeconds, 60);
+  assert.equal(halfway.remainingSeconds, 30);
+  assert.equal(halfway.progress, 0.5);
+
+  const done = restCountdown(active, 1_060_000, settings);
+  assert.equal(done.remainingSeconds, 0);
+  assert.equal(done.progress, 1);
+
+  // A stale/late renderer must never produce a negative countdown.
+  const late = restCountdown(active, 1_120_000, settings);
+  assert.equal(late.remainingSeconds, 0);
+  assert.equal(late.progress, 1);
+});
+
+test('countdown reads total from the reminder, not from settings', () => {
+  // A pomodoro break merged into the reminder extends unlockAt past the
+  // configured eye rest; the ring must span the real window.
+  const merged = makeReminder('eye', { restStartedAt: 1_000_000, unlockAt: 1_300_000 });
+  const state = restCountdown(merged, 1_000_000, settings);
+  assert.equal(state.totalSeconds, 300);
+  assert.equal(state.remainingSeconds, 300);
+  assert.equal(state.progress, 0);
+});
+
+test('lede copy is shared between the alert window and the gentle bubble', () => {
+  assert.equal(restLede('ready', 30), '准备好后，点击开始休息。');
+  assert.equal(
+    restLede('ready', 30, { mergedWithPomodoro: true }),
+    '将与本轮番茄休息合并，点击开始休息。'
+  );
+  assert.equal(restLede('finished', 0), '这次休息时间已到');
+  assert.equal(restLede('resting', 12), '还有 12 秒，跟着节奏放松');
+});
+
+test('animal action stays idle until the break starts', () => {
+  assert.equal(restAnimalAction('combined', 'ready'), 'idle');
+  assert.equal(restAnimalAction('combined', 'resting'), 'combined');
+  assert.equal(restAnimalAction('walk', 'finished'), 'walk');
+});
+
+test('durations format as mm:ss and clamp invalid input', () => {
+  assert.equal(formatRestDuration(0), '00:00');
+  assert.equal(formatRestDuration(5), '00:05');
+  assert.equal(formatRestDuration(65), '01:05');
+  assert.equal(formatRestDuration(600), '10:00');
+  assert.equal(formatRestDuration(-4), '00:00');
+  assert.equal(formatRestDuration(Number.NaN), '00:00');
+  assert.equal(formatRestDuration(0.4), '00:01');
+});
+
+test('activity steps are spread evenly across the suggested duration', () => {
+  // 30s over 3 steps: one step per 10s, and the last step holds to the end.
+  const activity: BreakActivity = { id: 'a', kind: 'eye', title: 't', steps: ['一', '二', '三'], durationSeconds: 30, tags: [] };
+  const startedAt = 1_000_000;
+
+  assert.deepEqual(getActivityProgress(activity, startedAt, startedAt), {
+    stepIndex: 0,
+    complete: false,
+    progress: 0
+  });
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 9_999).stepIndex, 0);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 10_000).stepIndex, 1);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 20_000).stepIndex, 2);
+  // Never index past the final step, and clamp a clock that ran backwards.
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 999_999).stepIndex, 2);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt - 5_000).stepIndex, 0);
+});
+
+test('activity progress reports completion at the suggested duration', () => {
+  const activity: BreakActivity = { id: 'a', kind: 'walk', title: 't', steps: ['一', '二'], durationSeconds: 60, tags: [] };
+  const startedAt = 2_000_000;
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 59_000).complete, false);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 60_000).complete, true);
+  assert.equal(getActivityProgress(activity, startedAt, startedAt + 60_000).progress, 1);
+});

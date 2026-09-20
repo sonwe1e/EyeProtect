@@ -1,0 +1,192 @@
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-app: #f5f6f7;
+  --bg-sidebar: #eceff1;
+  --surface: #ffffff;
+  --surface-raised: #fbfcfd;
+  --surface-hover: #eef1f3;
+  --surface-active: #e5ecef;
+  --surface-selected: #e5ecef;
+  --border-subtle: #dce3e7;
+  --border-strong: #c4d0d6;
+  --fg-primary: #182024;
+  --fg-secondary: #505d63;
+  --fg-tertiary: #65737a;
+  --fg-disabled: #89959a;
+  --fg-inverse: #ffffff;
+  --brand: #526b78;
+  --brand-strong: #405865;
+  --brand-contrast: #ffffff;
+  --brand-subtle: #e7eef2;
+  --danger: #a0433b;
+  --danger-strong: #86372f;
+  --danger-contrast: #ffffff;
+  --danger-subtle: #f8e8e5;
+  --warning: #805b16;
+  --warning-contrast: #182024;
+  --warning-subtle: #f5edda;
+  --success: #347054;
+  --success-subtle: #e5f1e9;
+  --focus-ring: #526b78;
+  --overlay: rgb(23 30 35 / 44%);
+  /* Two-layer elevation: a tight contact shadow that anchors the surface to
+     the page, plus a wide ambient shadow for depth. A single large blur reads
+     as a grey halo; the pair reads as light. */
+  --shadow-overlay: 0 2px 4px rgb(20 28 34 / 6%), 0 24px 64px rgb(20 28 34 / 16%);
+  --shadow-soft: 0 1px 2px rgb(20 28 34 / 6%), 0 8px 24px rgb(20 28 34 / 7%);
+  /* Material tokens for tactile controls (coss-style depth). --inset-highlight
+     is the top gloss on filled/raised surfaces: in dark mode a strong white
+     gloss reads as a bright scratch, so it drops to a faint bottom-lit value
+     instead of staying at the light-theme alpha. --inset-press replaces the
+     gloss while the control is held down. --shadow-hairline is the micro
+     elevation resting controls carry. */
+  --inset-highlight: rgb(255 255 255 / 24%);
+  --inset-press: rgb(23 30 35 / 10%);
+  --shadow-hairline: 0 1px 2px rgb(20 28 34 / 5%);
+  --glass-surface: rgb(255 255 255 / 90%);
+  --glass-surface-strong: rgb(255 255 255 / 98%);
+  --glass-border: rgb(24 32 36 / 16%);
+  /* Reminder stage accents. Decorative only (stage wash, badge dot, rest ring);
+     body text never relies on them for contrast. */
+  --rest-accent-eye: #2f7f72;
+  --rest-accent-walk: #a86b1f;
+  --rest-accent-combined: #a8505c;
+  /* ── Reminder glass material ──────────────────────────────────────────
+     The reminder windows float over the user's desktop, so the card base is
+     deliberately almost opaque. At 94% the wallpaper can move the local
+     background by at most 6%, which keeps secondary text above 4.5:1 even over
+     a pure-black wallpaper. The "glass" reading comes from the blur, the top
+     highlight and the inner colour wash — not from actually seeing through.
+     --glass-panel-floor is that resolved worst case (94% white over pure
+     black); it exists so the contrast contract can be machine-checked. */
+  --glass-panel: rgb(255 255 255 / 94%);
+  --glass-panel-floor: #f0f0f0;
+  --glass-highlight: rgb(255 255 255 / 92%);
+  --glass-hairline: rgb(24 32 36 / 10%);
+  --glass-wash: rgb(255 255 255 / 62%);
+  --glass-shadow: 0 2px 6px rgb(20 28 34 / 8%), 0 32px 72px rgb(20 28 34 / 24%);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-app: #111518;
+  --bg-sidebar: #0b1013;
+  --surface: #171e23;
+  --surface-raised: #1d262c;
+  --surface-hover: #222d34;
+  --surface-active: #293942;
+  --surface-selected: #293942;
+  --border-subtle: #29353c;
+  --border-strong: #3a4852;
+  --fg-primary: #eef4f7;
+  --fg-secondary: #b6c2c8;
+  --fg-tertiary: #8d9aa1;
+  --fg-disabled: #707d84;
+  --fg-inverse: #ffffff;
+  --brand: #9dbfc9;
+  --brand-strong: #b8d2da;
+  --brand-contrast: #102127;
+  --brand-subtle: #1b323a;
+  --danger: #ef9a90;
+  --danger-strong: #f4b0a8;
+  --danger-contrast: #24100f;
+  --danger-subtle: #3a2523;
+  --warning: #e4b869;
+  --warning-contrast: #201804;
+  --warning-subtle: #382f20;
+  --success: #84c99c;
+  --success-subtle: #1e3528;
+  --focus-ring: #9dbfc9;
+  --overlay: rgb(0 0 0 / 64%);
+  --shadow-overlay: 0 2px 4px rgb(0 0 0 / 40%), 0 24px 64px rgb(0 0 0 / 44%);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 32%), 0 8px 24px rgb(0 0 0 / 26%);
+  /* See the light block: dark surfaces are bottom-lit, so the gloss fades and
+     the pressed inset goes darker instead of lighter. */
+  --inset-highlight: rgb(255 255 255 / 8%);
+  --inset-press: rgb(0 0 0 / 20%);
+  --shadow-hairline: 0 1px 2px rgb(0 0 0 / 24%);
+  --glass-surface: rgb(23 30 35 / 92%);
+  --glass-surface-strong: rgb(23 30 35 / 98%);
+  --glass-border: rgb(238 244 247 / 16%);
+  --rest-accent-eye: #7fd0bd;
+  --rest-accent-walk: #e2b96b;
+  --rest-accent-combined: #f0a09a;
+  /* See the light block: 94% is the point where a dark card stays legible over
+     a pure-white wallpaper. */
+  --glass-panel: rgb(23 30 35 / 94%);
+  --glass-panel-floor: #252c30;
+  --glass-highlight: rgb(238 244 247 / 12%);
+  --glass-hairline: rgb(238 244 247 / 12%);
+  --glass-wash: rgb(23 30 35 / 58%);
+  --glass-shadow: 0 2px 6px rgb(0 0 0 / 40%), 0 32px 72px rgb(0 0 0 / 52%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    color-scheme: dark;
+    --bg-app: #111518;
+    --bg-sidebar: #0b1013;
+    --surface: #171e23;
+    --surface-raised: #1d262c;
+    --surface-hover: #222d34;
+    --surface-active: #293942;
+    --surface-selected: #293942;
+    --border-subtle: #29353c;
+    --border-strong: #3a4852;
+    --fg-primary: #eef4f7;
+    --fg-secondary: #b6c2c8;
+    --fg-tertiary: #8d9aa1;
+    --fg-disabled: #707d84;
+    --fg-inverse: #ffffff;
+    --brand: #9dbfc9;
+    --brand-strong: #b8d2da;
+    --brand-contrast: #102127;
+    --brand-subtle: #1b323a;
+    --danger: #ef9a90;
+    --danger-strong: #f4b0a8;
+    --danger-contrast: #24100f;
+    --danger-subtle: #3a2523;
+    --warning: #e4b869;
+    --warning-contrast: #201804;
+    --warning-subtle: #382f20;
+    --success: #84c99c;
+    --success-subtle: #1e3528;
+    --focus-ring: #9dbfc9;
+    --overlay: rgb(0 0 0 / 64%);
+    --shadow-overlay: 0 2px 4px rgb(0 0 0 / 40%), 0 24px 64px rgb(0 0 0 / 44%);
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 32%), 0 8px 24px rgb(0 0 0 / 26%);
+    /* See the light block: dark surfaces are bottom-lit, so the gloss fades and
+       the pressed inset goes darker instead of lighter. */
+    --inset-highlight: rgb(255 255 255 / 8%);
+    --inset-press: rgb(0 0 0 / 20%);
+    --shadow-hairline: 0 1px 2px rgb(0 0 0 / 24%);
+    --glass-surface: rgb(23 30 35 / 92%);
+    --glass-surface-strong: rgb(23 30 35 / 98%);
+    --glass-border: rgb(238 244 247 / 16%);
+    --rest-accent-eye: #7fd0bd;
+    --rest-accent-walk: #e2b96b;
+    --rest-accent-combined: #f0a09a;
+    /* See the [data-theme='dark'] block. This block is a hand-maintained copy of
+       it, so every token added there must be added here too — tests/theme-authority
+       asserts the two declare exactly the same set. */
+    --glass-panel: rgb(23 30 35 / 94%);
+    --glass-panel-floor: #252c30;
+    --glass-highlight: rgb(238 244 247 / 12%);
+    --glass-hairline: rgb(238 244 247 / 12%);
+    --glass-wash: rgb(23 30 35 / 58%);
+    --glass-shadow: 0 2px 6px rgb(0 0 0 / 40%), 0 32px 72px rgb(0 0 0 / 52%);
+  }
+}
+
+/* Content colors remain deliberately independent from the application chrome. */
+:root {
+  --color-text: var(--fg-primary);
+  --color-text-muted: var(--fg-secondary);
+  --color-accent: var(--brand);
+  --color-priority-normal: var(--fg-tertiary);
+  --color-priority-important: var(--warning);
+  --color-priority-urgent: var(--danger);
+  --surface-base: var(--bg-app);
+  --shadow-floating: var(--shadow-overlay);
+}

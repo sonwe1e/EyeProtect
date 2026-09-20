@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { sanitizeSettings, SettingsStore } from '../src/main/settings';
-import { ALARM_LABEL_MAX, TODO_TEXT_MAX, sanitizeAlarm, sanitizeTodo } from '../src/shared/types';
+import {
+  ALARM_LABEL_MAX,
+  SETTINGS_LIMITS,
+  TODO_TEXT_MAX,
+  sanitizeAlarm,
+  sanitizeTodo,
+  type Settings
+} from '../src/shared/types';
 
 const withTempStore = (fn: (store: SettingsStore, dir: string) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-e-'));
@@ -82,7 +89,7 @@ test('savePetPosition persists without emitting anything', () => {
   });
 });
 
-test('persistAlarms writes without triggering the settings cascade', () => {
+test('legacy alarm mutations neither cascade nor repopulate preference storage', () => {
   withTempStore((store) => {
     let settingsEvents = 0;
     store.onChanged(() => {
@@ -94,7 +101,7 @@ test('persistAlarms writes without triggering the settings cascade', () => {
     ]);
 
     assert.equal(settingsEvents, 0, 'alarm persistence is silent');
-    assert.equal(new SettingsStore().get().alarms.length, 1, 'alarms still reach disk');
+    assert.equal(new SettingsStore().get().alarms.length, 0, 'legacy alarms stay out of settings.json');
   });
 });
 
@@ -166,6 +173,9 @@ test('settings are written with a schema version stamp', () => {
     const raw = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
     assert.equal(raw.version, 1);
     assert.equal(raw.snoozeMinutes, 9);
+    assert.equal('todos' in raw, false);
+    assert.equal('alarms' in raw, false);
+    assert.equal('activeTaskId' in raw, false);
   });
 });
 
@@ -178,6 +188,76 @@ test('history preferences use privacy-safe defaults and only accept supported re
     sanitizeSettings({ historyRetentionDays: 365 as 30 }).historyRetentionDays,
     30
   );
+});
+
+test('todo bubble is enabled by default and persists an explicit opt-out', () => {
+  assert.equal(sanitizeSettings({}).todoBubbleEnabled, true);
+  assert.equal(sanitizeSettings({ todoBubbleEnabled: false }).todoBubbleEnabled, false);
+  assert.equal(sanitizeSettings({ todoBubbleEnabled: 'no' as unknown as boolean }).todoBubbleEnabled, true);
+});
+
+test('pet scale accepts compact mode down to the verified 50 percent bound', () => {
+  assert.equal(SETTINGS_LIMITS.petScale.min, 0.5);
+  assert.equal(sanitizeSettings({ petScale: 0.2 }).petScale, 0.5);
+  assert.equal(sanitizeSettings({ petScale: 0.69 }).petScale, 0.69);
+  assert.equal(sanitizeSettings({ petScale: 2 }).petScale, 1.8);
+});
+
+test('activity threshold, theme and density use bounded supported values', () => {
+  const defaults = sanitizeSettings({});
+  assert.equal(defaults.naturalBreakMinutes, 5);
+  assert.equal(defaults.theme, 'system');
+  assert.equal(defaults.density, 'comfortable');
+
+  assert.equal(sanitizeSettings({ naturalBreakMinutes: -4 }).naturalBreakMinutes, 1);
+  assert.equal(sanitizeSettings({ naturalBreakMinutes: 90 }).naturalBreakMinutes, 30);
+  assert.equal(defaults.dailyCapacityMinutes, 360);
+  assert.equal(sanitizeSettings({ dailyCapacityMinutes: 12 }).dailyCapacityMinutes, 60);
+  assert.equal(sanitizeSettings({ dailyCapacityMinutes: 5000 }).dailyCapacityMinutes, 960);
+  assert.equal(sanitizeSettings({ dailyCapacityMinutes: 'lots' }).dailyCapacityMinutes, 360);
+  // Working window: bounded, and an inverted window falls back as a whole.
+  assert.equal(defaults.workStartMinutes, 7 * 60);
+  assert.equal(defaults.workEndMinutes, 21 * 60);
+  const shifted = sanitizeSettings({ workStartMinutes: 10 * 60, workEndMinutes: 22 * 60 });
+  assert.equal(shifted.workStartMinutes, 10 * 60);
+  assert.equal(shifted.workEndMinutes, 22 * 60);
+  const inverted = sanitizeSettings({ workStartMinutes: 22 * 60, workEndMinutes: 8 * 60 });
+  assert.equal(inverted.workStartMinutes, 7 * 60);
+  assert.equal(inverted.workEndMinutes, 21 * 60);
+  const clamped = sanitizeSettings({ workStartMinutes: -50, workEndMinutes: 4000 });
+  assert.ok(clamped.workStartMinutes >= 0);
+  assert.ok(clamped.workEndMinutes <= 24 * 60);
+  assert.ok(clamped.workStartMinutes < clamped.workEndMinutes);
+  assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).theme, 'dark');
+  assert.equal(sanitizeSettings({ theme: 'dark', density: 'compact' }).density, 'compact');
+  assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).theme, 'system');
+  assert.equal(sanitizeSettings({ theme: 'neon', density: 'tiny' }).density, 'comfortable');
+});
+
+test('invalid numeric setting shapes fall back instead of coercing to zero', () => {
+  const defaults = sanitizeSettings({});
+  const invalidValues: unknown[] = [null, '', false, Number.NaN];
+  const numericKeys = [
+    'eyeIntervalMinutes',
+    'walkIntervalMinutes',
+    'snoozeMinutes',
+    'naturalBreakMinutes',
+    'dailyCapacityMinutes',
+    'workStartMinutes',
+    'workEndMinutes',
+    'preAlertSeconds',
+    'petScale',
+    'quietHoursStartMinutes',
+    'quietHoursEndMinutes'
+  ] as const satisfies ReadonlyArray<keyof Settings>;
+
+  for (const value of invalidValues) {
+    const input = Object.fromEntries(numericKeys.map((key) => [key, value]));
+    const sanitized = sanitizeSettings(input as Partial<Settings>);
+    for (const key of numericKeys) {
+      assert.equal(sanitized[key], defaults[key], `${key} should fall back for ${String(value)}`);
+    }
+  }
 });
 
 test('scene and adaptive preferences sanitize times and executable names without paths', () => {

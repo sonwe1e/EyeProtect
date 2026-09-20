@@ -123,17 +123,14 @@ test('consecutive afternoon snoozes temporarily recommend gentle mode', () => {
   assert.match(report.recommendationReason, /下午连续/);
 });
 
-test('care status is low pressure, celebrates recent completion and unlocks accessories', () => {
+test('care status is low pressure and celebrates recent completion', () => {
   assert.equal(buildCareStatus([], NOW).score, 50);
-  assert.equal(buildCareStatus([], NOW).mood, 'calm');
 
   const completed = Array.from({ length: 5 }, (_, index) =>
     event('complete', NOW - index * 1_000, index % 2 === 0 ? 'eye' : 'walk')
   );
   const care = buildCareStatus(completed, NOW);
-  assert.equal(care.mood, 'happy');
   assert.equal(care.completedToday, 5);
-  assert.equal(care.accessory, 'glasses');
   assert.equal(care.score, 100);
 });
 

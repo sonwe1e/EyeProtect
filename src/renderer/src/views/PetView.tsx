@@ -1,27 +1,54 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
-import { Clock3, Heart, ListChecks, Settings as SettingsIcon, X } from 'lucide-react';
-import type { Alarm, PetMood, PetSkin } from '../../../shared/types';
+import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { Clock3, ListChecks, Settings as SettingsIcon } from 'lucide-react';
 import { PetCharacter } from '../features/pet/PetCharacter';
-import { useCareStatus } from '../hooks/useCareStatus';
 import { useReminderStatus } from '../hooks/useReminderStatus';
+import { usePendingTaskCount } from '../hooks/usePendingTaskCount';
 import { useSettings } from '../hooks/useSettings';
-import { useTodos } from '../hooks/useTodos';
+import { useConfirm } from '../hooks/useConfirm';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { CommandButton } from '../components/CommandButton';
+import { commands, run } from '../lib/commands';
+import { useCommand } from '../hooks/useCommand';
+
+const REACTION_MS = 1_100;
 
 export default function PetView(): JSX.Element {
-  const { settings } = useSettings();
   const reminderStatus = useReminderStatus();
-  const care = useCareStatus();
-  const todos = useTodos();
-  const [firingAlarms, setFiringAlarms] = useState<Alarm[]>([]);
+  const confirmState = useConfirm();
+  const startFocus = useCommand(() => run(async () => {
+    const state = await window.eyeProtect.getPomodoro();
+    if (['focus', 'break'].includes(state.phase) && !(await confirmState.confirm('当前计时会被替换。', { title: '开始新一轮专注？', confirmText: '开始新一轮' }))) return;
+    return window.eyeProtect.preparePomodoro(null, true);
+  }));
+  const pendingCount = usePendingTaskCount();
+  const { settings } = useSettings();
+  const animal = settings.petAppearance;
+  useLayoutEffect(() => {
+    const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
+    if (!svg) return;
+    const box = svg.getBBox();
+    const viewBox = svg.viewBox.baseVal;
+    if (!viewBox.height) return;
+    void window.eyeProtect.reportPetArtworkBounds({
+      top: Math.max(0, (box.y - viewBox.y) / viewBox.height),
+      bottom: Math.min(1, (box.y + box.height - viewBox.y) / viewBox.height)
+    });
+  }, [animal]);
+  const dragRef = useRef<{
+    pointerId: number;
+    screenX: number;
+    screenY: number;
+    windowX: number;
+    windowY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickUntilRef = useRef(0);
+  const reactionTimer = useRef<number | null>(null);
+  const [reacting, setReacting] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
-  const handleSkinSelect = useCallback((skin: PetSkin) => {
-    void window.eyeProtect.saveSettings({ petSkin: skin });
-  }, []);
-  const handleOpenAlarms = useCallback(() => {
-    void window.eyeProtect.openPanel('alarms');
-  }, []);
   const handleOpenTodos = useCallback(() => {
-    void window.eyeProtect.openPanel('todos');
+    void window.eyeProtect.openWorkbench('today');
   }, []);
   const handlePetDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest('button')) {
@@ -29,39 +56,68 @@ export default function PetView(): JSX.Element {
     }
     const active = reminderStatus.activeReminder;
     if (active?.mode === 'gentle') {
-      void window.eyeProtect.reminderAction('complete', active.id);
+      void commands.reminderActions.act('complete', active.id);
       return;
     }
-    void window.eyeProtect.openSettings();
+    void window.eyeProtect.openWorkbench('today');
   }, [reminderStatus.activeReminder]);
   const handleContextMenu = useCallback((event: MouseEvent) => {
     event.preventDefault();
-    void window.eyeProtect.openPanel('alarms');
+    void window.eyeProtect.openWorkbench('settings');
+  }, []);
+  const handlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    // Capture before the pointer moves. A small transparent always-on-top
+    // window can otherwise lose a fast pointer before the drag threshold is
+    // crossed, especially at non-100% Windows display scaling.
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      windowX: window.screenX,
+      windowY: window.screenY,
+      moved: false
+    };
+  }, []);
+  const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.screenX - drag.screenX;
+    const dy = event.screenY - drag.screenY;
+    if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    drag.moved = true;
+    setDragging(true);
+    void window.eyeProtect.movePetWindow({ x: drag.windowX + dx, y: drag.windowY + dy });
+  }, []);
+  const handlePointerEnd = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.moved) suppressClickUntilRef.current = Date.now() + 400;
+    dragRef.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }, []);
 
-  useEffect(() => {
-    return window.eyeProtect.onAlarmFired((alarm) => {
-      setFiringAlarms((current) =>
-        current.some((entry) => entry.id === alarm.id) ? current : [...current, alarm]
-      );
-    });
-  }, []);
+  const compactPet = settings.petScale < 0.7;
 
-  const pendingCount = useMemo(() => todos.filter((todo) => !todo.completed).length, [todos]);
-  const isFiring = firingAlarms.length > 0;
-  const mood: PetMood = reminderStatus.preAlert ? 'anticipating' : care.mood;
-  const displaySkin: PetSkin =
-    mood === 'sleeping'
-      ? 'sleep'
-      : mood === 'tired' || mood === 'anticipating'
-        ? 'eye'
-        : mood === 'happy'
-          ? 'fu'
-          : settings.petSkin;
+  // Pointer capture on the drag surface retargets the synthesized `click`
+  // event to the surface itself, so it never reaches the PetCharacter child.
+  // The reaction trigger therefore lives here, on the capturing element, and
+  // only fires on a genuine single click (detail === 1), never after a drag.
+  const handleReact = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (event.detail !== 1) return;
+    setReacting(true);
+    if (reactionTimer.current) clearTimeout(reactionTimer.current);
+    reactionTimer.current = window.setTimeout(() => setReacting(false), REACTION_MS);
+  }, []);
 
   return (
-    <main className={`pet-shell ${isFiring ? 'alarms-active' : ''}`.trim()} onContextMenu={handleContextMenu}>
-      <div className="pet-toolbar">
+    <main className={`pet-shell ${compactPet ? 'pet-compact' : ''}`.trim()} onContextMenu={handleContextMenu}>
+      <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
+      {!compactPet ? <div className="pet-toolbar">
         <button
           className={`pet-todo-tab ${pendingCount > 0 ? 'has-todos' : ''}`.trim()}
           title="待办"
@@ -71,50 +127,50 @@ export default function PetView(): JSX.Element {
           <span className="pet-todo-tab-label">待办</span>
           {pendingCount > 0 ? <span className="todo-count">{pendingCount}</span> : null}
         </button>
-        <button className="pet-alarm" title="闹钟" onClick={handleOpenAlarms}>
+        <CommandButton className="pet-alarm" state={startFocus.state} errorReason={startFocus.error?.message} successFeedback="none" title={startFocus.error?.message ?? '开始番茄钟'} aria-label="开始番茄钟" onClick={() => void startFocus.run()}>
           <Clock3 size={18} />
-        </button>
-        <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openSettings()}>
+        </CommandButton>
+        <button className="pet-gear" title="打开设置" onClick={() => void window.eyeProtect.openWorkbench('settings')}>
           <SettingsIcon size={18} />
         </button>
-      </div>
+      </div> : <div className="pet-toolbar pet-toolbar-compact">
+        <CommandButton className="pet-alarm" state={startFocus.state} errorReason={startFocus.error?.message} successFeedback="none" title={startFocus.error?.message ?? '开始番茄钟'} aria-label="开始番茄钟" onClick={() => void startFocus.run()}>
+          <Clock3 size={18} />
+        </CommandButton>
+      </div>}
 
       <div className="character-stage">
-        <PetCharacter
-          skin={displaySkin}
-          selectedSkin={settings.petSkin}
-          mood={mood}
-          accessory={care.accessory}
-          onSelect={handleSkinSelect}
+        <div
+          className={`pet-drag-surface ${dragging ? 'is-dragging' : ''}`.trim()}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onLostPointerCapture={handlePointerEnd}
+          onClick={(event) => {
+            // A drag synthesizes a click on release; suppress it so releasing
+            // a drag does not also trigger an interaction. Pointer capture
+            // retargets the click to this surface, so the handler lives here
+            // rather than on the PetCharacter child.
+            if (Date.now() <= suppressClickUntilRef.current) return;
+            handleReact(event);
+          }}
           onDoubleClick={handlePetDoubleClick}
-          doubleClickHint={
-            reminderStatus.activeReminder?.mode === 'gentle'
-              ? '双击完成当前休息'
-              : '双击打开设置'
-          }
-        />
+        >
+          <PetCharacter
+            animal={animal}
+            reacting={reacting}
+            motion={settings.petMotion}
+            doubleClickHint={
+              reminderStatus.activeReminder?.mode === 'gentle'
+                ? '双击完成当前休息'
+                : '双击打开工作台'
+            }
+          />
+        </div>
+        <div className="pet-drag-handle" aria-hidden="true" title="按住拖动桌宠" />
       </div>
 
-      <button
-        type="button"
-        className="pet-care-badge"
-        title={`${care.message} · 点击查看本周趋势`}
-        onClick={() => void window.eyeProtect.openSettings()}
-      >
-        <Heart size={12} />
-        <span>{care.score}</span>
-      </button>
-
-      {isFiring ? (
-        <button
-          type="button"
-          className="alarm-dismiss"
-          title="关闭闹钟提醒"
-          onClick={() => setFiringAlarms([])}
-        >
-          <X size={18} />
-        </button>
-      ) : null}
     </main>
   );
 }

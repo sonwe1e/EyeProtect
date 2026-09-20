@@ -16,7 +16,7 @@ export const useReminderStatus = (): ReminderStatus => {
   useEffect(() => {
     let mounted = true;
     void window.eyeProtect.getReminderStatus().then((next) => {
-      if (mounted) {
+      if (mounted && next) {
         setStatus(next);
       }
     });

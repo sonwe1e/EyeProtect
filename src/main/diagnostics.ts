@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import { logger } from './logger';
 
 const LOG_INTERVAL_MS = 5 * 60_000;
 
@@ -22,9 +23,9 @@ export const startDiagnostics = (): void => {
         const wsKb = metric.memory.workingSetSize;
         return `  ${metric.type} (pid ${metric.pid}): cpu ${cpu}%, mem ${wsKb} KB`;
       });
-      console.log(`[diagnostics] windows=${windows}, processes=${metrics.length}\n${lines.join('\n')}`);
+      logger.info(`diagnostics windows=${windows}, processes=${metrics.length}\n${lines.join('\n')}`);
     } catch (error) {
-      console.warn('[diagnostics] metrics collection failed:', error);
+      logger.warn('diagnostics metrics collection failed', error);
     }
   }, LOG_INTERVAL_MS);
 

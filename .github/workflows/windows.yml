@@ -1,0 +1,85 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan new commits for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-and-package:
+    needs: secret-scan
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Verify UI contract
+        run: npm run verify:ui-contract
+
+      # npm run package starts with npm run build (incl. verify:build),
+      # so a separate Build step would build twice.
+      - name: Build Windows distributions
+        run: npm run package
+
+      - name: Verify simplified UI and desktop focus
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          node scripts/smoke-simple-experience.mjs 1 artifacts/simple-100
+          node scripts/smoke-simple-experience.mjs 1.25 artifacts/simple-125
+          node scripts/smoke-simple-experience.mjs 1.5 artifacts/simple-150
+          node scripts/smoke-simple-experience.mjs 1 artifacts/simple-emergency --emergency
+          node scripts/smoke-simple-pet-failure.mjs
+
+      - name: Upload interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-simple-experience
+          path: |
+            artifacts/simple-*/*.png
+            artifacts/simple-*/metrics.json
+            artifacts/simple-*/app.log
+          if-no-files-found: warn
+
+      - name: Upload installer
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeProtect-Windows-x64
+          path: |
+            release/EyeProtect-Setup-*-win-x64.exe
+            release/EyeProtect-*-win-x64-portable.exe
+          if-no-files-found: warn

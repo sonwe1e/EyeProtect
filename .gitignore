@@ -7,8 +7,12 @@ out/
 # Packaging output (portable exe + unpacked assets)
 release/
 
+# Local visual-regression captures (CI uploads its own artifact copy)
+artifacts/
+
 # Runtime user data (per-machine settings)
 data/
+/.runtime-verify-*/
 
 # Logs
 *.log
@@ -22,3 +26,10 @@ npm-debug.log*
 # Local env
 .env
 .env.local
+
+# Other tool local state (not part of EyeProtect)
+.serena/
+.superpowers/
+.workbuddy-ai/
+.zcode/
+.claude/

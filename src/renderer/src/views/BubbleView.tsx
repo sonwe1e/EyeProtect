@@ -1,161 +1,58 @@
-import { useCallback } from 'react';
-import { Check, Clock3, Eye, Footprints, ListChecks, Timer, X } from 'lucide-react';
-import { sortTodosForDisplay } from '../../../shared/types';
-import { getActivity } from '../../../shared/breakActivities';
-import type { BreakActivity } from '../../../shared/types';
-import { ActivityGuide } from '../features/reminders/ActivityGuide';
-import { useClock } from '../hooks/useClock';
+import { Check, ListChecks, X } from 'lucide-react';
+import { selectPetTasks } from '../../../shared/petTasks';
+import { taskSteps } from '../../../shared/simpleTasks';
+import type { Task } from '../../../shared/types';
+import { useSettings } from '../hooks/useSettings';
+import { useProjects } from '../hooks/useProjects';
+import { useTasks } from '../hooks/useTasks';
+import { useBubbleLayout } from '../hooks/useBubbleLayout';
+import { useCommand } from '../hooks/useCommand';
+import { useConfirm } from '../hooks/useConfirm';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { usePomodoro } from '../hooks/usePomodoro';
 import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useTodos } from '../hooks/useTodos';
+import { PomodoroCard } from '../features/simple/PomodoroCard';
+import { GentleReminderBubble, PreAlertBubble } from '../features/reminders/ReminderBubble';
+import { run } from '../lib/commands';
 
 export default function BubbleView(): JSX.Element {
-  const todos = useTodos();
   const status = useReminderStatus();
-  const now = useClock(1_000);
-  const openTodos = useCallback(() => {
-    void window.eyeProtect.openPanel('todos');
-  }, []);
-
   const active = status.activeReminder;
-  // The bubble doubles as the surface for gentle reminders and soft
-  // pre-alerts; those take precedence over the todo preview.
-  if (active && active.mode === 'gentle') {
-    const kindLabel = active.kind === 'eye' ? '护眼' : active.kind === 'walk' ? '走动' : '休息';
-    const activities = active.activityIds
-      .map((id) => getActivity(id))
-      .filter((entry): entry is BreakActivity => Boolean(entry));
-    const breakTodo = active.breakTodo
-      ? todos.find((todo) => todo.id === active.breakTodo?.id)
-      : null;
-    const waiting = now < active.unlockAt;
-    return (
-      <div className="bubble-shell bubble-reminder">
-        <div className="bubble-card">
-          <div className="bubble-title">
-            {active.kind === 'walk' ? <Footprints size={13} /> : <Eye size={13} />}
-            <span>{kindLabel}提醒</span>
-          </div>
-          <p>不打断当前工作，跟着做一个小动作吧。</p>
-          <div className="bubble-activities">
-            {activities.map((activity) => (
-              <ActivityGuide
-                key={activity.id}
-                activity={activity}
-                startedAt={active.startedAt}
-                now={now}
-                compact
-              />
-            ))}
-          </div>
-          {active.breakTodo && breakTodo && !breakTodo.completed ? (
-            <button
-              type="button"
-              className="bubble-break-todo"
-              onClick={() => void window.eyeProtect.toggleTodo(active.breakTodo?.id ?? '')}
-            >
-              <Footprints size={13} />
-              <span>顺路：{active.breakTodo.text}</span>
-              <Check size={13} />
-            </button>
-          ) : null}
-          <div className="bubble-actions">
-            <button
-              className="primary"
-              disabled={waiting}
-              onClick={() => void window.eyeProtect.reminderAction('complete', active.id)}
-            >
-              <Check size={12} />
-              完成
-            </button>
-            <button onClick={() => void window.eyeProtect.reminderAction('snooze', active.id)}>
-              <Clock3 size={12} />
-              稍后
-            </button>
-            <button onClick={() => void window.eyeProtect.reminderAction('skip', active.id)}>
-              <X size={12} />
-              跳过
-            </button>
-          </div>
-        </div>
-        <span className="bubble-tail" />
-      </div>
-    );
-  }
+  const preAlert = status.preAlert;
+  const tasks = useTasks();
+  const projects = useProjects();
+  const { settings } = useSettings();
+  const pomodoro = usePomodoro();
+  const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  const focusing = pomodoro.phase !== 'idle';
+  const gentle = active && active.mode === 'gentle' ? active : null;
+  // Reminders take precedence over the passive todo preview (the main process
+  // sizes the window per surface, see WindowManager#getBubbleSize).
+  const surface = preAlert ? 'prealert' : gentle ? `gentle-${gentle.id}` : focusing ? `pomodoro-${pomodoro.phase}` : 'todo';
+  useBubbleLayout(surface);
 
-  if (status.preAlert) {
-    const seconds = Math.max(0, Math.ceil((status.preAlert.firesAt - now) / 1000));
-    const kindLabel = status.preAlert.kind === 'eye' ? '护眼' : '走动';
-    return (
-      <div className="bubble-shell bubble-prealert">
-        <div className="bubble-card">
-          <div className="bubble-title">
-            <Timer size={13} />
-            <span>
-              {seconds} 秒后{kindLabel}提醒
-            </span>
-          </div>
-          <p>要现在开始休息吗？</p>
-          <div className="bubble-actions">
-            <button className="primary" onClick={() => void window.eyeProtect.preAlertAction('start')}>
-              现在休息
-            </button>
-            <button
-              title="完成手头这一小段，延后 2 分钟"
-              onClick={() => void window.eyeProtect.preAlertAction('snooze')}
-            >
-              +2 分钟
-            </button>
-            <button onClick={() => void window.eyeProtect.preAlertAction('dismiss')}>按原计划</button>
-          </div>
-        </div>
-        <span className="bubble-tail" />
-      </div>
-    );
-  }
+  if (preAlert) return <PreAlertBubble preAlert={preAlert} />;
+  if (gentle) return <GentleReminderBubble active={gentle} settings={settings} />;
 
-  const pending = todos.filter((todo) => !todo.completed);
-  const preview = sortTodosForDisplay(pending).slice(0, 3);
-
-  if (todos.length === 0) {
-    return <></>;
-  }
-  if (pending.length === 0) {
-    return (
-      <div className="bubble-shell" role="button" title="查看全部待办" onClick={openTodos}>
-        <div className="bubble-card bubble-all-done">
-          <div className="bubble-title">
-            <Check size={13} />
-            <span>待办都完成啦</span>
-          </div>
-          <p className="bubble-done-note">休息一下，晚点再添加新的。</p>
-        </div>
-        <span className="bubble-tail" />
-      </div>
-    );
-  }
-
-  const overflow = pending.length - preview.length;
-  return (
-    <div className="bubble-shell" role="button" title="查看全部待办" onClick={openTodos}>
-      <div className="bubble-card">
-        <div className="bubble-title">
-          <ListChecks size={13} />
-          <span>待办</span>
-          <span className="bubble-count" title={`共 ${todos.length} 件，已完成 ${todos.length - pending.length} 件`}>
-            {pending.length}
-          </span>
-        </div>
-        <ul className="bubble-list">
-          {preview.map((todo) => (
-            <li key={todo.id} className="bubble-item">
-              <span className="bubble-dot" data-priority={todo.priority} />
-              <span className="bubble-text">{todo.text}</span>
-            </li>
-          ))}
-        </ul>
-        {overflow > 0 ? <span className="bubble-more">还有 {overflow} 项…</span> : null}
-      </div>
-      <span className="bubble-tail" />
-    </div>
-  );
+  const pending = selectPetTasks(settings.todoBubbleTaskIds, tasks, projects);
+  const confirmState = useConfirm();
+  return <div className="bubble-shell bubble-todos">
+    <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
+    {focusing ? <PomodoroCard state={pomodoro} taskTitle={tasks.find((task) => task.id === pomodoro.taskId)?.title ?? null} /> : <div className="bubble-card">
+      <button className="bubble-close" aria-label="关闭待办气泡" onClick={() => void action.run(() => window.eyeProtect.saveSettings({ todoBubbleEnabled: false }))}><X size={13} /></button>
+      <div className="bubble-title"><ListChecks size={13} /><span>{pending.length ? '待办' : '已完成'}</span><span className="bubble-count">{pending.length}</span></div>
+      {pending.length ? <ul className="bubble-list" aria-label="已选择的浮窗任务">{pending.map((task) => <BubbleTask key={task.id} task={task} tasks={tasks} confirm={confirmState.confirm} />)}</ul> : <p className="bubble-done-note">休息一下，稍后继续。</p>}
+      <div className="bubble-actions"><button onClick={() => void window.eyeProtect.openWorkbench('today')}>{pending.length ? '选择任务' : '去加一个任务'}</button><button onClick={() => void action.run(() => window.eyeProtect.preparePomodoro(null, false))}>开始专注</button></div>
+      {action.error ? <p role="alert">{action.error.message}</p> : null}
+    </div>}
+    <span className="bubble-tail" />
+  </div>;
+}
+function BubbleTask({ task, tasks, confirm }: { task: Task; tasks: Task[]; confirm: (message: string, options?: string | { title?: string; detail?: string; confirmText?: string; danger?: boolean }) => Promise<boolean> }): JSX.Element {
+  const complete = useCommand(() => run(async () => {
+    const pending = taskSteps(task.id, tasks).filter((step) => step.status === 'open');
+    if (pending.length && !(await confirm(`还有 ${pending.length} 个步骤未完成。`, { title: '一起完成这些步骤？', confirmText: '一起完成' }))) return;
+    return window.eyeProtect.completeTaskTree(task.id, Object.fromEntries([task, ...pending].map((entry) => [entry.id, entry.revision])));
+  }));
+  return <li className="bubble-task-row"><div className="bubble-task-line"><button className="bubble-complete" aria-label={`完成 ${task.title}`} disabled={complete.isPending} onClick={() => void complete.run()}><Check size={14} /></button><button className="bubble-task-title" title={task.title} onClick={() => void window.eyeProtect.openWorkbench('today')}>{task.title}</button></div>{complete.error ? <span className="bubble-task-error" role="alert">{complete.error.message}</span> : null}</li>;
 }
