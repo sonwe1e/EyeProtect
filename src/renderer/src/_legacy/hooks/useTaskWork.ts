@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { TaskWorkSummary } from '../../../shared/types';
+import type { TaskWorkSummary } from '../../../../shared/types';
 
 const EMPTY: TaskWorkSummary = {
   taskId: null,

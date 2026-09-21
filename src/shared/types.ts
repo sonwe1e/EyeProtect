@@ -837,23 +837,20 @@ export interface CustomPetAssets {
   sleeps: string[];
 }
 
+/**
+ * Renderer bridge surface (`window.eyeProtect`).
+ *
+ * Only methods whose IPC channels `src/main/index.ts` actually registers are
+ * listed. Dead planning/focus/section/checkpoint/daily-plan write APIs were
+ * removed after the product simplified — see docs/architecture.md
+ * §主进程与 preload 收口结论.
+ */
 export interface EyeProtectApi {
-  preparePomodoro: (taskId: string | null, replace: boolean) => Promise<PomodoroState>;
-  getPomodoro: () => Promise<PomodoroState>;
-  startPomodoro: (taskId: string | null, minutes: number, replace: boolean) => Promise<PomodoroState>;
-  pomodoroAction: (action: 'pause' | 'resume' | 'stop' | 'break') => Promise<PomodoroState>;
-  onPomodoroChanged: (callback: (state: PomodoroState) => void) => () => void;
-  beginHealthRest: (id: string) => Promise<ReminderStatus>;
-  getLegacyData: () => Promise<LegacyData>;
-  restoreLegacyTask: (id: string) => Promise<Task[]>;
-  openCustomPetFolder: (subfolder?: string) => Promise<{ success: boolean; message: string }>;
-  getCustomPetAssets: (themeId?: string | null) => Promise<CustomPetAssets>;
-
+  // ── Settings / app health ──────────────────────────────────────────────
   getSettings: () => Promise<Settings>;
   saveSettings: (settings: Partial<Settings>) => Promise<Settings>;
+  onSettingsChanged: (callback: (settings: Settings) => void) => () => void;
   getRuntimeInfo: () => Promise<RuntimeInfo>;
-  // --- AppHealth (USERPLAN §二十八) ---
-  /** Current health of database, scheduler, and notification subsystems. */
   getAppHealth: () => Promise<AppHealth>;
   onAppHealthChanged: (callback: (health: AppHealth) => void) => () => void;
   /**
@@ -862,6 +859,8 @@ export interface EyeProtectApi {
    * constructed once at startup, so exiting recovery requires a full restart.
    */
   relaunchApp: () => Promise<void>;
+
+  // ── Health reminders ───────────────────────────────────────────────────
   getReminderStatus: () => Promise<ReminderStatus>;
   reminderAction: (action: ReminderAction, reminderId: string) => Promise<ReminderStatus>;
   /** Act on the soft pre-alert: start now, push back 2 min, or keep the plan. */
@@ -869,20 +868,32 @@ export interface EyeProtectApi {
   testReminder: (kind: ReminderKind) => Promise<ReminderStatus>;
   triggerNow: () => Promise<ReminderStatus>;
   pause: (minutes: number) => Promise<ReminderStatus>;
-  onSettingsChanged: (callback: (settings: Settings) => void) => () => void;
+  /** Continue a paused countdown from now (no-op when not paused). */
+  resume: () => Promise<ReminderStatus>;
+  /** Discard pause/progress and start both cycles over. */
+  restartCycle: () => Promise<ReminderStatus>;
   onReminderChanged: (callback: (status: ReminderStatus) => void) => () => void;
-  // --- v1.1 Task Core (USERPLAN §二) ---
+  beginHealthRest: (id: string) => Promise<ReminderStatus>;
+
+  // ── Pomodoro ───────────────────────────────────────────────────────────
+  preparePomodoro: (taskId: string | null, replace: boolean) => Promise<PomodoroState>;
+  getPomodoro: () => Promise<PomodoroState>;
+  startPomodoro: (taskId: string | null, minutes: number, replace: boolean) => Promise<PomodoroState>;
+  pomodoroAction: (action: 'pause' | 'resume' | 'stop' | 'break') => Promise<PomodoroState>;
+  onPomodoroChanged: (callback: (state: PomodoroState) => void) => () => void;
+
+  // ── Tasks / lists ──────────────────────────────────────────────────────
   /** All tasks (any view/filter is applied in the renderer). */
   getTasks: () => Promise<Task[]>;
-  completeTaskTree: (id: string, revisions: Record<string, number>) => Promise<Task[]>;
-  moveStep: (id: string, direction: -1 | 1) => Promise<Task[]>;
-  createStep: (rootId: string, title: string) => Promise<Task[]>;
   getTask: (id: string) => Promise<Task | null>;
   createTask: (input: TaskInput) => Promise<Task[]>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<Task[]>;
   moveTask: (input: TaskMoveInput) => Promise<Task[]>;
   setTaskStatus: (id: string, status: TaskStatus) => Promise<Task[]>;
   deleteTask: (id: string) => Promise<Task[]>;
+  completeTaskTree: (id: string, revisions: Record<string, number>) => Promise<Task[]>;
+  moveStep: (id: string, direction: -1 | 1) => Promise<Task[]>;
+  createStep: (rootId: string, title: string) => Promise<Task[]>;
   getUndoState: () => Promise<UndoState | null>;
   undoTaskOperation: (operationId: string) => Promise<Task[]>;
   onUndoChanged: (callback: (state: UndoState | null) => void) => () => void;
@@ -895,41 +906,7 @@ export interface EyeProtectApi {
    *  it only needs the badge number, not the full task list (perf pass). */
   getPendingTaskCount: () => Promise<number>;
   onPendingTaskCountChanged: (callback: (count: number) => void) => () => void;
-  getDailyPlans: (localDate: string) => Promise<DailyTaskPlan[]>;
-  upsertDailyPlan: (input: DailyTaskPlanInput) => Promise<DailyTaskPlan[]>;
-  removeDailyPlan: (taskId: string, localDate: string) => Promise<DailyTaskPlan[]>;
-  /** TimeBlock CRUD (USERPLAN 1.2 PR4). A task may own N blocks. */
-  getTimeBlocks: () => Promise<TimeBlock[]>;
-  createTimeBlock: (input: TimeBlockInput) => Promise<TimeBlock>;
-  updateTimeBlock: (id: string, input: Partial<TimeBlockInput>) => Promise<TimeBlock>;
-  deleteTimeBlock: (id: string) => Promise<boolean>;
-  /** Planning-domain change signals (USERPLAN 1.2 PR4): `localDate === null`
-   *  means every date may have changed. */
-  onTimeBlocksChanged: (callback: () => void) => () => void;
-  onDailyPlansChanged: (callback: (payload: { localDate: string | null }) => void) => () => void;
-  /** Project sections (USERPLAN 1.2 PR5): Board columns are sections. */
-  getProjectSections: (projectId: string) => Promise<ProjectSection[]>;
-  createProjectSection: (input: ProjectSectionInput) => Promise<ProjectSection>;
-  updateProjectSection: (id: string, input: { name: string }) => Promise<ProjectSection>;
-  moveProjectSection: (id: string, beforeSectionId: string | null) => Promise<ProjectSection[]>;
-  deleteProjectSection: (id: string) => Promise<boolean>;
-  onProjectSectionsChanged: (callback: (payload: { projectId: string | null }) => void) => () => void;
-  setTaskSection: (taskId: string, sectionId: string | null) => Promise<Task>;
-  getProjectWorkstreamSummaries: (projectId: string, since: number) => Promise<ProjectWorkstreamSummary[]>;
-  /** Focus session lifecycle (USERPLAN 1.2 PR6, ADR-005). */
-  getFocusStatus: () => Promise<FocusStatus>;
-  startFocus: (taskId: string, timeBlockId?: string | null) => Promise<FocusStatus>;
-  switchFocus: (taskId: string, checkpoint?: TaskCheckpointDraft | null) => Promise<FocusStatus>;
-  pauseFocus: (checkpoint?: TaskCheckpointDraft | null) => Promise<FocusStatus>;
-  resumeFocus: () => Promise<FocusStatus>;
-  completeFocus: () => Promise<FocusStatus>;
-  onFocusStatusChanged: (callback: (status: FocusStatus) => void) => () => void;
-  getTaskCheckpoints: (taskId: string) => Promise<TaskCheckpoint[]>;
-  createTaskCheckpoint: (input: TaskCheckpointInput) => Promise<TaskCheckpoint>;
-  onTaskCheckpointsChanged: (callback: (payload: { taskId: string | null }) => void) => () => void;
-  getDailyReview: (localDate: string) => Promise<DailyReviewSummary>;
-  getDailyReflection: (localDate: string) => Promise<DailyReflection | null>;
-  saveDailyReflection: (input: DailyReflectionInput) => Promise<DailyReflection>;
+
   getProjects: () => Promise<Project[]>;
   getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
@@ -938,29 +915,43 @@ export interface EyeProtectApi {
   onProjectsChanged: (callback: (projects: Project[]) => void) => () => void;
   onProjectUpserted: (callback: (project: Project) => void) => () => void;
   onProjectRemoved: (callback: (projectId: string) => void) => () => void;
+
   getActiveTaskId: () => Promise<string | null>;
   setActiveTask: (id: string | null) => Promise<Task[]>;
   onActiveTaskChanged: (callback: (id: string | null) => void) => () => void;
-  getTaskWorkSummary: () => Promise<TaskWorkSummary>;
-  onTaskWorkChanged: (callback: (summary: TaskWorkSummary) => void) => () => void;
-  getStandaloneReminders: () => Promise<StandaloneReminder[]>;
-  createStandaloneReminder: (input: StandaloneReminderInput) => Promise<StandaloneReminder[]>;
-  updateStandaloneReminder: (id: string, input: Partial<StandaloneReminderInput>) => Promise<StandaloneReminder[]>;
-  deleteStandaloneReminder: (id: string) => Promise<StandaloneReminder[]>;
-  onStandaloneRemindersChanged: (callback: (reminders: StandaloneReminder[]) => void) => () => void;
-  onStandaloneReminderFired: (callback: (reminder: StandaloneReminder) => void) => () => void;
+
   getFailedDeliveries: () => Promise<FailedDeliveryNotice[]>;
   retryFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;
   dismissFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;
   onFailedDeliveriesChanged: (callback: (notices: FailedDeliveryNotice[]) => void) => () => void;
+
+  // ── Windows / pet / bubble ─────────────────────────────────────────────
   reportPetArtworkBounds: (bounds: { top: number; bottom: number }) => Promise<void>;
   reportBubbleHeight: (height: number) => Promise<void>;
   onBubbleLayout: (callback: (layout: { placement: 'above' | 'below'; tailX: number }) => void) => () => void;
   movePetWindow: (position: PetPosition) => Promise<PetPosition | null>;
+  showPetContextMenu: () => Promise<void>;
+  togglePetVisibility: () => Promise<boolean>;
+  recallPet: () => Promise<void>;
   openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks') => Promise<void>;
   closeWorkbench: () => Promise<void>;
   getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>;
   onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks') => void) => () => void;
+
+  openCustomPetFolder: (subfolder?: string) => Promise<{ success: boolean; message: string }>;
+  getCustomPetAssets: (themeId?: string | null) => Promise<CustomPetAssets>;
+
+  // ── Data / backup / compat ─────────────────────────────────────────────
+  exportBackup: () => Promise<DataActionResult>;
+  importBackup: () => Promise<DataActionResult>;
+  resetToDefaults: () => Promise<DataActionResult>;
+  openDataDirectory: () => Promise<DataActionResult>;
+  getDataRecoveryInfo: () => Promise<DataRecoveryInfo>;
+  /** Settings-page read-only legacy inventory + restore. */
+  getLegacyData: () => Promise<LegacyData>;
+  restoreLegacyTask: (id: string) => Promise<Task[]>;
+
+  // ── History (handlers registered; not used by simplified workbench UI) ─
   getWeeklyReport: () => Promise<WeeklyReport>;
   getCareStatus: () => Promise<CareStatus>;
   clearReminderHistory: () => Promise<WeeklyReport>;
@@ -969,18 +960,7 @@ export interface EyeProtectApi {
   onCareStatusChanged: (callback: (status: CareStatus) => void) => () => void;
   getHotkeyStatus: () => Promise<HotkeyStatus>;
   onHotkeyStatusChanged: (callback: (status: HotkeyStatus) => void) => () => void;
-  exportBackup: () => Promise<DataActionResult>;
-  importBackup: () => Promise<DataActionResult>;
-  resetToDefaults: () => Promise<DataActionResult>;
-  openDataDirectory: () => Promise<DataActionResult>;
-  getDataRecoveryInfo: () => Promise<DataRecoveryInfo>;
-  /** Continue a paused countdown from now (no-op when not paused). */
-  resume: () => Promise<ReminderStatus>;
-  /** Discard pause/progress and start both cycles over. */
-  restartCycle: () => Promise<ReminderStatus>;
-  showPetContextMenu: () => Promise<void>;
-  togglePetVisibility: () => Promise<boolean>;
-  recallPet: () => Promise<void>;
+  getStandaloneReminders: () => Promise<StandaloneReminder[]>;
 }
 
 export const SIMPLE_SETTING_LIMITS = {
