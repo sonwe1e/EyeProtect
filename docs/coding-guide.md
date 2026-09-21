@@ -4,11 +4,11 @@ This document bridges the universal engineering rules in `RULES.md` with the con
 
 ## 1. The Command Layer Is Mandatory
 
-Every user mutation flows through the command layer. A component may never `void` an IPC call or silently swallow a failure.
+Every user mutation flows through the command layer. A component may never silently swallow a failure. Prefer `useCommand` + `run(() => window.eyeProtect.X(...))` (the pattern the simplified workbench actually uses). The typed `commands.*` wrappers in `lib/commands.ts` remain valid for shared call sites; either way the failure must surface in UI state.
 
 **Pattern:**
 ```tsx
-// commands.ts — typed IPC wrapper
+// commands.ts — typed IPC wrapper (optional shared helpers)
 export const commands = {
   tasks: {
     create: (input: TaskInput) =>
@@ -22,6 +22,11 @@ const create = useCommand(async ({ input }: { input: TaskInput }) => {
   if (!result.ok) return result; // failure is visible, not swallowed
   return result;
 });
+
+// Workbench-style alternative used by SimpleSettings / WorkbenchView
+const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+// ...
+await action.run(() => window.eyeProtect.createTask({ title }));
 
 // CommandButton.tsx — reflects pending/error state
 <CommandButton state={create.state} errorReason={create.error?.message} onClick={() => void create.run({ input })}>
@@ -163,17 +168,19 @@ Tests use `*.test.ts` in `tests/`. They run under Node's built-in test runner (`
 When adding a settings field:
 1. `src/shared/types.ts` — add to `Settings` interface + `DEFAULT_SETTINGS` + `SETTINGS_LIMITS`
 2. `src/main/settings.ts` — the store reads/writes `settings.json`; sanitization happens on read
-3. `src/renderer/src/views/SettingsView.tsx` — add the UI control
+3. `src/renderer/src/features/simple/SimpleSettings.tsx` — add the UI control (active workbench settings; `views/SettingsView.tsx` is legacy and not routed)
 
 **Rule reference:** `RULES.md` §18 (Documentation is part of the system) — when the data model changes, all three layers must agree.
 
-## 10. Today and Focus Must Agree
+## 10. Today and Focus Must Agree (legacy surface)
 
-`deriveTodayExecutionModel` in `src/renderer/src/features/tasks/todayViewModel.ts` is the single source of truth for what appears in Today, what shows in the nav badge, and what Focus candidates are available. Never derive these independently.
+**Current product note:** the simplified workbench only exposes 待办 / 完成记录 / 设置. `FocusSurface`, `PlanWorkspace`, and the old Today nav badges are **not mounted** by `WorkbenchView.tsx`. Keep this section only as compatibility guidance if you touch the retained planning/focus modules or their tests.
 
-**Pattern:**
+When those legacy consumers are active, `deriveTodayExecutionModel` in `src/renderer/src/features/tasks/todayViewModel.ts` remains the single source of truth for Today membership and Focus candidates — never derive those independently.
+
+**Pattern (legacy):**
 ```typescript
-// WorkbenchView.tsx — one call powers everything
+// one derivation, multiple consumers
 const todayModel = useMemo(
   () => deriveTodayExecutionModel(tasks, todayPlans, scheduledTodayIds, projects),
   [tasks, todayPlans, scheduledTodayIds, projects]

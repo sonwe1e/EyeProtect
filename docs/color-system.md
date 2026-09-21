@@ -60,9 +60,9 @@ EyeProtect 使用“暖纸面 + 墨色文字 + 低饱和雾蓝灰”的配色方
 - 普通任务行默认透明，悬停与选中分别使用中性 hover/selected surface。
 - 普通面板使用一层 surface 和 subtle border；只有对话框、侧滑层、Toast 等浮层使用 `shadow-overlay`。
 - 雾蓝灰表示当前、执行或专注；绿色只表示成功或健康；琥珀色表示警告与临近截止；红色表示逾期、破坏性操作或失败。
-- Task Detail 使用平面属性行和轻量 neutral pill，避免表单控件层层叠加品牌色背景。
+- 活跃工作台（待办/完成/设置）与桌宠/气泡/提醒窗均不得直接写 `#hex`、`rgb()` 或 `rgba()`；颜色必须来自语义令牌。
+- 遗留 Plan/Project/Task Detail 组件若仍被测试或兼容路径触达，同样遵守令牌规则，但不在当前 UI 矩阵内。
 - 动效只服务于浮层进出、命令反馈、选中/拖拽反馈；不为装饰加入持续循环动画。
-- Workbench、Task、Project 与 Plan 样式不得直接写 `#hex`、`rgb()` 或 `rgba()`；颜色必须来自语义令牌。
 - 所有需要主动阅读的文本对比度至少为 `4.5:1`。更低对比度仅允许用于装饰、禁用态和非必要提示。
 
 ## 对比度基线
@@ -98,11 +98,10 @@ EyeProtect 使用“暖纸面 + 墨色文字 + 低饱和雾蓝灰”的配色方
 
 ## 工程约束与验收
 
-- `styles.css` 服务桌宠、提醒气泡/卡片窗口，以及 Workbench 内嵌的设置页与独立提醒页；Workbench 主体样式由 `styles/` 下的设计令牌和分层样式负责（旧的面板/闹钟/待办窗口样式已随对应窗口删除）。
+- `styles.css` 服务桌宠、提醒气泡/卡片窗口；精简工作台主体由 `styles/simple.css` + `styles/` 下令牌与分层样式负责（`views/SettingsView.tsx` 及旧 Plan/Project 页面样式属遗留面）。
 - 自动检查覆盖真实组件状态、Light/Dark 主题、raw color、命中区域、forced-colors 和 reduced-motion。
-- 截图矩阵覆盖 Today、Task Detail、Command Palette、Plan、Project List/Board、Pet、Reminder 和 Bubble。
-- 页面级横向滚动必须为零，只有 Project Board 自身允许横向滚动。
-- 960×600 下 Plan 保持待安排区与时间线双栏，Task Detail 不得裁切控件。
+- 当前打包验收截图矩阵以精简体验为准：工作台（待办/完成/设置）、Pet、Reminder/Alert、Bubble，以及 `--emergency` 兜底；旧 Today/Task Detail/Command Palette/Plan/Project Board 截图脚本不在 CI。
+- 页面级横向滚动必须为零（当前活跃工作台无 Project Board 横向滚动要求）。
 
 常用验收命令：
 
