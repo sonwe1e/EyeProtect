@@ -44,6 +44,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify product boundary
+        run: npm run verify:product
+
       - name: Verify UI contract
         run: npm run verify:ui-contract
 

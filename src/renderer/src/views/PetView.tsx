@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { PetCharacter } from '../features/pet/PetCharacter';
+import { useCommand } from '../hooks/useCommand';
+import { run } from '../lib/commands';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 
@@ -9,6 +11,7 @@ export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
   const { settings } = useSettings();
   const animal = settings.petAppearance;
+  const action = useCommand((callback: () => Promise<unknown>) => run(callback));
 
   useLayoutEffect(() => {
     const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
@@ -38,11 +41,11 @@ export default function PetView(): JSX.Element {
   const handlePetDoubleClick = useCallback(() => {
     const active = reminderStatus.activeReminder;
     if (active?.mode === 'gentle') {
-      void window.eyeProtect.reminderAction('complete', active.id);
+      void action.run(() => window.eyeProtect.reminderAction('complete', active.id));
       return;
     }
     void window.eyeProtect.openWorkbench('today');
-  }, [reminderStatus.activeReminder]);
+  }, [action, reminderStatus.activeReminder]);
 
   const handleContextMenu = useCallback((event: MouseEvent) => {
     event.preventDefault();

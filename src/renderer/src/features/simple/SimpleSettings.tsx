@@ -147,7 +147,8 @@ export function SimpleSettings(): JSX.Element {
       <div className="simple-button-row" style={{ marginTop: '14px' }}>
         <button
           type="button"
-          onClick={() => void window.eyeProtect.openCustomPetFolder(settings.customPetTheme ?? undefined)}
+          disabled={action.isPending}
+          onClick={() => void action.run(() => window.eyeProtect.openCustomPetFolder(settings.customPetTheme ?? undefined))}
         >
           <FolderOpen size={15} style={{ marginRight: '6px', verticalAlign: '-2px' }} />
           打开自定义动图文件夹

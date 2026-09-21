@@ -246,7 +246,7 @@ export default function AlertView(): JSX.Element {
               className="rest-sound-toggle"
               aria-label={settings.soundEnabled ? '静音提示音' : '开启提示音'}
               title={settings.soundEnabled ? '提示音已开启（点击静音）' : '提示音已静音（点击开启）'}
-              onClick={() => void window.eyeProtect.saveSettings({ soundEnabled: !settings.soundEnabled })}
+              onClick={() => void action.run(() => window.eyeProtect.saveSettings({ soundEnabled: !settings.soundEnabled }))}
             >
               {settings.soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
             </button>

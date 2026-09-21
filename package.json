@@ -12,6 +12,8 @@
     "build": "electron-vite build && npm run verify:build",
     "verify:build": "node scripts/verify-build-contract.mjs",
     "verify:ui-contract": "node scripts/verify-ui-contract.mjs",
+    "verify:product": "node scripts/verify-product-boundary.mjs",
+    "lint": "npm run verify:product && npm run verify:ui-contract",
     "build:icon": "electron scripts/build-app-icon.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",

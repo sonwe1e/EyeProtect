@@ -96,7 +96,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 2. **preload**：与 `EyeProtectApi` 对齐，移除无 handler 的 invoke/on 封装。
 3. **commands.ts**：只保留活跃路径命令组（`run` + tasks/projects/reminder/settings/data/app）；旧 plans/sections/focus/timeBlocks 组删除。
 4. **主进程模块（轮次 B）**：无生产 import 的测试专用服务模块 **删除**；存储/备份/`data:legacy` 仍触达的域 **只读兼容保留**。
-5. **`src/renderer/src/_legacy`**：从 typecheck include 排除（`tsconfig.json` exclude）；活跃代码不得 import。被测试 import 的纯函数（如 `interpolateTaskWork`）抽到 `features/tasks/`（`taskWorkInterpolation.ts`）。
+5. **`_legacy` / `scripts/legacy`**：**已删除**（产品边界轮次）。纯函数回归网仍在 `features/tasks/` 与 `tests/`。
 6. **存储与备份表**：本轮不动 `taskStore` 中的规划/专注/独立提醒表与 backup 导出/恢复。
 7. **commands.ts**：仅保留 tasks/projects/deliveries/reminders/settings/data/system。
 
@@ -156,13 +156,11 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 - **仍在**：`data:legacy` / `task:restore-legacy`（设置页旧资料）；reminder/pomodoro/task/project/backup 等活跃通道。
 - 主进程 `ReminderHistoryStore` **不**因移除 history IPC 而删除。
 
-**孤儿 renderer（已归档 / 待归档至 `src/renderer/src/_legacy/`）**
+**孤儿 renderer**
 
-- 设置：`SettingsView.tsx`（活跃设置是 `features/simple/SimpleSettings.tsx`）
-- 旧任务工作台 UI：`PlanWorkspace`、`ProjectWorkspace`、`ProjectList`、`FocusSurface`、`TaskDetail`、`TaskList`、`TaskComposer`、`PetTasksView` 及对应 module CSS
-- 旧规划/复盘/独立提醒 UI：`planning/DailyPlanningFlow`、`review/DailyReview`、`reminders/StandaloneReminderSection`
-- 旧命令面板：`components/CommandPalette.tsx`
-- 仅服务上述组件的 hooks：`useTimeBlocks`、`useDailyPlans`、`useFocusStatus`、`useWeeklyReport`、`useStandaloneReminders`、`useDailyReview`、`useTaskCheckpoints`、`useProjectSections`
+- **已删除**：旧 Settings/Plan/Project/Focus/TaskDetail 等 UI 与仅服务它们的 hooks（曾位于 `src/renderer/src/_legacy/`）。
+- 活跃工作台仍是 `WorkbenchView` + `workbenchNavigation`（today/review/settings）+ `SimpleSettings`。
+
 
 **原地保留的遗留纯函数（仍有测试）**
 
@@ -172,14 +170,28 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 **脚本**
 
 - **权威（package.json / CI）**：`scripts/verify-build-contract.mjs`、`verify-ui-contract.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`build-app-icon.mjs`
-- **已归档（不在 CI）**：`scripts/legacy/` 下历史 `smoke-*`（非 simple）、`capture-*`、`build-reminder-preview.tsx` 等；见 `scripts/legacy/README.md`
+- **已删除**：历史 `scripts/legacy/**`（smoke/capture 等，从未进 CI）
 
 **测试仍覆盖但对应 UI 已下线**
 
 - **已随轮次 B 删除**：`focus-session.test.ts`、`focus-runtime.test.ts`、`task-work-tracker.test.ts`、`scene-awareness.test.ts`、`daily-review.test.ts`；`standalone-reminders.test.ts` 缩为 shared 纯函数网。
 - **仍在（存储/纯函数/遗留规划面）**：`schema-v4.test.ts`（FocusSession/StandaloneReminder 表）、`daily-planning.test.ts`、`today-sections.test.ts`、`today-view-model.test.ts`、`project-sections.test.ts`、`plan-layout.test.ts`、`focus-completion.test.ts` 等。
 
-#### IPC 契约扫描（轮次）
+#### 产品边界 lint + 命令层 + 遗留面删除
+
+| 项 | 处置 |
+| --- | --- |
+| `src/renderer/src/_legacy/**` | **删除**（活跃 UI 无 import；typecheck 早已 exclude） |
+| `scripts/legacy/**` | **删除**（不在 package.json / CI） |
+| 命令层 | 用户可见**写操作**必须经 `run` / `useCommand`（`action.run` 等）；读操作与窗口几何/导航 IPC 可直调 |
+| lint | `scripts/verify-product-boundary.mjs`（`npm run verify:product`）：遗留目录不存在、活跃源码不引用遗留路径、写操作须包在 `run` 中 |
+
+`npm run lint` = `verify:product` + `verify:ui-contract`。CI 在 typecheck/test 之后跑 `verify:product` 与 `verify:ui-contract`。
+
+**写操作（须命令层）**：任务/项目/投递/提醒/番茄/设置/备份/恢复/自定义桌宠打开等会改状态或弹系统对话框的调用。  
+**直调允许**：`get*` / `on*` 监听、`openWorkbench` / `showPetContextMenu`、`movePetWindow` / `reportPetArtworkBounds` / `reportBubbleHeight`（窗口几何与导航）。
+
+### IPC 契约扫描（轮次）
 
 活跃面以三方对齐为准，由 `tests/ipc-contract.test.ts` 在 `npm test` 中强制：
 
@@ -190,14 +202,14 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | `EyeProtectApi` 方法名 ↔ preload `api` 对象键 | 双向一致 |
 | 活跃 renderer（排除 `_legacy`）调用的 `window.eyeProtect.m` | 必须在 `EyeProtectApi` 上 |
 
-`src/preload/emergency.ts` 是紧急页最小桥，**不在**本契约范围。`_legacy/**` 中的 API 调用不参与「活跃 renderer」检查。
+`src/preload/emergency.ts` 是紧急页最小桥，**不在**本契约范围。
 
 新增 IPC 时：先扩展 `EyeProtectApi` → preload invoke/on → main `handleIpc` / broadcast，再让本测试变绿。
 
 ## 使用约束
 
-1. 活跃 UI **不得** import `src/renderer/src/_legacy/**`，也不得为遗留 IPC 扩展 preload 上的“新产品功能”。
+1. 活跃 UI **不得**依赖已删除的遗留 renderer/脚本路径；用户可见写操作须走命令层 `run`。
 2. 改 `taskStore` schema / 备份时，必须保持旧域导出与恢复路径，或同步删除对应兼容测试并更新本文。
 3. 新文档与新 smoke 只描述 `package.json` 中真实存在的命令；`scripts/legacy/**` 不进 CI。
-4. 删除 `_legacy` 或 `scripts/legacy` 属于后续独立变更：先改本文与契约测试/verify 脚本，再动文件。
+4. 新增用户可见写 IPC 时：扩展 API/preload/handleIpc，并在活跃 UI 用 `run`/`useCommand` 包装；`verify:product` 与 `ipc-contract` 测试会拦截漂移。
 5. UI 契约（`verify:ui-contract`、design-system/modal 测试）只约束**活跃**视图与样式路径。
