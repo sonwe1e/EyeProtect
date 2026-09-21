@@ -3,15 +3,17 @@ import {
   AlertCircle,
   Bell,
   Calendar,
+  Check,
   CheckCircle2,
   Clock,
-  Eye,
   Folder,
   Pin,
   Play,
+  RotateCcw,
   Search,
   Settings as SettingsIcon,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 import { localDateKey } from '../../../shared/calendar';
 import { groupSimpleTasks, isCurrentTask, isSimpleList, taskSteps } from '../../../shared/simpleTasks';
@@ -38,24 +40,36 @@ export default function WorkbenchView(): JSX.Element {
   const tasks = useTasks();
   const { settings } = useSettings();
   const [failures, setFailures] = useState<FailedDeliveryNotice[]>([]);
-  useEffect(() => { void window.eyeProtect.getFailedDeliveries().then(setFailures); return window.eyeProtect.onFailedDeliveriesChanged(setFailures); }, []);
   const projects = useProjects();
-  const undo = useUndo();
-  const health = useAppHealth();
-  const now = useClock(30_000);
   const [tab, setTab] = useState<WorkbenchSectionId>('today');
   const [list, setList] = useState('all');
+  const [listName, setListName] = useState('');
+  const [listEditor, setListEditor] = useState<'new' | 'rename' | null>(null);
+  const [title, setTitle] = useState('');
   const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
-  const [title, setTitle] = useState('');
-  const [listEditor, setListEditor] = useState<'new' | 'rename' | null>(null);
-  const [listName, setListName] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  const undo = useUndo();
+  const now = useClock(30_000);
+  const health = useAppHealth();
   useEffect(() => {
-    const navigate = (section: string): void => { setTab(section === 'settings' ? 'settings' : section === 'review' ? 'review' : 'today'); };
+    const navigate = (section: string): void => {
+      const target: WorkbenchSectionId = section === 'settings' ? 'settings' : section === 'review' ? 'review' : 'today';
+      setTab(target);
+      if (target === 'today') {
+        setList('all');
+        setSearch('');
+      }
+    };
+    void window.eyeProtect.getFailedDeliveries().then(setFailures);
+    const unbindFailures = window.eyeProtect.onFailedDeliveriesChanged(setFailures);
     void window.eyeProtect.getWorkbenchSection().then(navigate);
-    return window.eyeProtect.onWorkbenchNavigate(navigate);
+    const unbindNavigate = window.eyeProtect.onWorkbenchNavigate(navigate);
+    return () => {
+      unbindFailures();
+      unbindNavigate();
+    };
   }, []);
   const lists = projects.filter(isSimpleList);
   const confirmState = useConfirm();
@@ -70,7 +84,7 @@ export default function WorkbenchView(): JSX.Element {
   const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'long' }).format(new Date(now));
   return <main className="simple-workbench">
     <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
-    <header className="simple-header"><span className="simple-brand"><span className="simple-brand-mark" aria-hidden="true"><Eye size={15} /></span><strong>EyeProtect</strong></span><nav aria-label="主导航">
+    <header className="simple-header"><span className="simple-brand"><span className="simple-brand-mark" aria-hidden="true"><Sparkles size={15} /></span><strong>EyeProtect</strong></span><nav aria-label="主导航">
       {PRIMARY_WORKBENCH_SECTIONS.map((id) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{WORKBENCH_SECTIONS[id].label}</button>)}
     </nav><button className="simple-icon-button" aria-label="设置" aria-current={tab === 'settings' ? 'page' : undefined} onClick={() => setTab('settings')}><SettingsIcon size={19} /></button></header>
     <div className="simple-content"><AppHealthBanner health={health} />
@@ -172,7 +186,68 @@ export default function WorkbenchView(): JSX.Element {
               <p>换个关键词试试，或者直接在上方输入框按回车新建任务。</p>
             </div>
           ) : null}
-        </> : days.length ? days.map((day) => <section className="simple-group" key={day}><h2><Calendar size={13} aria-hidden="true" /><span>{day}</span><small>{history.filter((task) => localDateKey(task.completedAt!) === day).length} 项完成</small></h2>{history.filter((task) => localDateKey(task.completedAt!) === day).map((task) => <div className="simple-history-row" key={task.id}><CheckCircle2 size={16} className="simple-history-icon" aria-hidden="true" /><div className="simple-history-content"><span className="simple-history-title">{task.title}</span><div className="simple-history-meta"><span className="simple-project-tag"><Folder size={11} aria-hidden="true" />{projects.find((p) => p.id === task.projectId)?.name ?? '默认清单'}</span><span className="simple-history-time"><Clock size={11} aria-hidden="true" />{new Date(task.completedAt!).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div></div><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.restoreLegacyTask(task.id))}>恢复待办</button></div>)}</section>) : (
+        </> : days.length ? days.map((day) => (
+          <section className="simple-group" key={day}>
+            <h2>
+              <Calendar size={13} aria-hidden="true" />
+              <span>{day}</span>
+              <small>{history.filter((task) => localDateKey(task.completedAt!) === day).length} 项完成</small>
+            </h2>
+            {history.filter((task) => localDateKey(task.completedAt!) === day).map((task) => (
+              <div className="simple-history-row" key={task.id}>
+                <div className="simple-history-badge" aria-hidden="true">
+                  <CheckCircle2 size={16} />
+                </div>
+                <div className="simple-history-content">
+                  <div className="simple-history-header">
+                    <span className="simple-history-title">{task.title}</span>
+                    <span className="simple-done-tag"><Check size={10} aria-hidden="true" />已完成</span>
+                  </div>
+                  <div className="simple-history-meta">
+                    <span className="simple-project-tag">
+                      <Folder size={11} aria-hidden="true" />
+                      {projects.find((p) => p.id === task.projectId)?.name ?? '默认清单'}
+                    </span>
+                    <span className="simple-history-time">
+                      <Clock size={11} aria-hidden="true" />
+                      {new Date(task.completedAt!).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+                <div className="simple-history-actions">
+                  <button
+                    type="button"
+                    className="simple-history-action-btn"
+                    title="恢复至待办清单"
+                    disabled={action.isPending}
+                    onClick={() => void action.run(() => window.eyeProtect.restoreLegacyTask(task.id))}
+                  >
+                    <RotateCcw size={12} aria-hidden="true" />
+                    <span>恢复待办</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="simple-history-action-btn is-danger"
+                    title="彻底删除此条完成记录"
+                    disabled={action.isPending}
+                    onClick={() => void (async () => {
+                      if (await confirmState.confirm('删除后该条记录将被彻底移除。', {
+                        title: `删除记录「${task.title}」`,
+                        confirmText: '删除',
+                        danger: true
+                      })) {
+                        await action.run(() => window.eyeProtect.deleteTask(task.id));
+                      }
+                    })()}
+                  >
+                    <Trash2 size={12} aria-hidden="true" />
+                    <span>删除</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )) : (
           <div className="simple-empty-state">
             <div className="simple-empty-animal">
               <PixelAnimal animal={settings.petAppearance} action="idle" label="桌宠小憩" />
@@ -202,6 +277,16 @@ function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayK
   return <article className={`simple-task ${expanded ? 'is-expanded' : ''}`}>
     <div className="simple-task-row"><input type="checkbox" aria-label={`完成 ${task.title}`} checked={false} disabled={action.isPending} onChange={complete} onClick={(e) => e.stopPropagation()} />
       <button className="simple-task-name" aria-expanded={expanded} onClick={onExpand}>{task.title}</button>
+      {task.priority === 'urgent' ? (
+        <span className="simple-priority-tag is-urgent" title="优先级：紧急">
+          <AlertCircle size={10} aria-hidden="true" />
+          紧急
+        </span>
+      ) : task.priority === 'important' ? (
+        <span className="simple-priority-tag is-important" title="优先级：重要">
+          重要
+        </span>
+      ) : null}
       {projectName ? <span className="simple-project-tag" title={`所属清单：${projectName}`}><Folder size={11} aria-hidden="true" />{projectName}</span> : null}
       {task.dueDate ? (
         <span
@@ -217,7 +302,12 @@ function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayK
           )}
         </span>
       ) : null}
-      {steps.length ? <span className="simple-muted">{steps.filter((step) => step.status === 'done').length}/{steps.length}</span> : null}
+      {steps.length ? (
+        <span className="simple-steps-tag" title={`步骤进度：${steps.filter((step) => step.status === 'done').length}/${steps.length}`}>
+          <CheckCircle2 size={11} aria-hidden="true" />
+          {steps.filter((step) => step.status === 'done').length}/{steps.length}
+        </span>
+      ) : null}
       {task.reminderAt ? <span className="simple-muted" title={`提醒：${new Date(task.reminderAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`} aria-label={`已设置提醒 ${new Date(task.reminderAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}><Bell size={13} aria-hidden="true" /></span> : null}
       <div className="simple-row-actions"><button aria-label={pinned ? '移出浮窗' : '放到浮窗'} aria-pressed={pinned} disabled={action.isPending} onClick={(e) => { e.stopPropagation(); void action.run(() => window.eyeProtect.saveSettings({ todoBubbleTaskIds: pinned ? settings.todoBubbleTaskIds.filter((id) => id !== task.id) : [...settings.todoBubbleTaskIds, task.id], todoBubbleEnabled: true })); }}><Pin size={16} /></button>
         <button aria-label={`专注 ${task.title}`} onClick={(e) => { e.stopPropagation(); void action.run(async () => { const state = await window.eyeProtect.getPomodoro(); if (['focus', 'break'].includes(state.phase) && !(await confirm('当前计时会被替换。', { title: '用这项任务开始新的专注？', confirmText: '开始专注' }))) return; await window.eyeProtect.preparePomodoro(task.id, true); }); }}><Play size={16} /></button></div>

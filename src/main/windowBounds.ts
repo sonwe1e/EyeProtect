@@ -98,8 +98,8 @@ export const ALERT_LAYOUT = {
   edgeGapRatio: 0.05,
   edgeGapMin: 16,
   edgeGapMax: 64,
-  targetWidth: 760,
-  targetHeight: 720,
+  targetWidth: 880,
+  targetHeight: 640,
   minimumWidth: 480,
   minimumHeight: 440,
   panelReservedSpace: 320

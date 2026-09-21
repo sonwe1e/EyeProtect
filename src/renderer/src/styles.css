@@ -1570,10 +1570,10 @@
 /* ── The glass card ─────────────────────────────────────────────────────── */
 .rest-card {
   position: relative;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  padding: 28px 34px 24px;
+  padding: 24px 30px 22px;
   overflow: hidden;
   background: var(--glass-panel);
   border: 1px solid var(--glass-hairline);
@@ -1589,13 +1589,10 @@
   to { opacity: 1; transform: none; }
 }
 
-/* Colour wash. Confined to the stage band at the top so it never sits behind
-   body text — a coloured orb under text would move the local contrast off the
-   token contract. */
+/* Colour wash */
 .rest-ambient {
   position: absolute;
-  inset: 0 0 auto;
-  height: 40%;
+  inset: 0;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
@@ -1605,29 +1602,143 @@
   position: absolute;
   background: var(--rest-accent);
   border-radius: 50%;
-  filter: blur(46px);
+  filter: blur(52px);
 }
 
-.rest-orb.is-1 { top: -140px; left: -60px; width: 280px; height: 280px; opacity: .26; }
-.rest-orb.is-2 { top: -110px; right: -70px; width: 240px; height: 240px; opacity: .18; }
+.rest-orb.is-1 { top: -100px; left: -60px; width: 340px; height: 340px; opacity: .24; }
+.rest-orb.is-2 { bottom: -120px; right: -70px; width: 300px; height: 300px; opacity: .18; }
 
-/* ── Stage: the companion inside the countdown ring ─────────────────────── */
+/* ── Top Bar ────────────────────────────────────────────────────────────── */
+.rest-topbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.rest-topbar-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rest-topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  color: var(--fg-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  background: color-mix(in srgb, var(--rest-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rest-accent) 34%, transparent);
+  border-radius: 999px;
+}
+
+.rest-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--rest-accent);
+  border-radius: 50%;
+}
+
+.rest-pomo-tag,
+.rest-snooze-count-badge {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid var(--glass-hairline);
+  border-radius: 999px;
+}
+
+/* ── Relax mode segmented bar ───────────────────────────────────────────── */
+.rest-mode-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid var(--glass-hairline);
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+}
+
+.rest-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: none;
+  transition: all var(--motion-fast) var(--ease-out);
+}
+
+.rest-mode-btn:hover {
+  color: var(--fg-primary);
+  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
+}
+
+.rest-mode-btn.is-active {
+  color: var(--fg-primary);
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--rest-accent) 45%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--fg-primary) 10%, transparent);
+}
+
+/* ── Spacious 2-Column Body Layout ──────────────────────────────────────── */
+.rest-body-layout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 36px;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Left Column: Visual Stage ─────────────────────────────────────────── */
+.rest-stage-column {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
 .rest-stage {
   position: relative;
   z-index: 1;
   display: grid;
-  width: min(268px, 34vh);
+  width: 290px;
   aspect-ratio: 1 / 1;
-  margin: 0 auto;
   place-items: center;
 }
 
 .rest-stage-glow {
   position: absolute;
-  inset: 12%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--rest-accent) 34%, transparent) 0%, transparent 70%);
+  inset: 10%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--rest-accent) 36%, transparent) 0%, transparent 70%);
   border-radius: 50%;
-  filter: blur(18px);
+  filter: blur(20px);
 }
 
 .rest-ring {
@@ -1654,35 +1765,134 @@
 
 .rest-stage-art {
   position: absolute;
-  top: 41%;
+  top: 42%;
   left: 50%;
-  width: 50%;
+  width: 54%;
   aspect-ratio: 1 / 1;
   transform: translate(-50%, -50%);
 }
 
-.rest-stage-art .pixel-animal { width: 100%; height: 100%; }
+.rest-stage-art .pixel-animal {
+  width: 100%;
+  height: 100%;
+}
 
-/* The readout straddles the ring's lower edge: legible without competing with
-   the artwork for the centre of the ring. `width: max-content` matters — with
-   `left: 50%` the shrink-to-fit width would be capped at half the stage and the
-   label would wrap into a vertical column. */
+/* Follow Orb Orbit & Track */
+.rest-follow-track {
+  position: absolute;
+  inset: -14px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.rest-follow-svg-guide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.rest-follow-svg-guide path {
+  stroke: color-mix(in srgb, var(--rest-accent) 26%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 6;
+}
+
+.rest-follow-orb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  border-radius: 50%;
+  color: var(--brand-contrast);
+  background: var(--brand);
+  box-shadow: 0 0 16px var(--brand), 0 0 32px var(--brand);
+  animation: rest-follow-figure8 9s ease-in-out infinite;
+}
+
+@keyframes rest-follow-figure8 {
+  0%   { transform: translate(0px, 0px) scale(1); }
+  12.5%{ transform: translate(84px, -46px) scale(1.1); }
+  25%  { transform: translate(128px, 0px) scale(1); }
+  37.5%{ transform: translate(84px, 46px) scale(0.92); }
+  50%  { transform: translate(0px, 0px) scale(1); }
+  62.5%{ transform: translate(-84px, -46px) scale(1.1); }
+  75%  { transform: translate(-128px, 0px) scale(1); }
+  87.5%{ transform: translate(-84px, 46px) scale(0.92); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+/* Breathing Halos */
+.rest-breathe-outer-halo {
+  position: absolute;
+  inset: -16px;
+  z-index: 2;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--rest-accent) 20%, transparent) 0%, transparent 70%);
+  pointer-events: none;
+  transition: transform 1s ease-in-out;
+}
+
+.rest-breathe-halo {
+  position: absolute;
+  inset: -6px;
+  z-index: 2;
+  border-radius: 50%;
+  border: 2px dashed color-mix(in srgb, var(--rest-accent) 60%, transparent);
+  pointer-events: none;
+  transition: transform 1s ease-in-out;
+}
+
+/* Pet Sleep Decor */
+.rest-pet-sleep-decor {
+  position: absolute;
+  top: 15%;
+  right: 18%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.rest-zzz {
+  font-weight: 700;
+  color: var(--rest-accent);
+  animation: rest-zzz-anim 3s ease-in-out infinite;
+}
+
+.rest-zzz.is-1 { font-size: 14px; animation-delay: 0s; }
+.rest-zzz.is-2 { font-size: 18px; margin-left: 10px; animation-delay: 0.9s; }
+.rest-zzz.is-3 { font-size: 22px; margin-left: 20px; animation-delay: 1.8s; }
+
+@keyframes rest-zzz-anim {
+  0%   { opacity: 0; transform: translateY(6px) scale(0.8); }
+  45%  { opacity: 0.95; transform: translateY(-8px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-24px) scale(1.3); }
+}
+
+/* Stage Countdown Readout */
 .rest-stage-count {
   position: absolute;
-  bottom: -4px;
+  bottom: -6px;
   left: 50%;
-  z-index: 2;
+  z-index: 3;
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 6px;
   width: max-content;
   margin: 0;
-  padding: 6px 16px;
+  padding: 6px 18px;
   color: var(--fg-primary);
   background: var(--glass-wash);
   border: 1px solid var(--glass-hairline);
   border-radius: 999px;
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg-primary) 8%, transparent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--fg-primary) 8%, transparent);
   transform: translateX(-50%);
   backdrop-filter: blur(10px);
 }
@@ -1694,68 +1904,113 @@
   letter-spacing: -.01em;
 }
 
-.rest-stage-count small { color: var(--fg-secondary); font-size: 11px; white-space: nowrap; }
+.rest-stage-count small {
+  color: var(--fg-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
 
-/* ── Panel ──────────────────────────────────────────────────────────────── */
-.rest-scroll {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  align-content: safe center;
+/* ── Right Column: Info & Actions ───────────────────────────────────────── */
+.rest-info-column {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
   min-height: 0;
-  margin-top: 22px;
   overflow-y: auto;
-  text-align: center;
+  padding-right: 4px;
 }
 
-.rest-badge {
-  justify-self: center;
-  display: inline-flex;
-  align-items: center;
+.rest-info-header {
+  display: grid;
   gap: 6px;
-  padding: 5px 12px;
-  color: var(--fg-primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  background: color-mix(in srgb, var(--rest-accent) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--rest-accent) 34%, transparent);
-  border-radius: 999px;
-}
-
-.rest-badge::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  background: var(--rest-accent);
-  border-radius: 50%;
 }
 
 .rest-title {
-  margin: 14px 0 0;
-  font-size: clamp(24px, 3.4vw, 34px);
+  margin: 0;
+  font-size: clamp(24px, 2.6vw, 30px);
   font-weight: 700;
-  line-height: 1.16;
+  line-height: 1.2;
   letter-spacing: -.02em;
   text-wrap: balance;
 }
 
 .rest-lede {
-  margin: 10px 0 0;
+  margin: 0;
   color: var(--fg-secondary);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14.5px;
+  line-height: 1.55;
   text-wrap: pretty;
 }
 
-/* ── Numbered micro-break steps ─────────────────────────────────────────── */
-.rest-activity { display: grid; gap: 8px; margin-top: 22px; text-align: left; }
+/* Guidance Card */
+.rest-guide-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid var(--glass-hairline);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+}
 
-/* Once the instructions are on screen the artwork yields: what the user acts on
-   is the step list, and keeping it unscrolled matters more than stage size. */
-.rest-card.has-steps .rest-stage { width: min(196px, 26vh); }
-.rest-card.has-steps .rest-title { font-size: clamp(21px, 2.6vw, 27px); }
-.rest-card.has-steps .rest-activity { margin-top: 18px; }
+.rest-guide-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  color: var(--rest-accent);
+  background: color-mix(in srgb, var(--rest-accent) 14%, transparent);
+}
+
+.rest-guide-content {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rest-guide-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--fg-primary);
+}
+
+.rest-guide-desc {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  line-height: 1.45;
+}
+
+/* Celebration Badge */
+.rest-celebration-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+  border-radius: 12px;
+  color: var(--success);
+  font-size: 13px;
+  font-weight: 650;
+  animation: rest-stamp-in 0.35s var(--ease-out);
+}
+
+@keyframes rest-stamp-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Micro-break Activity Steps */
+.rest-activity {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
 
 .rest-activity-head {
   display: flex;
@@ -1774,10 +2029,10 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 36px;
-  padding: 7px 12px;
+  min-height: 34px;
+  padding: 6px 12px;
   color: var(--fg-secondary);
-  font-size: 13px;
+  font-size: 12.5px;
   background: color-mix(in srgb, var(--fg-primary) 4%, transparent);
   border: 1px solid transparent;
   border-radius: 10px;
@@ -1787,8 +2042,8 @@
 .rest-step b {
   display: grid;
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   place-items: center;
   color: var(--fg-secondary);
   font-size: 11px;
@@ -1797,8 +2052,6 @@
   border-radius: 50%;
 }
 
-/* The current step is marked by an accent ring rather than an accent fill: the
-   walk accent only reaches 4.39:1 against white, so it cannot carry a numeral. */
 .rest-step.is-active {
   color: var(--fg-primary);
   background: color-mix(in srgb, var(--rest-accent) 12%, transparent);
@@ -1811,14 +2064,15 @@
   box-shadow: inset 0 0 0 2px var(--rest-accent);
 }
 
-/* Done steps carry a check glyph, not text: a graphic only needs 3:1, which
-   every kind accent clears against white. */
-.rest-step.is-done b { color: var(--fg-inverse); background: var(--rest-accent); }
+.rest-step.is-done b {
+  color: var(--fg-inverse);
+  background: var(--rest-accent);
+}
 
 .rest-next { margin: 0; color: var(--fg-secondary); font-size: 12px; }
 
 .rest-progress {
-  height: 5px;
+  height: 4px;
   overflow: hidden;
   background: color-mix(in srgb, var(--fg-primary) 10%, transparent);
   border-radius: 999px;
@@ -1833,10 +2087,10 @@
 }
 
 .rest-break-task {
-  margin: 16px 0 0;
-  padding: 9px 12px;
+  margin: 0;
+  padding: 8px 12px;
   color: var(--fg-primary);
-  font-size: 12.5px;
+  font-size: 12px;
   text-align: left;
   background: var(--warning-subtle);
   border: 1px solid color-mix(in srgb, var(--warning) 26%, transparent);
@@ -1844,10 +2098,6 @@
 }
 
 .rest-sound-toggle {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  z-index: 4;
   display: grid;
   place-items: center;
   width: 32px;
@@ -1860,41 +2110,29 @@
   cursor: pointer;
   transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
 }
+
 .rest-sound-toggle:hover {
   color: var(--fg-primary);
   background: var(--surface-hover);
 }
 
-/* Shortcut hints are drawn by CSS so they stay out of the button's accessible
-   name; aria-keyshortcuts carries the binding for assistive tech. */
-[data-shortcut]::after {
-  content: attr(data-shortcut);
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 5px;
-  font-size: 11px;
-  font-family: inherit;
-  opacity: 0.75;
-  border-radius: 4px;
-  background: color-mix(in srgb, currentColor 14%, transparent);
+/* ── Actions ────────────────────────────────────────────────────────────── */
+.rest-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
 }
 
-.rest-note { margin: 12px 0 0; color: var(--fg-secondary); font-size: 12px; }
-
-/* ── Actions ────────────────────────────────────────────────────────────── */
-.rest-actions { position: relative; z-index: 1; display: grid; gap: 10px; margin-top: 20px; }
 .rest-actions button, .rest-actions select { font: inherit; cursor: pointer; }
 
 .rest-primary {
-  min-height: 48px;
+  min-height: 46px;
   color: var(--brand-contrast);
   font-size: 15px;
   font-weight: 650;
   background: var(--brand);
   border: 1px solid var(--brand);
   border-radius: 14px;
-  /* Same tactile recipe as .ui-button--primary: top gloss + brand-tinted
-     contact shadow, swapped for a pressed inset while held down. */
   box-shadow:
     inset 0 1px 0 var(--inset-highlight),
     0 1px 2px color-mix(in srgb, var(--brand-strong) 26%, transparent);
@@ -1904,39 +2142,33 @@
 .rest-primary:hover:not(:disabled) { background: var(--brand-strong); border-color: var(--brand-strong); }
 .rest-primary:active:not(:disabled) { transform: scale(var(--press-scale)); box-shadow: inset 0 1px 0 var(--inset-press); }
 
-.rest-actions-row { display: flex; gap: 10px; }
+.rest-primary.is-celebrate {
+  background: var(--success);
+  border-color: color-mix(in srgb, var(--success) 80%, black);
+}
+
+.rest-actions-row { display: flex; gap: 8px; }
 .rest-snooze-group { display: inline-flex; flex: 1; }
 
 .rest-snooze-group button {
   flex: 1;
-  min-height: 42px;
+  min-height: 40px;
   padding: 0 14px;
   color: var(--fg-primary);
-  font-size: 13.5px;
+  font-size: 13px;
   background: color-mix(in srgb, var(--fg-primary) 5%, transparent);
   border: 1px solid var(--glass-hairline);
-  border-right: 0;
-  border-radius: 12px 0 0 12px;
+  border-radius: 12px;
   transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
 
 .rest-snooze-group button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg-primary) 9%, transparent); }
 
-.rest-snooze-group select {
-  min-height: 42px;
-  padding: 0 10px;
-  color: var(--fg-primary);
-  font-size: 13px;
-  background: color-mix(in srgb, var(--fg-primary) 5%, transparent);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 0 12px 12px 0;
-}
-
 .rest-skip {
-  min-height: 42px;
+  min-height: 40px;
   padding: 0 18px;
   color: var(--fg-secondary);
-  font-size: 13.5px;
+  font-size: 13px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 12px;
@@ -1946,12 +2178,8 @@
 .rest-skip:hover:not(:disabled) { color: var(--fg-primary); background: color-mix(in srgb, var(--fg-primary) 6%, transparent); }
 .rest-actions button:disabled { cursor: not-allowed; }
 .rest-skip:disabled,
-.rest-snooze-group button:disabled,
-.rest-snooze-group select:disabled { opacity: .5; }
+.rest-snooze-group button:disabled { opacity: .5; }
 
-/* A disabled primary keeps full opacity and drops to a neutral surface instead:
-   fading a filled brand button to 45% turns it into grey mush, which reads as a
-   rendering bug rather than as "not yet". */
 .rest-primary:disabled {
   color: var(--fg-secondary);
   background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
@@ -1962,32 +2190,32 @@
 .rest-hint {
   margin: 0;
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: 11.5px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
-.rest-error { margin: 0; color: var(--danger); font-size: 12.5px; text-align: center; }
+.rest-error { margin: 0; color: var(--danger); font-size: 12px; text-align: center; }
 
 .rest-primary:focus-visible,
 .rest-snooze-group button:focus-visible,
-.rest-snooze-group select:focus-visible,
 .rest-skip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-/* The window can shrink to 480 x 440, so the stage yields before the copy. */
-@media (max-width: 660px) {
-  .rest-card { padding: 22px 20px 20px; border-radius: 22px; }
-  .rest-stage { width: min(190px, 30vh); }
-  .rest-title { font-size: 24px; }
+/* Responsive adjustments for narrow/small viewports */
+@media (max-width: 720px) {
+  .rest-card { padding: 18px 20px 16px; border-radius: 20px; }
+  .rest-body-layout { grid-template-columns: 1fr; gap: 16px; }
+  .rest-stage { width: 220px; }
+  .rest-title { font-size: 22px; }
   .rest-stage-count strong { font-size: 20px; }
   .rest-actions-row { flex-wrap: wrap; }
 }
 
-@media (max-height: 620px) {
-  .rest-card { padding: 20px 26px 18px; }
-  .rest-stage { width: min(180px, 32vh); }
-  .rest-title { font-size: 22px; }
-  .rest-lede { font-size: 13.5px; }
-  .rest-scroll { margin-top: 14px; }
-  .rest-activity { margin-top: 14px; }
+@media (max-height: 560px) {
+  .rest-card { padding: 16px 22px 14px; }
+  .rest-topbar { margin-bottom: 8px; }
+  .rest-stage { width: 210px; }
+  .rest-title { font-size: 20px; }
+  .rest-lede { font-size: 13px; }
+  .rest-actions { gap: 6px; }
 }
