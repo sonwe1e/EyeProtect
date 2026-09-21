@@ -116,8 +116,32 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 同步清理：
 
 - `index.ts` 中未再注册写通道、也无调用方的 `asStandaloneReminderInput` / `asStandaloneReminderUpdate` **删除**。
-- `preload` 仍暴露 `getStandaloneReminders`（handler 为 `standalone-reminder:list`）：活跃 UI 不调用；本轮**保留**以便 `_legacy` 与后续 Round D 再收。
-- `windows.broadcastStandaloneReminders` 与 backup 导出路径**不动**。
+- ~~preload `getStandaloneReminders`~~ → **轮次 C+D 移除**（见下节）。
+- ~~`windows.broadcastStandaloneReminders`~~ → **轮次 C+D 移除**；backup 导出路径**不动**。
+
+### 轮次 C+D：taskStore 兼容域边界 + history/standalone IPC
+
+**C — 存储域读写矩阵（v1.6）**
+
+| 域 | 生产读 | 生产写 | 保留原因 |
+| --- | --- | --- | --- |
+| Task / Project / todo settings | workbench / pet / bubble / backup | 活跃命令层 | 当前产品 |
+| Reminder history（`ReminderHistoryStore`） | scheduler `onEvent` 记录；backup 导出/恢复 | scheduler 写事件；backup `replaceEvents`；retention | **产品行为**仍在用（历史留痕 + 备份）；renderer **不再**读 weekly/care |
+| StandaloneReminder 表 | backup 导出；`data:legacy` | backup 导入 `replaceAll`；`data:reset` 清空 | 只读兼容 + 备份往返 |
+| DailyTaskPlan / TimeBlock / FocusSession / TaskCheckpoint / DailyReflection | backup 导出；`data:legacy`（plans/sessions） | backup 导入 `replaceAll*`；`data:reset` 清空 reflections（并补齐 plans/timeblocks/sessions/checkpoints） | 只读兼容 + 备份往返 |
+| `taskStore` 上的 create/update/delete 单条规划/专注/独立提醒方法 | **无生产调用** | 仅测试构造 schema 不变量 | **方法保留**供 `schema-v4` 等兼容测试；活跃路径禁止再接 IPC 写 |
+
+**D — IPC / preload 处置**
+
+| 通道 / API | 活跃 UI | 处置 |
+| --- | --- | --- |
+| `history:report` / `history:care` / `history:clear` / `history:export` + preload weekly/care 方法 | 无（仅 `_legacy` hooks） | **移除** handler + `EyeProtectApi` + preload；`historyStore` 内部 record/backup **保留** |
+| `standalone-reminder:list` + `getStandaloneReminders` | 无 | **移除** handler + API + preload |
+| `history:changed` / `care:changed` / `standalone-reminder:changed` / `standalone-reminder:fired` broadcast | 无活跃监听 | **移除** `windows.broadcast*` 与 publish 调用 |
+| `data:legacy` / `task:restore-legacy` | 设置页「旧资料与恢复」 | **保留** |
+| workbench section 联合类型 `reminders`/`pet-tasks` | 导航只有 today/review/settings | **收成** `today \| review \| settings` |
+
+`ReminderHistoryStore` 仍由 ReminderScheduler `onEvent` 写入并参与备份，只是不再对 renderer 暴露 weekly/care API。
 
 ### 遗留 / 兼容面（不在主 UI 路径）
 
@@ -126,11 +150,11 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 - **已删除（轮次 B）**：`focusRuntime.ts`、`focusSession.ts`、`taskWorkTracker.ts`、`standaloneReminders.ts`、`sceneAwareness.ts`、`dailyReview.ts` 及仅服务它们的测试。盘点更正：`data:legacy` **不再**调用 `buildDailyReview`，改为直接读 store 列旧资料。
 - `taskStore.ts` 中仍存在的规划 / TimeBlock / Section / FocusSession / StandaloneReminder 表与方法（备份、`data:legacy` 与兼容读取；本轮未删表）。
 
-**IPC / preload（`window.eyeProtect` 仍暴露，活跃 UI 不应新增依赖）**
+**IPC / preload**
 
-- PR #7 已移除无 handler 的死 API（plan/timeblock/focus/section/checkpoint/daily **写**通道等）。
-- **仍在且主进程有 handler**：`standalone-reminder:list`、`history:report` / `history:care` / `history:clear` / `history:export`、`data:legacy` / `task:restore-legacy` 等。
-- 活跃设置页「旧资料与恢复」使用 `data:legacy`；history / standalone list 活跃 UI 不读，去留见后续轮次。
+- PR #7 移除无 handler 的死 API；**轮次 C+D** 再移除 `history:*` renderer 面与 `standalone-reminder:list`。
+- **仍在**：`data:legacy` / `task:restore-legacy`（设置页旧资料）；reminder/pomodoro/task/project/backup 等活跃通道。
+- 主进程 `ReminderHistoryStore` **不**因移除 history IPC 而删除。
 
 **孤儿 renderer（已归档 / 待归档至 `src/renderer/src/_legacy/`）**
 
