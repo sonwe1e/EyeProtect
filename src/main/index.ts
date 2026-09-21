@@ -4,6 +4,7 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  MenuItemConstructorOptions,
   nativeImage,
   nativeTheme,
   Notification,
@@ -156,6 +157,92 @@ const HOTKEYS: Record<HotkeyAction, string> = {
   'pet-toggle': 'CommandOrControl+Alt+H'
 };
 
+const THEME_DISPLAY_NAMES: Record<string, string> = {
+  default: '奋斗猫 (默认)',
+  dog: '治愈柴犬',
+  rabbit: '粉耳白兔',
+  hamster: '软萌仓鼠'
+};
+
+const buildPetSubmenuTemplate = (
+  settingsStore: SettingsStore
+): MenuItemConstructorOptions[] => {
+  const baseDir = join(settingsStore.getDataDir(), 'custom-pet');
+  const settings = settingsStore.get();
+  const currentTheme = settings.customPetTheme;
+  const currentAppearance = settings.petAppearance;
+
+  const customItems: MenuItemConstructorOptions[] = [];
+
+  if (existsSync(baseDir)) {
+    try {
+      const files = readdirSync(baseDir, { withFileTypes: true });
+      const hasRootAssets = files.some(
+        (f) => f.isFile() && (f.name.endsWith('.gif') || f.name.endsWith('.png'))
+      );
+      if (hasRootAssets) {
+        customItems.push({
+          label: THEME_DISPLAY_NAMES.default ?? '奋斗猫 (默认)',
+          type: 'radio',
+          checked: currentTheme === 'default',
+          click: () => void settingsStore.save({ customPetTheme: 'default' })
+        });
+      }
+
+      for (const entry of files) {
+        if (entry.isDirectory()) {
+          const subDir = join(baseDir, entry.name);
+          const subFiles = readdirSync(subDir);
+          const hasAssets = subFiles.some(
+            (name) => name.endsWith('.gif') || name.endsWith('.png')
+          );
+          if (hasAssets) {
+            customItems.push({
+              label: THEME_DISPLAY_NAMES[entry.name] ?? entry.name,
+              type: 'radio',
+              checked: currentTheme === entry.name,
+              click: () => void settingsStore.save({ customPetTheme: entry.name })
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const classicItems: MenuItemConstructorOptions[] = [
+    {
+      label: '经典像素橘猫',
+      type: 'radio',
+      checked: currentTheme === null && currentAppearance === 'cat',
+      click: () => void settingsStore.save({ customPetTheme: null, petAppearance: 'cat' })
+    },
+    {
+      label: '经典像素小狗',
+      type: 'radio',
+      checked: currentTheme === null && currentAppearance === 'dog',
+      click: () => void settingsStore.save({ customPetTheme: null, petAppearance: 'dog' })
+    },
+    {
+      label: '经典像素白兔',
+      type: 'radio',
+      checked: currentTheme === null && currentAppearance === 'rabbit',
+      click: () => void settingsStore.save({ customPetTheme: null, petAppearance: 'rabbit' })
+    }
+  ];
+
+  if (customItems.length > 0) {
+    return [
+      ...customItems,
+      { type: 'separator' },
+      ...classicItems
+    ];
+  }
+
+  return classicItems;
+};
+
 /**
  * The tray is the main control surface: the menu is rebuilt every time it is
  * opened, so it always reflects live status (paused? next reminders? pending
@@ -227,6 +314,10 @@ const createTray = (
       { label: `待办：${pendingTodos} 项未完成`, enabled: false },
       { label: '打开工作台', click: (): void => void windows.showWorkbenchWindow('today') },
       { label: '打开设置', click: (): void => windows.showWorkbenchWindow('settings') },
+      {
+        label: '🐾 切换桌宠',
+        submenu: buildPetSubmenuTemplate(settingsStore)
+      },
       {
         label: '召回桌宠到当前屏幕',
         click: (): void => {
@@ -1074,11 +1165,12 @@ app.whenReady().then(async () => {
     };
 
     const availableThemes: CustomPetThemeInfo[] = [];
+
     const rootAssets = loadDirAssets(baseDir);
     if (rootAssets.idles.length > 0 || rootAssets.clicks.length > 0 || rootAssets.fidgets.length > 0 || rootAssets.sleeps.length > 0) {
       availableThemes.push({
         id: 'default',
-        name: '默认角色',
+        name: THEME_DISPLAY_NAMES.default,
         preview: rootAssets.idles[0] ?? rootAssets.clicks[0] ?? rootAssets.fidgets[0] ?? null
       });
     }
@@ -1092,7 +1184,7 @@ app.whenReady().then(async () => {
           if (subAssets.idles.length > 0 || subAssets.clicks.length > 0 || subAssets.fidgets.length > 0 || subAssets.sleeps.length > 0) {
             availableThemes.push({
               id: entry.name,
-              name: entry.name,
+              name: THEME_DISPLAY_NAMES[entry.name] ?? entry.name,
               preview: subAssets.idles[0] ?? subAssets.clicks[0] ?? subAssets.fidgets[0] ?? null
             });
           }
@@ -1302,26 +1394,7 @@ app.whenReady().then(async () => {
       { type: 'separator' },
       {
         label: '🐾 切换桌宠',
-        submenu: [
-          {
-            label: '橘猫',
-            type: 'radio',
-            checked: settings.petAppearance === 'cat',
-            click: () => void settingsStore.save({ petAppearance: 'cat' })
-          },
-          {
-            label: '小狗',
-            type: 'radio',
-            checked: settings.petAppearance === 'dog',
-            click: () => void settingsStore.save({ petAppearance: 'dog' })
-          },
-          {
-            label: '白兔',
-            type: 'radio',
-            checked: settings.petAppearance === 'rabbit',
-            click: () => void settingsStore.save({ petAppearance: 'rabbit' })
-          }
-        ]
+        submenu: buildPetSubmenuTemplate(settingsStore)
       },
       {
         label: '桌宠小动作',
