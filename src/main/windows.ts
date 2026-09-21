@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import type {
   ActiveReminder,
   AppHealth,
-  FocusStatus,
   HotkeyStatus,
   Project,
   PomodoroState,
@@ -14,7 +13,6 @@ import type {
   Settings,
   FailedDeliveryNotice,
   Task,
-  TaskWorkSummary,
   UndoState
 } from '../shared/types';
 import type { ReminderScheduler } from './reminders';
@@ -1162,22 +1160,8 @@ export class AppWindows {
     this.refreshBubble();
   }
 
-  /** Focus session state push (USERPLAN 1.2 PR6). */
-  broadcastFocusStatus(status: FocusStatus): void {
-    this.sendTo([this.workbenchWindow], 'focus:session-changed', status);
-  }
-
-  /** Generic workbench-only push for planning-domain change signals. */
-  broadcastToWorkbench(channel: string, payload: unknown): void {
-    this.sendTo([this.workbenchWindow], channel, payload);
-  }
-
   broadcastActiveTask(id: string | null): void {
     this.sendTo([this.workbenchWindow, this.bubbleWindow], 'task:active-changed', id);
-  }
-
-  broadcastTaskWork(summary: TaskWorkSummary): void {
-    this.sendTo([this.workbenchWindow], 'task:work-changed', summary);
   }
 
   broadcastUndo(state: UndoState | null): void {

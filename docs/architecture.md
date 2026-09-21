@@ -179,7 +179,22 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 - **已随轮次 B 删除**：`focus-session.test.ts`、`focus-runtime.test.ts`、`task-work-tracker.test.ts`、`scene-awareness.test.ts`、`daily-review.test.ts`；`standalone-reminders.test.ts` 缩为 shared 纯函数网。
 - **仍在（存储/纯函数/遗留规划面）**：`schema-v4.test.ts`（FocusSession/StandaloneReminder 表）、`daily-planning.test.ts`、`today-sections.test.ts`、`today-view-model.test.ts`、`project-sections.test.ts`、`plan-layout.test.ts`、`focus-completion.test.ts` 等。
 
-### 使用约束
+#### IPC 契约扫描（轮次）
+
+活跃面以三方对齐为准，由 `tests/ipc-contract.test.ts` 在 `npm test` 中强制：
+
+| 对齐 | 规则 |
+| --- | --- |
+| preload `ipcRenderer.invoke('ch')` ↔ main `handleIpc('ch')` | 双向一一对应；任一侧多出通道即失败 |
+| preload `on<T>('ch')` ↔ main `sendTo` / `webContents.send('ch')` | preload 监听的事件通道必须有 main 发送方 |
+| `EyeProtectApi` 方法名 ↔ preload `api` 对象键 | 双向一致 |
+| 活跃 renderer（排除 `_legacy`）调用的 `window.eyeProtect.m` | 必须在 `EyeProtectApi` 上 |
+
+`src/preload/emergency.ts` 是紧急页最小桥，**不在**本契约范围。`_legacy/**` 中的 API 调用不参与「活跃 renderer」检查。
+
+新增 IPC 时：先扩展 `EyeProtectApi` → preload invoke/on → main `handleIpc` / broadcast，再让本测试变绿。
+
+## 使用约束
 
 1. 活跃 UI **不得** import `src/renderer/src/_legacy/**`，也不得为遗留 IPC 扩展 preload 上的“新产品功能”。
 2. 改 `taskStore` schema / 备份时，必须保持旧域导出与恢复路径，或同步删除对应兼容测试并更新本文。
