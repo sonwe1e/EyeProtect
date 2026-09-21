@@ -46,6 +46,13 @@ import { ReminderTrace, noopReminderTrace, type ReminderTraceSink } from './sche
 import { SchedulerKernel } from './scheduling/kernel';
 import { isTrustedRendererUrl } from './security';
 import { SettingsStore, syncStartupShortcut } from './settings';
+import {
+  BUILTIN_PET_THEME_NAMES,
+  listRootTheme,
+  listThemeDirsIn,
+  mergePetThemeDirs,
+  type PetThemeDirInfo
+} from './petThemes';
 import { AppWindows, getRuntimeInfo } from './windows';
 import { TaskStore } from './taskStore';
 import { TaskService } from './taskService';
@@ -157,59 +164,35 @@ const HOTKEYS: Record<HotkeyAction, string> = {
   'pet-toggle': 'CommandOrControl+Alt+H'
 };
 
-const THEME_DISPLAY_NAMES: Record<string, string> = {
-  default: '奋斗猫 (默认)',
-  dog: '治愈柴犬',
-  rabbit: '粉耳白兔',
-  hamster: '软萌仓鼠'
+const resolvePetThemeRoots = (settingsStore: SettingsStore): { userRoot: string; builtinRoot: string } => ({
+  userRoot: join(settingsStore.getDataDir(), 'custom-pet'),
+  builtinRoot: join(app.getAppPath(), 'public', 'assets', 'pet-themes')
+});
+
+/** Built-in themes first; user custom-pet folders override on the same id. */
+const listMergedPetThemes = (settingsStore: SettingsStore): PetThemeDirInfo[] => {
+  const { userRoot, builtinRoot } = resolvePetThemeRoots(settingsStore);
+  return mergePetThemeDirs([
+    listThemeDirsIn(builtinRoot, BUILTIN_PET_THEME_NAMES),
+    listRootTheme(userRoot, 'default', BUILTIN_PET_THEME_NAMES),
+    listThemeDirsIn(userRoot, BUILTIN_PET_THEME_NAMES)
+  ]);
 };
 
 const buildPetSubmenuTemplate = (
   settingsStore: SettingsStore
 ): MenuItemConstructorOptions[] => {
-  const baseDir = join(settingsStore.getDataDir(), 'custom-pet');
   const settings = settingsStore.get();
   const currentTheme = settings.customPetTheme;
   const currentAppearance = settings.petAppearance;
+  const merged = listMergedPetThemes(settingsStore);
 
-  const customItems: MenuItemConstructorOptions[] = [];
-
-  if (existsSync(baseDir)) {
-    try {
-      const files = readdirSync(baseDir, { withFileTypes: true });
-      const hasRootAssets = files.some(
-        (f) => f.isFile() && (f.name.endsWith('.gif') || f.name.endsWith('.png'))
-      );
-      if (hasRootAssets) {
-        customItems.push({
-          label: THEME_DISPLAY_NAMES.default ?? '奋斗猫 (默认)',
-          type: 'radio',
-          checked: currentTheme === 'default',
-          click: () => void settingsStore.save({ customPetTheme: 'default' })
-        });
-      }
-
-      for (const entry of files) {
-        if (entry.isDirectory()) {
-          const subDir = join(baseDir, entry.name);
-          const subFiles = readdirSync(subDir);
-          const hasAssets = subFiles.some(
-            (name) => name.endsWith('.gif') || name.endsWith('.png')
-          );
-          if (hasAssets) {
-            customItems.push({
-              label: THEME_DISPLAY_NAMES[entry.name] ?? entry.name,
-              type: 'radio',
-              checked: currentTheme === entry.name,
-              click: () => void settingsStore.save({ customPetTheme: entry.name })
-            });
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
+  const customItems: MenuItemConstructorOptions[] = merged.map((theme) => ({
+    label: theme.name,
+    type: 'radio' as const,
+    checked: currentTheme === theme.id,
+    click: () => void settingsStore.save({ customPetTheme: theme.id })
+  }));
 
   const classicItems: MenuItemConstructorOptions[] = [
     {
@@ -333,7 +316,6 @@ const createTray = (
           });
         }
       },
-      { type: 'separator' },
       { type: 'separator' },
       {
         label: '退出',
@@ -1101,19 +1083,7 @@ app.whenReady().then(async () => {
     }
   });
   handleIpc('pet:custom:get-assets', (requestedTheme) => {
-    const baseDir = join(settingsStore.getDataDir(), 'custom-pet');
-    if (!existsSync(baseDir)) {
-      return {
-        hasCustomPet: false,
-        activeTheme: null,
-        availableThemes: [],
-        idles: [],
-        clicks: [],
-        fidgets: [],
-        sleeps: []
-      };
-    }
-
+    const emptyAssets = { idles: [] as string[], clicks: [] as string[], fidgets: [] as string[], sleeps: [] as string[] };
     const isImageFile = (filename: string): boolean => {
       const lower = filename.toLowerCase();
       return lower.endsWith('.gif') || lower.endsWith('.png') || lower.endsWith('.webp') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
@@ -1131,7 +1101,7 @@ app.whenReady().then(async () => {
     };
 
     const loadDirAssets = (dirPath: string) => {
-      if (!existsSync(dirPath)) return { idles: [], clicks: [], fidgets: [], sleeps: [] };
+      if (!existsSync(dirPath)) return { ...emptyAssets };
       try {
         const entries = readdirSync(dirPath, { withFileTypes: true });
         const idles: string[] = [];
@@ -1160,38 +1130,25 @@ app.whenReady().then(async () => {
         }
         return { idles, clicks, fidgets, sleeps };
       } catch {
-        return { idles: [], clicks: [], fidgets: [], sleeps: [] };
+        return { ...emptyAssets };
       }
     };
 
+    const hasAny = (assets: { idles: string[]; clicks: string[]; fidgets: string[]; sleeps: string[] }): boolean =>
+      assets.idles.length > 0 || assets.clicks.length > 0 || assets.fidgets.length > 0 || assets.sleeps.length > 0;
+
+    const mergedThemes = listMergedPetThemes(settingsStore);
     const availableThemes: CustomPetThemeInfo[] = [];
-
-    const rootAssets = loadDirAssets(baseDir);
-    if (rootAssets.idles.length > 0 || rootAssets.clicks.length > 0 || rootAssets.fidgets.length > 0 || rootAssets.sleeps.length > 0) {
+    const themeDirById = new Map<string, string>();
+    for (const theme of mergedThemes) {
+      const assets = loadDirAssets(theme.dir);
+      if (!hasAny(assets)) continue;
+      themeDirById.set(theme.id, theme.dir);
       availableThemes.push({
-        id: 'default',
-        name: THEME_DISPLAY_NAMES.default,
-        preview: rootAssets.idles[0] ?? rootAssets.clicks[0] ?? rootAssets.fidgets[0] ?? null
+        id: theme.id,
+        name: theme.name,
+        preview: assets.idles[0] ?? assets.clicks[0] ?? assets.fidgets[0] ?? assets.sleeps[0] ?? null
       });
-    }
-
-    try {
-      const dirEntries = readdirSync(baseDir, { withFileTypes: true });
-      for (const entry of dirEntries) {
-        if (entry.isDirectory()) {
-          const subDirPath = join(baseDir, entry.name);
-          const subAssets = loadDirAssets(subDirPath);
-          if (subAssets.idles.length > 0 || subAssets.clicks.length > 0 || subAssets.fidgets.length > 0 || subAssets.sleeps.length > 0) {
-            availableThemes.push({
-              id: entry.name,
-              name: THEME_DISPLAY_NAMES[entry.name] ?? entry.name,
-              preview: subAssets.idles[0] ?? subAssets.clicks[0] ?? subAssets.fidgets[0] ?? null
-            });
-          }
-        }
-      }
-    } catch {
-      // ignore
     }
 
     const currentThemeSetting =
@@ -1202,21 +1159,13 @@ app.whenReady().then(async () => {
     let activeDir: string | null = null;
     let resolvedActiveTheme: string | null = null;
 
-    if (currentThemeSetting) {
-      const match = availableThemes.find((t) => t.id === currentThemeSetting);
-      if (match) {
-        resolvedActiveTheme = match.id;
-        activeDir = match.id === 'default' ? baseDir : join(baseDir, match.id);
-      }
+    if (currentThemeSetting && themeDirById.has(currentThemeSetting)) {
+      resolvedActiveTheme = currentThemeSetting;
+      activeDir = themeDirById.get(currentThemeSetting) ?? null;
     }
 
-    const activeAssets = activeDir ? loadDirAssets(activeDir) : { idles: [], clicks: [], fidgets: [], sleeps: [] };
-    const hasCustomPet = Boolean(
-      activeAssets.idles.length > 0 ||
-      activeAssets.clicks.length > 0 ||
-      activeAssets.fidgets.length > 0 ||
-      activeAssets.sleeps.length > 0
-    );
+    const activeAssets = activeDir ? loadDirAssets(activeDir) : emptyAssets;
+    const hasCustomPet = hasAny(activeAssets);
 
     return {
       hasCustomPet,
@@ -1256,9 +1205,20 @@ app.whenReady().then(async () => {
   handleIpc('task:create-step', (id, title) => requireWritableTaskDatabase(() => taskService.createStep(asString(id), asString(title))));
   handleIpc('reminder:begin-rest', (id) => beginHealthRest(asString(id)));
   handleIpc('task:restore-legacy', (id) => requireWritableTaskDatabase(() => {
-    const task = taskService.getTask(asString(id));
-    if (task?.projectId) taskService.updateProject(task.projectId, { status: 'active' });
-    return taskService.setTaskStatus(asString(id), 'open');
+    const taskId = asString(id);
+    const task = taskService.getTask(taskId);
+    if (!task) return taskService.getTasks();
+    // Reopening a completed record must not resurrect an archived/completed
+    // list into the live todo filter. If the list is inactive, rehome the
+    // task to the default list instead of flipping project status.
+    if (task.projectId) {
+      const project = taskService.getProject(task.projectId);
+      const listIsLive = project?.status === 'active' || project?.status === 'onHold';
+      if (!listIsLive) {
+        taskService.updateTask(taskId, { projectId: null, baseRevision: task.revision });
+      }
+    }
+    return taskService.setTaskStatus(taskId, 'open');
   }));
   handleIpc('data:legacy', () => ({ sections: [
     { title: '已停用的独立提醒', items: taskStore.getStandaloneReminders().map((item) => ({ title: item.label, detail: '已停用；原规则随备份保留' })) },

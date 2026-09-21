@@ -355,16 +355,17 @@
 .simple-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity var(--motion-instant) var(--ease-out); }
 .simple-task-row:hover .simple-row-actions,
 .simple-task-row:focus-within .simple-row-actions { opacity: 1; }
-.simple-row-actions button { min-height: 32px; padding: 0 8px; display: grid; place-items: center; }
+.simple-row-actions button { min-height: 40px; min-width: 40px; padding: 0 8px; display: grid; place-items: center; }
 
-/* Row menu: a small anchored popover, elevated one layer. */
-.simple-menu { position: relative; }
+/* Row menu: summary stays in the flex row; actions live in an absolute
+   popover so opening the menu never changes task-row geometry. */
+.simple-menu { position: relative; flex: none; }
 .simple-menu summary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  min-width: 32px;
+  min-height: 40px;
+  min-width: 40px;
   padding: 0 6px;
   cursor: pointer;
   list-style: none;
@@ -373,30 +374,39 @@
 }
 .simple-menu summary::-webkit-details-marker { display: none; }
 .simple-menu summary:hover { color: var(--fg-primary); background: var(--surface-hover); }
-.simple-menu[open] { z-index: 2; }
+.simple-menu[open] { z-index: 30; }
 .simple-menu[open] > summary { color: var(--fg-primary); background: var(--surface-hover); }
-.simple-menu[open] > button,
-.simple-menu[open] .simple-menu-popover { display: block; }
-.simple-menu > button {
+.simple-menu-popover {
   display: none;
-  width: 128px;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 128px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-medium);
+  box-shadow: var(--shadow-medium);
+}
+.simple-menu[open] .simple-menu-popover { display: flex; }
+.simple-menu-popover button {
+  width: 100%;
   min-height: 34px;
-  margin-top: -1px;
   padding: 0 11px;
   justify-content: flex-start;
   color: var(--fg-secondary);
-  background: var(--surface-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-small);
   box-shadow: none;
   text-align: left;
 }
-.simple-menu > button:first-of-type { margin-top: 4px; border-radius: var(--radius-small) var(--radius-small) 0 0; box-shadow: var(--shadow-soft); }
-.simple-menu > button:last-of-type { border-radius: 0 0 var(--radius-small) var(--radius-small); box-shadow: var(--shadow-soft); }
-.simple-menu > button:first-of-type:last-of-type { border-radius: var(--radius-small); }
-.simple-menu > button:hover { color: var(--fg-primary); background: var(--surface); border-color: var(--border-strong); }
-.simple-menu > button.is-danger { color: var(--danger); }
-.simple-menu > button.is-danger:hover { background: var(--danger-subtle); border-color: color-mix(in srgb, var(--danger) 32%, transparent); }
+.simple-menu-popover button:hover { color: var(--fg-primary); background: var(--surface-hover); }
+.simple-menu-popover button.is-danger { color: var(--danger); }
+.simple-menu-popover button.is-danger:hover { background: var(--danger-subtle); }
 
 .simple-task-fields {
   padding: 18px 22px;
@@ -411,7 +421,8 @@
 .simple-settings label { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; color: var(--fg-secondary); font-size: 12.5px; }
 .simple-field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .simple-step { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-.simple-step input:not([type='checkbox']) { min-height: 34px; }
+.simple-step input:not([type='checkbox']) { min-height: 34px; flex: 1; }
+.simple-step button { min-width: 40px; min-height: 40px; padding: 0 8px; }
 
 .simple-history-row {
   display: flex;
@@ -480,8 +491,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 28px;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 12px;
   font-size: 12px;
   color: var(--fg-secondary);
   background: var(--surface-raised);
@@ -664,31 +675,45 @@
 }
 
 /* ── Modern Accessible Toggle Switch ──────────────────────────────────────── */
+/* Outer button is the hit target (≥44px); the track is the visual switch. */
 .simple-setting-switch {
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   width: 44px;
   min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-small);
+  cursor: pointer;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+.simple-setting-switch:disabled { opacity: 0.5; cursor: default; }
+.simple-setting-switch-track {
+  position: relative;
+  display: block;
+  width: 44px;
   height: 24px;
-  min-height: 24px;
   padding: 2px;
   background: var(--surface-hover);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  cursor: pointer;
   box-shadow: none;
-  flex-shrink: 0;
   transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
-.simple-setting-switch:hover {
+.simple-setting-switch:hover:not(:disabled) .simple-setting-switch-track {
   background: var(--border-strong);
 }
-.simple-setting-switch.is-checked {
+.simple-setting-switch.is-checked .simple-setting-switch-track {
   background: var(--brand);
   border-color: var(--brand);
 }
-.simple-setting-switch.is-checked:hover {
+.simple-setting-switch.is-checked:hover:not(:disabled) .simple-setting-switch-track {
   background: var(--brand-strong);
   border-color: var(--brand-strong);
 }
@@ -704,6 +729,16 @@
 .simple-setting-switch.is-checked .simple-setting-switch-handle {
   transform: translateX(20px);
   background: var(--brand-contrast);
+}
+
+.simple-settings-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  color: var(--danger);
+  background: var(--danger-subtle);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  border-radius: var(--radius-medium);
+  font-size: 13px;
 }
 
 /* ── Visual Pet Grid & Cards ──────────────────────────────────────────────── */
@@ -860,7 +895,7 @@
   .simple-workbench input:not([type='checkbox']),
   .simple-workbench select,
   .simple-workbench textarea,
-  .simple-menu > button,
+  .simple-menu-popover button,
   .simple-undo,
   .simple-settings section { border: 1px solid ButtonText; }
   .simple-header { background: Canvas; border-color: CanvasText; }

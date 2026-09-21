@@ -62,8 +62,61 @@ function SettingSwitch({
       className={`simple-setting-switch ${checked ? 'is-checked' : ''}`}
       onClick={() => onChange(!checked)}
     >
-      <span className="simple-setting-switch-handle" />
+      <span className="simple-setting-switch-track" aria-hidden="true">
+        <span className="simple-setting-switch-handle" />
+      </span>
     </button>
+  );
+}
+
+function SettingNumberField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  disabled,
+  onSave
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  disabled?: boolean;
+  onSave: (next: number) => Promise<boolean> | void;
+}): JSX.Element {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+  const commit = (): void => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    const clamped = Math.min(max, Math.max(min, parsed));
+    setDraft(String(clamped));
+    if (clamped === value) return;
+    void Promise.resolve(onSave(clamped)).then((ok) => {
+      if (ok === false) setDraft(String(value));
+    });
+  };
+  return (
+    <label>
+      {label}
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={commit}
+      />
+    </label>
   );
 }
 
@@ -73,8 +126,9 @@ export function SimpleSettings(): JSX.Element {
   const tasks = useTasks();
   const [legacy, setLegacy] = useState<LegacyData | null>(null);
   const [customAssets, setCustomAssets] = useState<CustomPetAssets | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
-  const save = (patch: Partial<Settings>): void => { void action.run(() => window.eyeProtect.saveSettings(patch)); };
 
   useEffect(() => {
     const loadThemes = () => {
@@ -85,6 +139,22 @@ export function SimpleSettings(): JSX.Element {
     return () => window.removeEventListener('focus', loadThemes);
   }, []);
 
+  const save = (key: string, patch: Partial<Settings>): Promise<boolean> => {
+    setSavingKey(key);
+    setSaveError(null);
+    return run(() => window.eyeProtect.saveSettings(patch))
+      .then((result) => {
+        if (!result.ok) {
+          setSaveError(result.message || '设置保存失败');
+          return false;
+        }
+        return true;
+      })
+      .finally(() => {
+        setSavingKey((current) => (current === key ? null : current));
+      });
+  };
+
   const number = (
     key: 'eyeIntervalMinutes' | 'walkIntervalMinutes' | 'eyeRestSeconds' | 'walkRestSeconds' | 'petScale',
     label: string,
@@ -92,21 +162,18 @@ export function SimpleSettings(): JSX.Element {
     max: number,
     step = 1
   ): JSX.Element => (
-    <label>
-      {label}
-      <input
-        type="number"
-        key={`${key}-${settings[key]}`}
-        min={min}
-        max={max}
-        step={step}
-        defaultValue={settings[key]}
-        onBlur={(event) => {
-          const value = Number(event.currentTarget.value);
-          if (Number.isFinite(value) && value !== settings[key]) save({ [key]: value });
-        }}
-      />
-    </label>
+    <SettingNumberField
+      label={label}
+      value={settings[key]}
+      min={min}
+      max={max}
+      step={step}
+      disabled={savingKey === key}
+      onSave={async (next) => {
+        const ok = await save(key, { [key]: next });
+        return ok;
+      }}
+    />
   );
 
   return (
@@ -115,6 +182,8 @@ export function SimpleSettings(): JSX.Element {
       <p className="simple-settings-subtitle">定制健康护眼节奏、桌面桌宠伙伴与系统偏好</p>
 
       {/* ── Section 1: 休息提醒 ─────────────────────────────────────────── */}
+      {saveError ? <p role="alert" className="simple-settings-error">{saveError}</p> : null}
+      {action.error ? <p role="alert" className="simple-settings-error">{action.error.message}</p> : null}
       <section>
         <h2>
           <Eye size={18} />
@@ -138,8 +207,8 @@ export function SimpleSettings(): JSX.Element {
             </div>
             <SettingSwitch
               checked={settings.eyeEnabled}
-              onChange={(checked) => save({ eyeEnabled: checked })}
-              disabled={action.isPending}
+              onChange={(checked) => save('eyeEnabled', { eyeEnabled: checked })}
+              disabled={savingKey === 'eyeEnabled'}
               label="开启护眼短休息"
             />
           </div>
@@ -172,8 +241,8 @@ export function SimpleSettings(): JSX.Element {
             </div>
             <SettingSwitch
               checked={settings.walkEnabled}
-              onChange={(checked) => save({ walkEnabled: checked })}
-              disabled={action.isPending}
+              onChange={(checked) => save('walkEnabled', { walkEnabled: checked })}
+              disabled={savingKey === 'walkEnabled'}
               label="开启走动长休息"
             />
           </div>
@@ -211,7 +280,7 @@ export function SimpleSettings(): JSX.Element {
                 提醒方式
                 <select
                   value={settings.reminderMode}
-                  onChange={(e) => save({ reminderMode: e.currentTarget.value as Settings['reminderMode'] })}
+                  onChange={(e) => save('reminderMode', { reminderMode: e.currentTarget.value as Settings['reminderMode'] })}
                 >
                   <option value="focused">沉浸遮罩（全屏暗色覆盖，适合深度休息）</option>
                   <option value="guided">浮窗卡片（屏幕中央温和卡片，适度提醒）</option>
@@ -222,7 +291,7 @@ export function SimpleSettings(): JSX.Element {
                 默认稍后（分钟）
                 <select
                   value={settings.snoozeMinutes}
-                  onChange={(e) => save({ snoozeMinutes: Number(e.currentTarget.value) })}
+                  onChange={(e) => save('snoozeMinutes', { snoozeMinutes: Number(e.currentTarget.value) })}
                 >
                   {[1, 5, 10, 15].map((minutes) => (
                     <option key={minutes} value={minutes}>
@@ -244,8 +313,8 @@ export function SimpleSettings(): JSX.Element {
               </div>
               <SettingSwitch
                 checked={settings.soundEnabled}
-                onChange={(checked) => save({ soundEnabled: checked })}
-                disabled={action.isPending}
+                onChange={(checked) => save('soundEnabled', { soundEnabled: checked })}
+                disabled={savingKey === 'soundEnabled'}
                 label="开启休息提示音效"
               />
             </div>
@@ -292,8 +361,8 @@ export function SimpleSettings(): JSX.Element {
               </div>
               <SettingSwitch
                 checked={settings.fullscreenDndEnabled}
-                onChange={(checked) => save({ fullscreenDndEnabled: checked })}
-                disabled={action.isPending}
+                onChange={(checked) => save('fullscreenDndEnabled', { fullscreenDndEnabled: checked })}
+                disabled={savingKey === 'fullscreenDndEnabled'}
                 label="开启全屏应用自动免打扰"
               />
             </div>
@@ -306,8 +375,8 @@ export function SimpleSettings(): JSX.Element {
               </div>
               <SettingSwitch
                 checked={settings.quietHoursEnabled}
-                onChange={(checked) => save({ quietHoursEnabled: checked })}
-                disabled={action.isPending}
+                onChange={(checked) => save('quietHoursEnabled', { quietHoursEnabled: checked })}
+                disabled={savingKey === 'quietHoursEnabled'}
                 label="开启定时免打扰时段"
               />
             </div>
@@ -317,30 +386,22 @@ export function SimpleSettings(): JSX.Element {
                   开始时间
                   <input
                     type="time"
-                    defaultValue={toTimeStr(settings.quietHoursStartMinutes)}
-                    onBlur={(e) =>
-                      save({
-                        quietHoursStartMinutes: fromTimeStr(
-                          e.currentTarget.value,
-                          settings.quietHoursStartMinutes
-                        )
-                      })
-                    }
+                    value={toTimeStr(settings.quietHoursStartMinutes)}
+                    onChange={(e) => {
+                      const next = fromTimeStr(e.currentTarget.value, settings.quietHoursStartMinutes);
+                      if (next !== settings.quietHoursStartMinutes) save('quietHoursStartMinutes', { quietHoursStartMinutes: next });
+                    }}
                   />
                 </label>
                 <label>
                   结束时间
                   <input
                     type="time"
-                    defaultValue={toTimeStr(settings.quietHoursEndMinutes)}
-                    onBlur={(e) =>
-                      save({
-                        quietHoursEndMinutes: fromTimeStr(
-                          e.currentTarget.value,
-                          settings.quietHoursEndMinutes
-                        )
-                      })
-                    }
+                    value={toTimeStr(settings.quietHoursEndMinutes)}
+                    onChange={(e) => {
+                      const next = fromTimeStr(e.currentTarget.value, settings.quietHoursEndMinutes);
+                      if (next !== settings.quietHoursEndMinutes) save('quietHoursEndMinutes', { quietHoursEndMinutes: next });
+                    }}
                   />
                 </label>
               </div>
@@ -374,6 +435,21 @@ export function SimpleSettings(): JSX.Element {
           </div>
 
           <div className="simple-setting-card-body">
+            {settings.customPetTheme &&
+            customAssets &&
+            customAssets.availableThemes.length > 0 &&
+            !customAssets.availableThemes.some((theme) => theme.id === settings.customPetTheme) ? (
+              <div className="simple-settings-error" role="status">
+                当前动态角色「{settings.customPetTheme}」的素材已不存在，请重新选择角色。
+                <button
+                  type="button"
+                  style={{ marginLeft: 10 }}
+                  onClick={() => save('petAppearance:cat', { customPetTheme: null, petAppearance: 'cat' })}
+                >
+                  恢复经典橘猫
+                </button>
+              </div>
+            ) : null}
             {customAssets && customAssets.availableThemes.length > 0 && (
               <>
                 <div className="simple-pet-group-title">动态角色系列</div>
@@ -386,7 +462,8 @@ export function SimpleSettings(): JSX.Element {
                         type="button"
                         className="simple-pet-card"
                         aria-pressed={isSelected}
-                        onClick={() => save({ customPetTheme: theme.id })}
+                        onClick={() => save(`customPetTheme:${theme.id}`, { customPetTheme: theme.id })}
+                        disabled={savingKey === `customPetTheme:${theme.id}`}
                         title={`选择角色：${theme.name}`}
                       >
                         {isSelected && (
@@ -419,7 +496,8 @@ export function SimpleSettings(): JSX.Element {
                     type="button"
                     className="simple-pet-card"
                     aria-pressed={isSelected}
-                    onClick={() => save({ petAppearance: animal, customPetTheme: null })}
+                    onClick={() => save(`petAppearance:${animal}`, { petAppearance: animal, customPetTheme: null })}
+                    disabled={savingKey === `petAppearance:${animal}`}
                     title={`选择经典角色：${PIXEL_ANIMAL_NAMES[animal]}`}
                   >
                     {isSelected && (
@@ -458,7 +536,7 @@ export function SimpleSettings(): JSX.Element {
                 界面主题
                 <select
                   value={settings.theme}
-                  onChange={(e) => save({ theme: e.currentTarget.value as Settings['theme'] })}
+                  onChange={(e) => save('theme', { theme: e.currentTarget.value as Settings['theme'] })}
                 >
                   <option value="system">跟随系统</option>
                   <option value="light">浅色模式</option>
@@ -476,8 +554,8 @@ export function SimpleSettings(): JSX.Element {
               </div>
               <SettingSwitch
                 checked={settings.petMotion}
-                onChange={(checked) => save({ petMotion: checked })}
-                disabled={action.isPending}
+                onChange={(checked) => save('petMotion', { petMotion: checked })}
+                disabled={savingKey === 'petMotion'}
                 label="开启桌宠小动作"
               />
             </div>
@@ -533,8 +611,8 @@ export function SimpleSettings(): JSX.Element {
             </div>
             <SettingSwitch
               checked={settings.startWithWindows}
-              onChange={(checked) => save({ startWithWindows: checked })}
-              disabled={action.isPending}
+              onChange={(checked) => save('startWithWindows', { startWithWindows: checked })}
+              disabled={savingKey === 'startWithWindows'}
               label="开启开机自启"
             />
           </div>
@@ -642,8 +720,6 @@ export function SimpleSettings(): JSX.Element {
           </div>
         </div>
       </section>
-
-      {action.error ? <p role="alert">{action.error.message}</p> : null}
     </div>
   );
 }

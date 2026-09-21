@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -79,8 +79,9 @@ export default function WorkbenchView(): JSX.Element {
   const history = selected.filter((task) => task.status === 'done' && task.completedAt !== null && (!date || localDateKey(task.completedAt) === date)).sort((a, b) => b.completedAt! - a.completedAt!);
   const days = [...new Set(history.map((task) => localDateKey(task.completedAt!)))];
   const openTasks = selected.filter((task) => task.status === 'open');
-  const todayDone = tasks.filter((task) => !task.parentId && task.status === 'done' && task.completedAt !== null && localDateKey(task.completedAt) === todayKey);
+  const todayDone = selected.filter((task) => task.status === 'done' && task.completedAt !== null && localDateKey(task.completedAt) === todayKey);
   const progressPercent = openTasks.length + todayDone.length > 0 ? Math.round((todayDone.length / (openTasks.length + todayDone.length)) * 100) : 0;
+  const searchHasOnlyDoneMatches = Boolean(search) && selected.length > 0 && openTasks.length === 0 && groupSimpleTasks(selected, now).every((group) => group.tasks.length === 0);
   const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'long' }).format(new Date(now));
   return <main className="simple-workbench">
     <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
@@ -179,7 +180,14 @@ export default function WorkbenchView(): JSX.Element {
               <p>在上方输入框写下一项要做的事情，按回车即可轻松开始你的每日专注计划。</p>
             </div>
           ) : null}
-          {search && groupSimpleTasks(selected, now).every((group) => group.tasks.length === 0) ? (
+          {search && searchHasOnlyDoneMatches ? (
+            <div className="simple-empty-state">
+              <div className="simple-empty-icon"><CheckCircle2 size={22} aria-hidden="true" /></div>
+              <h3>“{search}”只出现在完成记录中</h3>
+              <p>切换到完成记录页查看，或换个关键词搜索待办。</p>
+            </div>
+          ) : null}
+          {search && groupSimpleTasks(selected, now).every((group) => group.tasks.length === 0) && !searchHasOnlyDoneMatches ? (
             <div className="simple-empty-state">
               <div className="simple-empty-icon"><Search size={22} aria-hidden="true" /></div>
               <h3>未找到匹配“{search}”的任务</h3>
@@ -216,12 +224,16 @@ export default function WorkbenchView(): JSX.Element {
                 </div>
                 <div className="simple-history-actions">
                   <button
-                    type="button"
-                    className="simple-history-action-btn"
-                    title="恢复至待办清单"
-                    disabled={action.isPending}
-                    onClick={() => void action.run(() => window.eyeProtect.restoreLegacyTask(task.id))}
-                  >
+                  type="button"
+                  className="simple-history-action-btn"
+                  title={
+                    projects.find((p) => p.id === task.projectId && (p.status === 'active' || p.status === 'onHold'))
+                      ? '恢复至待办清单'
+                      : '恢复至默认清单（不会复活已归档清单）'
+                  }
+                  disabled={action.isPending}
+                  onClick={() => void action.run(() => window.eyeProtect.restoreLegacyTask(task.id))}
+                >
                     <RotateCcw size={12} aria-hidden="true" />
                     <span>恢复待办</span>
                   </button>
@@ -264,8 +276,19 @@ export default function WorkbenchView(): JSX.Element {
 function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayKey }: { task: Task; tasks: Task[]; projects: Project[]; expanded: boolean; onExpand: () => void; confirm: (message: string, options?: string | { title?: string; detail?: string; confirmText?: string; danger?: boolean }) => Promise<boolean>; todayKey: string }): JSX.Element {
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   const { settings } = useSettings();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDetailsElement | null>(null);
   const steps = taskSteps(task.id, tasks).filter((step) => step.status !== 'archived');
   const pinned = settings.todoBubbleTaskIds.includes(task.id);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [menuOpen]);
+  const closeMenu = (): void => setMenuOpen(false);
   const complete = (): void => {
     const pending = steps.filter((step) => step.status === 'open');
     void (async () => {
@@ -310,8 +333,52 @@ function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayK
       ) : null}
       {task.reminderAt ? <span className="simple-muted" title={`提醒：${new Date(task.reminderAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`} aria-label={`已设置提醒 ${new Date(task.reminderAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}><Bell size={13} aria-hidden="true" /></span> : null}
       <div className="simple-row-actions"><button aria-label={pinned ? '移出浮窗' : '放到浮窗'} aria-pressed={pinned} disabled={action.isPending} onClick={(e) => { e.stopPropagation(); void action.run(() => window.eyeProtect.saveSettings({ todoBubbleTaskIds: pinned ? settings.todoBubbleTaskIds.filter((id) => id !== task.id) : [...settings.todoBubbleTaskIds, task.id], todoBubbleEnabled: true })); }}><Pin size={16} /></button>
-        <button aria-label={`专注 ${task.title}`} onClick={(e) => { e.stopPropagation(); void action.run(async () => { const state = await window.eyeProtect.getPomodoro(); if (['focus', 'break'].includes(state.phase) && !(await confirm('当前计时会被替换。', { title: '用这项任务开始新的专注？', confirmText: '开始专注' }))) return; await window.eyeProtect.preparePomodoro(task.id, true); }); }}><Play size={16} /></button></div>
-      <details className="simple-menu" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') (e.currentTarget as HTMLDetailsElement).open = false; }}><summary aria-label={`更多操作 ${task.title}`}>•••</summary><button className="is-danger" disabled={action.isPending} onClick={() => void (async () => { if (await confirm('任务及其步骤都会被删除，且可用撤销找回。', { title: `删除「${task.title}」？`, confirmText: '删除', danger: true })) await action.run(() => window.eyeProtect.deleteTask(task.id)); })()}>删除任务</button>{pinned ? [-1, 1].map((direction) => <button key={direction} disabled={action.isPending || settings.todoBubbleTaskIds.indexOf(task.id) + direction < 0 || settings.todoBubbleTaskIds.indexOf(task.id) + direction >= settings.todoBubbleTaskIds.length} onClick={() => void action.run(() => { const ids = [...settings.todoBubbleTaskIds]; const index = ids.indexOf(task.id); [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]]; return window.eyeProtect.saveSettings({ todoBubbleTaskIds: ids }); })}>{direction === -1 ? '浮窗上移' : '浮窗下移'}</button>) : null}</details>
+        <button aria-label={`专注 ${task.title}`} disabled={action.isPending} onClick={(e) => { e.stopPropagation(); void action.run(async () => { const state = await window.eyeProtect.getPomodoro(); if (['focus', 'break'].includes(state.phase) && !(await confirm('当前计时会被替换。', { title: '用这项任务开始新的专注？', confirmText: '开始专注' }))) return; await window.eyeProtect.preparePomodoro(task.id, true); }); }}><Play size={16} /></button></div>
+      <details
+        ref={menuRef}
+        className="simple-menu"
+        open={menuOpen}
+        onToggle={(e) => setMenuOpen(e.currentTarget.open)}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setMenuOpen(false); } }}
+      >
+        <summary aria-label={`更多操作 ${task.title}`}>•••</summary>
+        <div className="simple-menu-popover" role="menu" aria-label={`任务操作 ${task.title}`}>
+          <button
+            type="button"
+            role="menuitem"
+            className="is-danger"
+            disabled={action.isPending}
+            onClick={() => void (async () => {
+              closeMenu();
+              if (await confirm('任务及其步骤都会被删除，且可用撤销找回。', { title: `删除「${task.title}」？`, confirmText: '删除', danger: true })) {
+                await action.run(() => window.eyeProtect.deleteTask(task.id));
+              }
+            })()}
+          >
+            删除任务
+          </button>
+          {pinned ? [-1, 1].map((direction) => (
+            <button
+              key={direction}
+              type="button"
+              role="menuitem"
+              disabled={action.isPending || settings.todoBubbleTaskIds.indexOf(task.id) + direction < 0 || settings.todoBubbleTaskIds.indexOf(task.id) + direction >= settings.todoBubbleTaskIds.length}
+              onClick={() => {
+                closeMenu();
+                void action.run(() => {
+                  const ids = [...settings.todoBubbleTaskIds];
+                  const index = ids.indexOf(task.id);
+                  [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
+                  return window.eyeProtect.saveSettings({ todoBubbleTaskIds: ids });
+                });
+              }}
+            >
+              {direction === -1 ? '浮窗上移' : '浮窗下移'}
+            </button>
+          )) : null}
+        </div>
+      </details>
     </div>
     {action.error ? <p role="alert">{action.error.message}</p> : null}
     {expanded ? <TaskFields task={task} steps={steps} projects={projects} confirm={confirm} /> : null}
@@ -339,7 +406,15 @@ function TaskFields({ task, steps, projects, confirm }: { task: Task; steps: Tas
         <label>清单<select value={draft.projectId ?? ''} onChange={(e) => setDraft({ ...draft, projectId: e.currentTarget.value || null })}><option value="">默认清单</option>{projects.filter(isSimpleList).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label></div>
       <label>备注<textarea rows={3} value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.currentTarget.value })} /></label>{/* The form owns the save command, and CommandButton defaults to type="button", so submitting has to be requested explicitly. */}<CommandButton type="submit" state={action.state} errorReason={action.error?.message} variant="primary" disabled={action.isPending || !dirty}>保存修改</CommandButton>
     </form>
-    <h3>步骤</h3>{steps.map((step, index) => <div className="simple-step" key={step.id}><input type="checkbox" aria-label={`步骤 ${step.title}`} checked={step.status === 'done'} disabled={action.isPending} onChange={() => void action.run(() => window.eyeProtect.setTaskStatus(step.id, step.status === 'done' ? 'open' : 'done'))} /><input aria-label="步骤名称" key={`${step.id}-${step.revision}`} defaultValue={step.title} onBlur={(e) => { if (e.currentTarget.value.trim() !== step.title) void action.run(() => window.eyeProtect.updateTask(step.id, { title: e.currentTarget.value, baseRevision: step.revision })); }} /><button type="button" aria-label="上移步骤" disabled={!steps.slice(0, index).some((item) => item.parentId === step.parentId) || action.isPending} onClick={() => void action.run(() => window.eyeProtect.moveStep(step.id, -1))}>↑</button><button type="button" aria-label={`删除步骤 ${step.title}`} onClick={() => void (async () => { if (await confirm('这一步及其原有下级都会被删除。', { title: `删除步骤「${step.title}」？`, confirmText: '删除', danger: true })) await action.run(() => window.eyeProtect.deleteTask(step.id)); })()}>×</button></div>)}
+    <h3>步骤</h3>{steps.map((step, index) => (
+      <div className="simple-step" key={step.id}>
+        <input type="checkbox" aria-label={`步骤 ${step.title}`} checked={step.status === 'done'} disabled={action.isPending} onChange={() => void action.run(() => window.eyeProtect.setTaskStatus(step.id, step.status === 'done' ? 'open' : 'done'))} />
+        <input aria-label="步骤名称" key={`${step.id}-${step.revision}`} defaultValue={step.title} onBlur={(e) => { if (e.currentTarget.value.trim() !== step.title) void action.run(() => window.eyeProtect.updateTask(step.id, { title: e.currentTarget.value, baseRevision: step.revision })); }} />
+        <button type="button" aria-label="上移步骤" disabled={!steps.slice(0, index).some((item) => item.parentId === step.parentId) || action.isPending} onClick={() => void action.run(() => window.eyeProtect.moveStep(step.id, -1))}>↑</button>
+        <button type="button" aria-label="下移步骤" disabled={!steps.slice(index + 1).some((item) => item.parentId === step.parentId) || action.isPending} onClick={() => void action.run(() => window.eyeProtect.moveStep(step.id, 1))}>↓</button>
+        <button type="button" aria-label={`删除步骤 ${step.title}`} disabled={action.isPending} onClick={() => void (async () => { if (await confirm('这一步及其原有下级都会被删除。', { title: `删除步骤「${step.title}」？`, confirmText: '删除', danger: true })) await action.run(() => window.eyeProtect.deleteTask(step.id)); })()}>×</button>
+      </div>
+    ))}
     <form className="simple-add" onSubmit={(e) => { e.preventDefault(); if (stepTitle.trim()) void action.run(async () => { await window.eyeProtect.createStep(task.id, stepTitle.trim()); setStepTitle(''); }); }}><input aria-label="添加步骤" placeholder="添加一个步骤…" value={stepTitle} onChange={(e) => setStepTitle(e.currentTarget.value)} /><button className="primary" disabled={action.isPending || !stepTitle.trim()}>添加步骤</button></form>
     {action.error ? <p role="alert">{action.error.message}</p> : null}
   </div>;

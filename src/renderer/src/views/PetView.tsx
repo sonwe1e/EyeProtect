@@ -15,15 +15,22 @@ export default function PetView(): JSX.Element {
 
   useLayoutEffect(() => {
     const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
-    if (!svg) return;
-    const box = svg.getBBox();
-    const viewBox = svg.viewBox.baseVal;
-    if (!viewBox.height) return;
-    void window.eyeProtect.reportPetArtworkBounds({
-      top: Math.max(0, (box.y - viewBox.y) / viewBox.height),
-      bottom: Math.min(1, (box.y + box.height - viewBox.y) / viewBox.height)
-    });
-  }, [animal]);
+    if (svg) {
+      const box = svg.getBBox();
+      const viewBox = svg.viewBox.baseVal;
+      if (!viewBox.height) return;
+      void window.eyeProtect.reportPetArtworkBounds({
+        top: Math.max(0, (box.y - viewBox.y) / viewBox.height),
+        bottom: Math.min(1, (box.y + box.height - viewBox.y) / viewBox.height)
+      });
+      return;
+    }
+    // Custom GIF themes render <img>, not SVG. Report a conservative full-body
+    // band so bubble anchoring still avoids covering the companion.
+    if (document.querySelector('.pet-character img')) {
+      void window.eyeProtect.reportPetArtworkBounds({ top: 0.04, bottom: 0.96 });
+    }
+  }, [animal, settings.customPetTheme]);
 
   const dragRef = useRef<{
     pointerId: number;

@@ -141,7 +141,7 @@ export default function AlertView(): JSX.Element {
     ? `本次休息 ${totalSeconds} 秒`
     : phase === 'finished'
       ? '已到时间，可以完成本次休息。'
-      : `还剩 ${remainingSeconds} 秒 · 提前完成不会被记录`;
+      : `还剩 ${remainingSeconds} 秒 · 倒计时结束后可完成打卡`;
 
   // 12-second breath cycle: Inhale 4s, Hold 4s, Exhale 4s
   const breathCycleSeconds = 12;
