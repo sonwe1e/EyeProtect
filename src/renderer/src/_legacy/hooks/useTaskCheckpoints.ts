@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { TaskCheckpoint } from '../../../shared/types';
+import type { TaskCheckpoint } from '../../../../shared/types';
 
 export const useTaskCheckpoints = (taskId: string): {
   checkpoints: TaskCheckpoint[];

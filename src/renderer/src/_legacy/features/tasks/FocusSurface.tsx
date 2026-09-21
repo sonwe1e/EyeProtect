@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { ArrowLeft, CheckCircle2, Coffee, Eye, Pause, Play, Target } from 'lucide-react';
-import type { FocusStatus, Task, TaskCheckpointDraft, TaskStatus } from '../../../../shared/types';
-import { CommandButton } from '../../components/CommandButton';
-import { Button, Dialog, Field } from '../../components/primitives';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
-import { completeTaskThenFocus } from './focusCompletion';
+import type { FocusStatus, Task, TaskCheckpointDraft, TaskStatus } from '../../../../../shared/types';
+import { CommandButton } from '../../../components/CommandButton';
+import { Button, Dialog, Field } from '../../../components/primitives';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
+import { completeTaskThenFocus } from '../../../features/tasks/focusCompletion';
 import styles from './FocusSurface.module.css';
 
 const formatMinutes = (value: number): string => `${Math.max(0, Math.floor(value / 60_000))}m`;

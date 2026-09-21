@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
-import { Dialog, TextField } from './primitives';
+import { Dialog, TextField } from '../../components/primitives';
 
 export interface PaletteCommand {
   id: string;

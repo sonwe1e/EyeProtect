@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { StandaloneReminder } from '../../../shared/types';
+import type { StandaloneReminder } from '../../../../shared/types';
 
 export const useStandaloneReminders = (): StandaloneReminder[] => {
   const [reminders, setReminders] = useState<StandaloneReminder[]>([]);

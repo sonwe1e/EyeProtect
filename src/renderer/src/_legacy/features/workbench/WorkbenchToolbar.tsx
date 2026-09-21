@@ -1,7 +1,7 @@
 import { Search, X } from 'lucide-react';
-import { CommandButton } from '../../components/CommandButton';
-import { IconButton } from '../../components/primitives';
-import type { CommandState } from '../../../../shared/types';
+import { CommandButton } from '../../../components/CommandButton';
+import { IconButton } from '../../../components/primitives';
+import type { CommandState } from '../../../../../shared/types';
 
 export interface WorkbenchToolbarProps {
   searchOpen: boolean;

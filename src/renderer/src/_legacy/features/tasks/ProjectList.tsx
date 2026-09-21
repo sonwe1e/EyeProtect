@@ -1,10 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, CheckCircle2, CirclePause, FolderOpen, Inbox, MoreHorizontal, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { PROJECT_NAME_MAX, type Project, type ProjectInput, type ProjectStatus, type Task } from '../../../../shared/types';
-import { CommandButton } from '../../components/CommandButton';
-import { Button, Dialog, Field, IconButton, ProjectDot, TextField } from '../../components/primitives';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
+import { PROJECT_NAME_MAX, type Project, type ProjectInput, type ProjectStatus, type Task } from '../../../../../shared/types';
+import { CommandButton } from '../../../components/CommandButton';
+import { Button, Dialog, Field, IconButton, ProjectDot, TextField } from '../../../components/primitives';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
 
 const PROJECT_COLORS = ['#2e6f61', '#4e6f91', '#7b628f', '#9a6a35', '#6d7a43'];
 

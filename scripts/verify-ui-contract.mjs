@@ -13,23 +13,21 @@ const tokens = read('src/renderer/src/styles/tokens.css');
 const primitives = read('src/renderer/src/styles/primitives.css');
 const workbench = read('src/renderer/src/styles/workbench.css');
 const settings = read('src/renderer/src/styles/settings.css');
-const plan = read('src/renderer/src/features/tasks/PlanWorkspace.module.css');
-const project = read('src/renderer/src/features/tasks/ProjectWorkspace.module.css');
-const taskDetail = read('src/renderer/src/features/tasks/TaskDetail.module.css');
-const focus = read('src/renderer/src/features/tasks/FocusSurface.module.css');
+const simple = read('src/renderer/src/styles/simple.css');
 const health = read('src/renderer/src/components/AppHealthBanner.module.css');
 const manifest = JSON.parse(read('package.json'));
+// Active product chrome only. Legacy UI lives under src/renderer/src/_legacy
+// and is out of product-path contracts (docs/architecture.md §遗留面清单).
 const chrome = [
   read('src/renderer/src/views/WorkbenchView.tsx'),
-  read('src/renderer/src/features/tasks/ProjectList.tsx'),
+  read('src/renderer/src/views/AlertView.tsx'),
+  read('src/renderer/src/views/PetView.tsx'),
+  read('src/renderer/src/views/BubbleView.tsx'),
+  read('src/renderer/src/features/simple/SimpleSettings.tsx'),
+  read('src/renderer/src/features/simple/PomodoroCard.tsx'),
   read('src/renderer/src/components/Button.tsx'),
   read('src/renderer/src/components/Dialog.tsx'),
   read('src/renderer/src/components/SideSheet.tsx'),
-  read('src/renderer/src/components/CommandPalette.tsx'),
-  read('src/renderer/src/features/tasks/ProjectWorkspace.tsx'),
-  read('src/renderer/src/features/tasks/PlanWorkspace.tsx'),
-  read('src/renderer/src/features/tasks/TaskDetail.tsx'),
-  read('src/renderer/src/features/tasks/FocusSurface.tsx'),
   read('src/renderer/src/components/AppHealthBanner.tsx'),
   read('src/renderer/src/components/primitives/NavItem.tsx'),
   read('src/renderer/src/components/primitives/Field.tsx'),
@@ -50,10 +48,7 @@ for (const [name, source] of [
   ['primitives.css', primitives],
   ['workbench.css', workbench],
   ['settings.css', settings],
-  ['PlanWorkspace.module.css', plan],
-  ['ProjectWorkspace.module.css', project],
-  ['TaskDetail.module.css', taskDetail],
-  ['FocusSurface.module.css', focus],
+  ['simple.css', simple],
   ['AppHealthBanner.module.css', health]
 ]) {
   if (rawColor.test(source)) failures.push(`${name} contains a raw color; use a semantic token`);
@@ -65,6 +60,7 @@ const cssFilesIn = (directory) => readdirSync(directory, { withFileTypes: true }
 });
 for (const path of cssFilesIn(resolve(root, 'src/renderer/src'))) {
   if (path.endsWith('theme.css')) continue;
+  if (path.includes('_legacy')) continue;
   if (rawColor.test(readFileSync(path, 'utf8'))) {
     failures.push(`${path.slice(root.length + 1)} contains a raw color outside theme.css`);
   }
@@ -78,10 +74,7 @@ for (const [source, label] of [
   [primitives, 'primitives.css'],
   [workbench, 'workbench.css'],
   [settings, 'settings.css'],
-  [plan, 'PlanWorkspace.module.css'],
-  [project, 'ProjectWorkspace.module.css'],
-  [taskDetail, 'TaskDetail.module.css'],
-  [focus, 'FocusSurface.module.css'],
+  [simple, 'simple.css'],
   [health, 'AppHealthBanner.module.css']
 ]) {
   if (/(^|})\s*svg\s*\{[^}]*\b(?:color|stroke|fill)\s*:/m.test(source)) {
@@ -92,6 +85,7 @@ for (const [source, label] of [
 const workbenchSource = read('src/renderer/src/views/WorkbenchView.tsx');
 const legacyStyles = read('src/renderer/src/styles.css');
 if (/workbench-shell/.test(workbenchSource)) failures.push('Workbench must not inherit the legacy shell stylesheet');
+if (/_legacy\//.test(workbenchSource)) failures.push('WorkbenchView must not import from _legacy');
 for (const selector of ['task-row', 'project-item', 'detail-card', 'detail-field']) {
   if (new RegExp(`\\.${selector}(?:[\\s:{.#>+~]|$)`).test(legacyStyles)) {
     failures.push(`styles.css must not own Workbench selector .${selector}`);
@@ -109,7 +103,7 @@ requireMatch(primitives, /\.ui-icon-button\s*\{[^}]*width:\s*36px;[^}]*height:\s
 requireMatch(primitives, /\.ui-button\s*\{[^}]*min-height:\s*40px/s, 'Buttons must be at least 40px high');
 requireMatch(workbench, /\.workbench-v2 \.task-row\s*\{[^}]*min-height:\s*(52px|var\(--task-row-height\))/s, 'Task rows must exceed the 44px target');
 requireMatch(workbench, /@media \(forced-colors: active\)/, 'Workbench must provide a forced-colors treatment');
-requireMatch(plan, /touch-action:\s*none/, 'Plan drag handles must support direct pointer manipulation');
+requireMatch(simple, /\.simple-workbench\s*\{[^}]*overflow-y:\s*auto/s, 'Simplified workbench must scroll in its own shell');
 requireMatch(primitives, /@media \(prefers-reduced-motion: reduce\)/, 'Motion primitives must honor reduced motion');
 
 // Floating widgets (bubble/pet) must not fall below a usable hit target. The

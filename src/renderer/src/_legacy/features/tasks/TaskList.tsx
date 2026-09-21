@@ -10,12 +10,12 @@ import {
   type TaskView,
   type TimeBlock,
   type TodoPriority
-} from '../../../../shared/types';
-import { CommandButton } from '../../components/CommandButton';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
-import { resolveSiblingDrop } from './taskReorder';
-import { getTaskRowMetadata } from './taskRowMetadata';
+} from '../../../../../shared/types';
+import { CommandButton } from '../../../components/CommandButton';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
+import { resolveSiblingDrop } from '../../../features/tasks/taskReorder';
+import { getTaskRowMetadata } from '../../../features/tasks/taskRowMetadata';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',

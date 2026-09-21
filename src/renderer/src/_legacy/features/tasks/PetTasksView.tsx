@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { isPetTaskEligible } from '../../../../shared/petTasks';
-import type { Settings } from '../../../../shared/types';
-import { useTasks } from '../../hooks/useTasks';
-import { useProjects } from '../../hooks/useProjects';
-import { useSettings } from '../../hooks/useSettings';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
+import { isPetTaskEligible } from '../../../../../shared/petTasks';
+import type { Settings } from '../../../../../shared/types';
+import { useTasks } from '../../../hooks/useTasks';
+import { useProjects } from '../../../hooks/useProjects';
+import { useSettings } from '../../../hooks/useSettings';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
 
 export function PetTasksView(): JSX.Element {
   const tasks = useTasks();
