@@ -162,20 +162,28 @@ try {
     await waitFor(pet, `(async () => !(await window.eyeProtect.getPomodoro()).running)()`);
     const paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
     if (!emergency) {
+      // AlertView randomly picks follow/breathe/pet on each reminder; breathe
+      // rewrites the ring caption to "余 mm:ss". Pin 视线光球 so ring assertions
+      // are deterministic under the redesigned rest-card copy.
+      await evaluate(alert, `(() => {
+        const follow = [...document.querySelectorAll('.rest-mode-btn')].find((button) => (button.textContent ?? '').includes('视线光球'));
+        if (follow) follow.click();
+      })()`);
+      await waitFor(alert, `document.querySelector('.rest-stage-count small')?.textContent === '剩余时长'`);
       // The disabled action carries the remaining wait, so the enforced pause is
       // asserted on the primary action itself rather than on an exact caption.
       await waitFor(alert, `document.querySelector('.rest-primary')?.disabled === true`);
       const resting = await evaluate(alert, `(() => ({
         ringLabel: document.querySelector('.rest-stage-count small')?.textContent ?? '',
         lede: document.querySelector('.rest-lede')?.textContent ?? '',
-        primary: document.querySelector('.rest-primary')?.textContent ?? '',
+        primary: (document.querySelector('.rest-primary')?.textContent ?? '').replace(/\\s+/g, ' ').trim(),
         completeDisabled: document.querySelector('.rest-primary')?.disabled ?? null,
         activities: [...document.querySelectorAll('.rest-activity')].map((entry) => entry.textContent ?? '')
       }))()`);
-      assert.equal(resting.ringLabel, '剩余', 'the running countdown must label its ring');
+      assert.equal(resting.ringLabel, '剩余时长', 'the running countdown must label its ring');
       assert.match(resting.lede, /^还有 \d+ 秒/, 'the running countdown must be visible as text');
       assert.equal(resting.completeDisabled, true, 'focused mode must enforce the rest wait');
-      assert.match(resting.primary, /^完成休息（\d+ 秒）$/, 'the disabled action must show the remaining wait');
+      assert.match(resting.primary, /^完成休息（还剩 \d+ 秒）$/, 'the disabled action must show the remaining wait');
       // The panel only carries the activity in progress, so the picked micro-break
       // activity and its pacing are asserted while the rest is running rather than
       // before it starts.
@@ -183,7 +191,8 @@ try {
       assert.ok(resting.activities[0].includes('步'), `activity guide must show its pacing, got ${resting.activities[0]}`);
     }
     // The rest window is 12s below; waitFor's default budget is shorter.
-    await waitFor(alert, `[...document.querySelectorAll('button')].some(b => b.textContent === '${emergency ? '完成' : '完成休息'}' && !b.disabled)`, 30_000);
+    // Finished primary copy is 完成休息打卡 (redesigned rest card).
+    await waitFor(alert, `[...document.querySelectorAll('button')].some(b => (b.textContent ?? '').trim() === '${emergency ? '完成' : '完成休息打卡'}' && !b.disabled)`, 30_000);
     if (!emergency) {
       const finished = await evaluate(alert, `(() => ({
         ringLabel: document.querySelector('.rest-stage-count small')?.textContent ?? '',
@@ -193,7 +202,7 @@ try {
       assert.equal(finished.lede, '这次休息时间已到', 'the panel must announce the finished rest');
     }
     await capture(alert, 'rest-finished');
-    await click(alert, emergency ? '完成' : '完成休息', true);
+    await click(alert, emergency ? '完成' : '完成休息打卡', true);
     await waitFor(pet, `(async () => !(await window.eyeProtect.getReminderStatus()).activeReminder)()`);
     assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).remainingMs, paused.remainingMs);
     bubble = await waitForTarget(endpoint, '#bubble');

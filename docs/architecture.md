@@ -76,6 +76,8 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 归档后同步调整：`tests/design-system-contract.test.ts`、`tests/modal-keyboard-contract.test.ts`、`scripts/verify-ui-contract.mjs` 只约束**活跃** chrome/样式路径；`scripts/legacy/README.md` 说明这些脚本不在 CI。
 
+**Packaged smoke 与改版休息卡对齐**：`2827ae3` 改版后环标签为「剩余时长 / 已到时间」，进行中主按钮为「完成休息（还剩 N 秒）」，完成按钮为「完成休息打卡」；`AlertView` 每次提醒随机 follow/breathe/pet，breathe 会把环文案改成「余 mm:ss」。`smoke-simple-experience.mjs` 在断言前固定「视线光球」模式，并按上述现行文案断言。master 在该对齐合入前，`verify-and-package` 会因旧 smoke 文案红。
+
 ### 主进程与 preload 收口结论（本轮）
 
 盘点事实（v1.6 精简产品）：
