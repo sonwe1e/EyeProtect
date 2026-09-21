@@ -385,9 +385,10 @@ export function SimpleSettings(): JSX.Element {
                 <label>
                   开始时间
                   <input
+                    key={`quiet-start-${settings.quietHoursStartMinutes}`}
                     type="time"
-                    value={toTimeStr(settings.quietHoursStartMinutes)}
-                    onChange={(e) => {
+                    defaultValue={toTimeStr(settings.quietHoursStartMinutes)}
+                    onBlur={(e) => {
                       const next = fromTimeStr(e.currentTarget.value, settings.quietHoursStartMinutes);
                       if (next !== settings.quietHoursStartMinutes) save('quietHoursStartMinutes', { quietHoursStartMinutes: next });
                     }}
@@ -396,9 +397,10 @@ export function SimpleSettings(): JSX.Element {
                 <label>
                   结束时间
                   <input
+                    key={`quiet-end-${settings.quietHoursEndMinutes}`}
                     type="time"
-                    value={toTimeStr(settings.quietHoursEndMinutes)}
-                    onChange={(e) => {
+                    defaultValue={toTimeStr(settings.quietHoursEndMinutes)}
+                    onBlur={(e) => {
                       const next = fromTimeStr(e.currentTarget.value, settings.quietHoursEndMinutes);
                       if (next !== settings.quietHoursEndMinutes) save('quietHoursEndMinutes', { quietHoursEndMinutes: next });
                     }}

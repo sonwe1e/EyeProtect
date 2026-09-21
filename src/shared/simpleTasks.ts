@@ -5,6 +5,20 @@ export const isSimpleList = (project: Project): boolean => project.status === 'a
 export const isCurrentTask = (task: Task, projects: Project[]): boolean =>
   !task.parentId && task.status !== 'archived' && (!task.projectId || projects.some((p) => p.id === task.projectId && isSimpleList(p)));
 
+/**
+ * Completion-record restore: keep the original list only when it is still a
+ * live simple list. Inactive lists rehome the task to the default list
+ * instead of resurrecting the whole project into the todo filter.
+ */
+export const resolveRestoredTaskProjectId = (
+  taskProjectId: string | null | undefined,
+  projectStatus: string | undefined
+): string | null => {
+  if (!taskProjectId) return null;
+  const listIsLive = projectStatus === 'active' || projectStatus === 'onHold';
+  return listIsLive ? taskProjectId : null;
+};
+
 export const taskSteps = (rootId: string, tasks: Task[]): Task[] => {
   const seen = new Set([rootId]);
   const result: Task[] = [];

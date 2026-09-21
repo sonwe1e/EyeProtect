@@ -1,14 +1,20 @@
 ---
 feature: frontend-ui-audit
-status: in-progress
+status: delivered
 updated: 2026-02-13
 branch: fix/frontend-ui-audit
-commits: 988b44b..HEAD # filled at delivery
+commits: 988b44b..64fd35c
 ---
 
 # Frontend UI Audit & Repair
 
 ## Report
+
+**What was built** — 活跃前端全面审查后的修复交付。待办「•••」改为绝对定位 popover，打开菜单不再撑高任务行。设置页开关扩到 44px 命中区，数字字段失焦 clamp 且保存失败回退草稿，写操作按 key 显示 pending/错误。完成记录「恢复待办」不再复活已归档清单（重挂到默认清单）。今日进度与搜索空态与筛选一致；步骤支持下移；提醒文案与气泡命中区、GIF 桌宠工具栏策略对齐。动态角色改为内置独立 GIF（shiba/bunny/hamster），由 `public/assets/pet-themes` + 用户 `custom-pet` 合并发现，托盘与设置共用 `listMergedPetThemes`；主题素材缺失时设置页提供恢复经典角色入口。
+
+**Verification** — `npm run typecheck` PASS；`npm test` PASS（492）；`npm run lint`（verify:product + verify:ui-contract）PASS。独立审查（988b44b..64fd35c）后已修复：气泡 40px 控件行高溢出、免打扰时间输入受控抢焦点、restore 策略补测、GIF 桌宠 `:has(img)` 工具栏、本 Report。
+
+**Journey log** — 环境拒绝 `git worktree add`，改为当前目录功能分支 `fix/frontend-ui-audit`。旧 `build_all_character_themes.py` 换色管线不再作为内置角色来源。AI 生成独立静帧后用 `scripts/build_builtin_pet_themes.py` 合成微动 GIF；fidget 为 idle 微位移，剪影仍来自独立素材。`run()` 返回 `CommandResult` 不抛错，设置保存须读 `result.ok`/`message`。packaged 主题路径依赖 `package.json` `files` 中的 `public/assets/**/*`。
 
 ## [S1] Problem
 
@@ -126,10 +132,10 @@ commits: 988b44b..HEAD # filled at delivery
 
 ## Tasks
 
-- [ ] T1: 修复待办三点菜单为绝对定位 popover — acceptance: 打开/关闭菜单时任务行几何位置与其它按钮不再位移；删除/浮窗排序仍可用；Escape/外点可关 (covers: S2.3)
-- [ ] T2: 修复设置页开关/数字/试提醒控件 — acceptance: 开关命中区≥44px 且状态即时正确；数字 clamp；失败可见且不永久锁死整页；typecheck 通过 (covers: S2.4)
-- [ ] T3: 审查并修复工作台待办与完成记录 UI — acceptance: 对 today/review 过一遍交互与空态；发现的布局/状态 bug 在代码中修复并在 Report 记录 (covers: S2.2; depends: T1)
-- [ ] T4: 审查并修复桌宠/气泡/休息遮罩/托盘角色菜单一致性 — acceptance: 主题切换在设置页与桌宠一致；气泡与遮罩无阻断使用缺陷；问题修复记入 Report (covers: S2.2, S2.5)
-- [ ] T5: 生成并落盘独立动态角色 GIF（shiba/bunny/hamster）— acceptance: `public/assets/pet-themes/<id>/` 含合规 GIF；剪影可区分；可用预览 (covers: S2.5)
-- [ ] T6: 主进程合并内置+用户主题并更新显示名/托盘/设置列表 — acceptance: `get-assets` 与托盘列出内置主题；用户同 id 可覆盖；无素材不出现空组；IPC/设置相关测试更新 (covers: S2.5; depends: T5)
-- [ ] T7: 补测试并跑验证门 — acceptance: `npm run typecheck`、`npm test`、`npm run lint` 通过；新增逻辑有测试；Report 写明命令结果 (covers: S2.6, S2.7; depends: T1,T2,T3,T4,T6)
+- [x] T1: 修复待办三点菜单为绝对定位 popover — acceptance: 打开/关闭菜单时任务行几何位置与其它按钮不再位移；删除/浮窗排序仍可用；Escape/外点可关 (covers: S2.3)
+- [x] T2: 修复设置页开关/数字/试提醒控件 — acceptance: 开关命中区≥44px 且状态即时正确；数字 clamp；失败可见且不永久锁死整页；typecheck 通过 (covers: S2.4)
+- [x] T3: 审查并修复工作台待办与完成记录 UI — acceptance: 对 today/review 过一遍交互与空态；发现的布局/状态 bug 在代码中修复并在 Report 记录 (covers: S2.2; depends: T1)
+- [x] T4: 审查并修复桌宠/气泡/休息遮罩/托盘角色菜单一致性 — acceptance: 主题切换在设置页与桌宠一致；气泡与遮罩无阻断使用缺陷；问题修复记入 Report (covers: S2.2, S2.5)
+- [x] T5: 生成并落盘独立动态角色 GIF（shiba/bunny/hamster）— acceptance: `public/assets/pet-themes/<id>/` 含合规 GIF；剪影可区分；可用预览 (covers: S2.5)
+- [x] T6: 主进程合并内置+用户主题并更新显示名/托盘/设置列表 — acceptance: `get-assets` 与托盘列出内置主题；用户同 id 可覆盖；无素材不出现空组；IPC/设置相关测试更新 (covers: S2.5; depends: T5)
+- [x] T7: 补测试并跑验证门 — acceptance: `npm run typecheck`、`npm test`、`npm run lint` 通过；新增逻辑有测试；Report 写明命令结果 (covers: S2.6, S2.7; depends: T1,T2,T3,T4,T6)

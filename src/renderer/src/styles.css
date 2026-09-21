@@ -1505,9 +1505,9 @@
 :root[data-bubble-placement='below'] .bubble-tail { top: 3px; bottom: auto; transform: rotate(225deg); }
 .bubble-todos .bubble-list { max-height: 96px; overflow-y: auto; margin: 0; padding: 0; gap: 0; }
 .bubble-task-row { list-style: none; }
-.bubble-task-line { display: flex; align-items: center; height: 32px; gap: 4px; }
+.bubble-task-line { display: flex; align-items: center; min-height: 44px; gap: 4px; }
 .bubble-complete { width: 40px; min-width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
-.bubble-task-title { flex: 1; min-width: 0; height: 32px; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; background: transparent; }
+.bubble-task-title { flex: 1; min-width: 0; min-height: 40px; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; background: transparent; }
 .bubble-task-error { display: block; color: var(--danger); font-size: 11px; }
 .bubble-select { align-self: flex-start; min-height: 40px; padding: 2px 8px; }
 .bubble-todos .bubble-title { padding-right: 24px; }
@@ -1526,10 +1526,14 @@
 .bubble-todos button:disabled { opacity: .5; cursor: wait; }
 .bubble-todos button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
-/* Keep the pixel silhouette clear; controls remain available on hover/focus. */
-.pet-shell:has(.pixel-animal) .pet-toolbar { opacity: 0; }
-.pet-shell:has(.pixel-animal):is(:hover, :focus-within) .pet-toolbar { opacity: 1; }
-.pet-shell:has(.pixel-animal):has(.is-dragging) :is(.pet-toolbar, .pet-drag-handle) { opacity: 0; pointer-events: none; }
+/* Keep the pixel silhouette clear; controls remain available on hover/focus.
+   Custom GIF themes render <img> instead of .pixel-animal — same chrome policy. */
+.pet-shell:has(.pixel-animal) .pet-toolbar,
+.pet-shell:has(.pet-character img) .pet-toolbar { opacity: 0; }
+.pet-shell:has(.pixel-animal):is(:hover, :focus-within) .pet-toolbar,
+.pet-shell:has(.pet-character img):is(:hover, :focus-within) .pet-toolbar { opacity: 1; }
+.pet-shell:has(.pixel-animal):has(.is-dragging) :is(.pet-toolbar, .pet-drag-handle),
+.pet-shell:has(.pet-character img):has(.is-dragging) :is(.pet-toolbar, .pet-drag-handle) { opacity: 0; pointer-events: none; }
 
 .pomodoro-clock { display: block; text-align: center; font-size: 34px; font-variant-numeric: tabular-nums; padding: 8px 0; }
 .pomodoro-task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; color: var(--fg-secondary); }

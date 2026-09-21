@@ -58,7 +58,7 @@ import { TaskStore } from './taskStore';
 import { TaskService } from './taskService';
 import { TaskScheduler } from './taskScheduler';
 import { PomodoroService } from './pomodoro';
-import { isCurrentTask } from '../shared/simpleTasks';
+import { isCurrentTask, resolveRestoredTaskProjectId } from '../shared/simpleTasks';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
@@ -1208,15 +1208,10 @@ app.whenReady().then(async () => {
     const taskId = asString(id);
     const task = taskService.getTask(taskId);
     if (!task) return taskService.getTasks();
-    // Reopening a completed record must not resurrect an archived/completed
-    // list into the live todo filter. If the list is inactive, rehome the
-    // task to the default list instead of flipping project status.
-    if (task.projectId) {
-      const project = taskService.getProject(task.projectId);
-      const listIsLive = project?.status === 'active' || project?.status === 'onHold';
-      if (!listIsLive) {
-        taskService.updateTask(taskId, { projectId: null, baseRevision: task.revision });
-      }
+    const project = task.projectId ? taskService.getProject(task.projectId) : null;
+    const nextProjectId = resolveRestoredTaskProjectId(task.projectId, project?.status);
+    if (nextProjectId !== task.projectId) {
+      taskService.updateTask(taskId, { projectId: nextProjectId, baseRevision: task.revision });
     }
     return taskService.setTaskStatus(taskId, 'open');
   }));
