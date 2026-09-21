@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ProjectSection } from '../../../shared/types';
+import type { ProjectSection } from '../../../../shared/types';
 
 /**
  * Project section subscription (USERPLAN 1.2 PR5). Hydrates via

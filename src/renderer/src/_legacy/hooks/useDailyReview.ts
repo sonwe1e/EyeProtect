@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { DailyReviewSummary } from '../../../shared/types';
+import type { DailyReviewSummary } from '../../../../shared/types';
 
 /**
  * Daily review snapshot subscription (USERPLAN 1.2 PR7).

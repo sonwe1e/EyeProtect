@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, RefreshCcw, RotateCcw, Shuffle } from 'lucide-react';
-import { Button, Field, StatusChip } from '../../components/primitives';
-import { CommandButton } from '../../components/CommandButton';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
-import type { DailyReviewSummary } from '../../../../shared/types';
+import { Button, Field, StatusChip } from '../../../components/primitives';
+import { CommandButton } from '../../../components/CommandButton';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
+import type { DailyReviewSummary } from '../../../../../shared/types';
 import styles from './DailyReview.module.css';
 
 const formatPlanTime = (minutes: number): string => {

@@ -9,13 +9,13 @@ import {
   type TaskStatus,
   type TaskUpdateInput,
   type TodoPriority
-} from '../../../../shared/types';
-import { isProjectAssignable } from '../../../../shared/projectPolicy';
-import { CommandButton } from '../../components/CommandButton';
-import { useCommand } from '../../hooks/useCommand';
+} from '../../../../../shared/types';
+import { isProjectAssignable } from '../../../../../shared/projectPolicy';
+import { CommandButton } from '../../../components/CommandButton';
+import { useCommand } from '../../../hooks/useCommand';
 import { useProjectSections } from '../../hooks/useProjectSections';
 import { useTaskCheckpoints } from '../../hooks/useTaskCheckpoints';
-import { commands } from '../../lib/commands';
+import { commands } from '../../../lib/commands';
 import styles from './TaskDetail.module.css';
 
 // Debounced field autosave (perf pass): `setTimeout(0)` sent one IPC + SQLite

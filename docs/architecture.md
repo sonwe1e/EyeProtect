@@ -62,6 +62,20 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | 样式 | `styles/simple.css`（工作台）、`styles.css` + `styles/theme.css`（桌宠/气泡/提醒） |
 | CI smoke | `scripts/smoke-simple-experience.mjs`、`scripts/smoke-simple-pet-failure.mjs` |
 
+### 处置结论（本轮）
+
+本轮只处理**孤儿 renderer** 与**不在 CI 的 smoke/capture 脚本**；主进程兼容模块与 IPC 暂留。
+
+| 类别 | 处置 | 目标位置 |
+| --- | --- | --- |
+| 孤儿 UI 组件 / 仅被孤儿组件使用的 hooks | **归档迁移** | `src/renderer/src/_legacy/` |
+| 仍有单元测试的纯函数（`todaySections`、`todayViewModel`、`planLayout`、`taskRowMetadata`、`taskReorder`、`focusCompletion`） | **原地保留** | `src/renderer/src/features/tasks/` |
+| 主进程 focus/plan/standalone/dailyReview 模块与存储表 | **本轮不动** | 仍由备份/IPC/测试触达 |
+| 非 CI 的 `scripts/smoke-*`（除 simple 两个）与 `capture-*`、`build-reminder-preview` | **归档迁移** | `scripts/legacy/` |
+| CI/npm 权威脚本 | **保留原位** | `scripts/verify-*.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`build-app-icon.mjs` |
+
+归档后同步调整：`tests/design-system-contract.test.ts`、`tests/modal-keyboard-contract.test.ts`、`scripts/verify-ui-contract.mjs` 只约束**活跃** chrome/样式路径；`scripts/legacy/README.md` 说明这些脚本不在 CI。
+
 ### 遗留 / 兼容面（不在主 UI 路径）
 
 **主进程模块（源码仍在，生产启动不按旧产品实例化）**
@@ -75,20 +89,23 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 - `focus:*`、`plan:*`、`timeblock:*`、`section:*`、`standalone-reminder:*`、`daily:review`、`daily:reflection:*`、`checkpoint:*`、`history:report` 等
 - `data:legacy` / `task:restore-legacy` — 设置页「旧资料与恢复」仍使用
 
-**孤儿 renderer（无活跃入口 import）**
+**孤儿 renderer（已归档 / 待归档至 `src/renderer/src/_legacy/`）**
 
-- `src/renderer/src/views/SettingsView.tsx` — 设置以 `SimpleSettings.tsx` 为准
-- `src/renderer/src/features/tasks/`：`PlanWorkspace.tsx`、`ProjectWorkspace.tsx`、`ProjectList.tsx`、`FocusSurface.tsx`、`TaskDetail.tsx`、`TaskList.tsx`、`TaskComposer.tsx`、`PetTasksView.tsx` 及对应 module CSS；`todaySections.ts` / `todayViewModel.ts` / `planLayout.ts` 等仍有测试，但工作台不加载旧 Today/Focus 视图
-- `src/renderer/src/features/planning/DailyPlanningFlow.tsx`
-- `src/renderer/src/features/review/DailyReview.tsx`
-- `src/renderer/src/features/reminders/StandaloneReminderSection.tsx`
-- `src/renderer/src/components/CommandPalette.tsx`
-- 相关 hooks：`useTimeBlocks`、`useDailyPlans`、`useFocusStatus`、`useWeeklyReport`、`useStandaloneReminders` 等（多被上述孤儿组件使用）
+- 设置：`SettingsView.tsx`（活跃设置是 `features/simple/SimpleSettings.tsx`）
+- 旧任务工作台 UI：`PlanWorkspace`、`ProjectWorkspace`、`ProjectList`、`FocusSurface`、`TaskDetail`、`TaskList`、`TaskComposer`、`PetTasksView` 及对应 module CSS
+- 旧规划/复盘/独立提醒 UI：`planning/DailyPlanningFlow`、`review/DailyReview`、`reminders/StandaloneReminderSection`
+- 旧命令面板：`components/CommandPalette.tsx`
+- 仅服务上述组件的 hooks：`useTimeBlocks`、`useDailyPlans`、`useFocusStatus`、`useWeeklyReport`、`useStandaloneReminders`、`useDailyReview`、`useTaskCheckpoints`、`useProjectSections`
 
-**脚本（磁盘存在，不在 package.json / CI）**
+**原地保留的遗留纯函数（仍有测试）**
 
-- `scripts/smoke-running-app.mjs`、`smoke-reminder-experience.mjs`、`smoke-emergency-reminder.mjs`、`smoke-workbench-interactions.mjs`、`smoke-plan-interactions.mjs`、`smoke-project-lifecycle.mjs`、`smoke-focus-runtime.mjs`、`smoke-pet-tasks.mjs`、`smoke-bubble-opt-out.mjs`、`scripts/smoke-pet-failure.mjs`（旧名；当前入口是 `smoke-simple-pet-failure.mjs`）
-- `scripts/capture-*.mjs`、`scripts/build-reminder-preview.tsx`
+- `features/tasks/todaySections.ts`、`todayViewModel.ts`、`planLayout.ts`、`taskRowMetadata.ts`、`taskReorder.ts`、`focusCompletion.ts`
+- 工作台**不**挂载旧 Today/Focus 视图；这些模块供兼容/回归网使用
+
+**脚本**
+
+- **权威（package.json / CI）**：`scripts/verify-build-contract.mjs`、`verify-ui-contract.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`build-app-icon.mjs`
+- **已归档（不在 CI）**：`scripts/legacy/` 下历史 `smoke-*`（非 simple）、`capture-*`、`build-reminder-preview.tsx` 等；见 `scripts/legacy/README.md`
 
 **测试仍覆盖但对应 UI 已下线**
 
@@ -96,7 +113,8 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 ### 使用约束
 
-1. 活跃 UI 不要 import 孤儿组件，也不要为遗留 IPC 扩展 preload 类型以外的“产品功能”。
+1. 活跃 UI **不得** import `src/renderer/src/_legacy/**`，也不得为遗留 IPC 扩展 preload 上的“新产品功能”。
 2. 改 `taskStore` schema / 备份时，必须保持旧域导出与恢复路径，或同步删除对应兼容测试并更新本文。
-3. 新文档与新 smoke 只描述 `package.json` 中真实存在的命令。
-4. 删除遗留代码属于独立变更：先更新本文清单与测试，再动源码。
+3. 新文档与新 smoke 只描述 `package.json` 中真实存在的命令；`scripts/legacy/**` 不进 CI。
+4. 删除 `_legacy` 或 `scripts/legacy` 属于后续独立变更：先改本文与契约测试/verify 脚本，再动文件。
+5. UI 契约（`verify:ui-contract`、design-system/modal 测试）只约束**活跃**视图与样式路径。

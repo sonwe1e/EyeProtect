@@ -35,15 +35,15 @@ import {
   type ReminderStatus,
   type RuntimeInfo,
   type Settings
-} from '../../../shared/types';
-import { NumberField } from '../components/NumberField';
-import { useClock } from '../hooks/useClock';
-import { useCareStatus } from '../hooks/useCareStatus';
-import { useReminderStatus } from '../hooks/useReminderStatus';
-import { useSettings } from '../hooks/useSettings';
+} from '../../../../shared/types';
+import { NumberField } from '../../components/NumberField';
+import { useClock } from '../../hooks/useClock';
+import { useCareStatus } from '../../hooks/useCareStatus';
+import { useReminderStatus } from '../../hooks/useReminderStatus';
+import { useSettings } from '../../hooks/useSettings';
 import { useWeeklyReport } from '../hooks/useWeeklyReport';
-import { formatClock, minutesLeft } from '../lib/time';
-import { commands } from '../lib/commands';
+import { formatClock, minutesLeft } from '../../lib/time';
+import { commands } from '../../lib/commands';
 
 const REMINDER_MODE_COPY: Array<{
   value: ReminderMode;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import type { TimeBlock } from '../../../shared/types';
+import type { TimeBlock } from '../../../../shared/types';
 
 /**
  * TimeBlock subscription (USERPLAN 1.2 PR4).

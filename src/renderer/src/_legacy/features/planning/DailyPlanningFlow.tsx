@@ -4,18 +4,18 @@ import {
   MAX_DAILY_GOALS,
   summarizeDailyCapacity,
   rescheduleTaskToDay
-} from '../../../../shared/dailyPlanning';
+} from '../../../../../shared/dailyPlanning';
 import {
   addLocalDays,
   endOfLocalDate,
   localDateKey,
   startOfLocalDate
-} from '../../../../shared/calendar';
-import type { DailyTaskPlan, Settings, Task } from '../../../../shared/types';
-import { Button, StatusChip } from '../../components/primitives';
-import { useCommand } from '../../hooks/useCommand';
+} from '../../../../../shared/calendar';
+import type { DailyTaskPlan, Settings, Task } from '../../../../../shared/types';
+import { Button, StatusChip } from '../../../components/primitives';
+import { useCommand } from '../../../hooks/useCommand';
 import { useDailyPlans } from '../../hooks/useDailyPlans';
-import { commands } from '../../lib/commands';
+import { commands } from '../../../lib/commands';
 
 const formatHours = (minutes: number): string => {
   const hours = Math.floor(minutes / 60);

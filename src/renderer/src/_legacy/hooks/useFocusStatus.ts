@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FocusStatus } from '../../../shared/types';
+import type { FocusStatus } from '../../../../shared/types';
 
 const EMPTY: FocusStatus = {
   session: null,

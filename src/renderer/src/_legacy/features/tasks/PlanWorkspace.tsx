@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { CalendarDays, CalendarX2, ChevronLeft, ChevronRight, Eye, Footprints, GripVertical } from 'lucide-react';
-import type { Project, Task, TimeBlock } from '../../../../shared/types';
-import { isTaskAvailableForPlanning } from '../../../../shared/projectPolicy';
+import type { Project, Task, TimeBlock } from '../../../../../shared/types';
+import { isTaskAvailableForPlanning } from '../../../../../shared/projectPolicy';
 import {
   addLocalDays,
   endOfLocalDate,
@@ -10,14 +10,14 @@ import {
   minutesOfLocalDay,
   sameLocalDate,
   startOfLocalDate
-} from '../../../../shared/calendar';
-import { Button, StatusChip } from '../../components/primitives';
-import { useCommand } from '../../hooks/useCommand';
+} from '../../../../../shared/calendar';
+import { Button, StatusChip } from '../../../components/primitives';
+import { useCommand } from '../../../hooks/useCommand';
 import { useDailyPlans } from '../../hooks/useDailyPlans';
-import { useSettings } from '../../hooks/useSettings';
+import { useSettings } from '../../../hooks/useSettings';
 import { useTimeBlocks } from '../../hooks/useTimeBlocks';
-import { commands } from '../../lib/commands';
-import { buildBlockLayout, shiftPlanSelection, timelineBlockDensity } from './planLayout';
+import { commands } from '../../../lib/commands';
+import { buildBlockLayout, shiftPlanSelection, timelineBlockDensity } from '../../../features/tasks/planLayout';
 import styles from './PlanWorkspace.module.css';
 
 const PIXELS_PER_MINUTE = 1;

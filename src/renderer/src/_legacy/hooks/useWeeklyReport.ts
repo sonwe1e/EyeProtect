@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { WeeklyReport } from '../../../shared/types';
+import type { WeeklyReport } from '../../../../shared/types';
 
 export const useWeeklyReport = (): WeeklyReport | null => {
   const [report, setReport] = useState<WeeklyReport | null>(null);

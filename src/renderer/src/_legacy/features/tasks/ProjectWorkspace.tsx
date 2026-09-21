@@ -7,16 +7,16 @@ import {
   type ProjectSection,
   type Task,
   type TimeBlock
-} from '../../../../shared/types';
-import { isProjectAssignable, isProjectWritable } from '../../../../shared/projectPolicy';
-import { groupTasksBySection } from '../../../../shared/projectSections';
-import { startOfLocalDate } from '../../../../shared/calendar';
-import { CommandButton } from '../../components/CommandButton';
-import { Button, Dialog, ProjectDot, StatusChip } from '../../components/primitives';
-import { useCommand } from '../../hooks/useCommand';
+} from '../../../../../shared/types';
+import { isProjectAssignable, isProjectWritable } from '../../../../../shared/projectPolicy';
+import { groupTasksBySection } from '../../../../../shared/projectSections';
+import { startOfLocalDate } from '../../../../../shared/calendar';
+import { CommandButton } from '../../../components/CommandButton';
+import { Button, Dialog, ProjectDot, StatusChip } from '../../../components/primitives';
+import { useCommand } from '../../../hooks/useCommand';
 import { useProjectSections } from '../../hooks/useProjectSections';
-import { useProjectWorkstreamSummaries } from '../../hooks/useProjectWorkstreamSummaries';
-import { commands } from '../../lib/commands';
+import { useProjectWorkstreamSummaries } from '../../../hooks/useProjectWorkstreamSummaries';
+import { commands } from '../../../lib/commands';
 import { TaskComposer } from './TaskComposer';
 import { TaskList } from './TaskList';
 import styles from './ProjectWorkspace.module.css';

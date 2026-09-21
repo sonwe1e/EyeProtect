@@ -3,11 +3,11 @@ import { Bell, Plus, Trash2 } from 'lucide-react';
 import {
   nextStandaloneReminderFireAt,
   type StandaloneReminderSchedule
-} from '../../../../shared/types';
-import { CommandButton } from '../../components/CommandButton';
-import { useClock } from '../../hooks/useClock';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
+} from '../../../../../shared/types';
+import { CommandButton } from '../../../components/CommandButton';
+import { useClock } from '../../../hooks/useClock';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
 import { useStandaloneReminders } from '../../hooks/useStandaloneReminders';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];

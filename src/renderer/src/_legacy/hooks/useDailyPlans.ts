@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import type { DailyTaskPlan } from '../../../shared/types';
+import type { DailyTaskPlan } from '../../../../shared/types';
 
 /**
  * Daily plan subscription for one local date (USERPLAN 1.2 PR3).

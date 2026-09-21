@@ -7,12 +7,12 @@ import {
   type TaskContext,
   type TaskInput,
   type TodoPriority
-} from '../../../../shared/types';
-import { isProjectAssignable } from '../../../../shared/projectPolicy';
-import { CommandButton } from '../../components/CommandButton';
-import { DateTimeField, Field, Select } from '../../components/primitives';
-import { useCommand } from '../../hooks/useCommand';
-import { commands } from '../../lib/commands';
+} from '../../../../../shared/types';
+import { isProjectAssignable } from '../../../../../shared/projectPolicy';
+import { CommandButton } from '../../../components/CommandButton';
+import { DateTimeField, Field, Select } from '../../../components/primitives';
+import { useCommand } from '../../../hooks/useCommand';
+import { commands } from '../../../lib/commands';
 
 const PRIORITY_LABELS: Record<TodoPriority, string> = {
   normal: '普通',
