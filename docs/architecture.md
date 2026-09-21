@@ -16,7 +16,7 @@
 
 `BubbleView` 复用同一个窗口显示手选待办、番茄钟设置或计时。优先级为健康提醒 > 番茄钟 > 手选待办。遮罩健康提醒使用独立 Alert 窗口；原主界面故障时，Emergency HTML 和原生通知继续兜底。
 
-Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动物、提醒类型与节拍文案，面板显示标题、主进程选中的微休息活动（`ActiveReminder.activityIds` 经 `breakActivities.getActivity` 解析，进度由 `ActivityGuide` 按 `restStartedAt` 推进）、倒计时环、走动提醒携带的待办、开始/完成/稍后/跳过动作。文案、阶段与倒计时由 `features/reminders/restViewModel.ts` 从主进程状态派生（`tests/rest-view-model.test.ts`），渲染端不持有计时权威。
+Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动物、提醒类型与节拍文案，面板显示标题、主进程选中的微休息活动（`ActiveReminder.activityIds` 经 `breakActivities.getActivity` 解析；活动进度在 `AlertView.tsx` 内用 `restViewModel` 的 `getActivityProgress` 按 `restStartedAt` 推进。仓库中不存在独立的 `ActivityGuide.tsx`）、倒计时环、走动提醒携带的待办、开始/完成/稍后/跳过动作。文案、阶段与倒计时由 `features/reminders/restViewModel.ts` 从主进程状态派生（`tests/rest-view-model.test.ts`），渲染端不持有计时权威。
 
 `PetView` 的时钟按钮开启自由专注；任务行可以关联主任务启动。桌宠只渲染三只内置像素动物（橘猫/小狗/白兔），外观由 `settings.petAppearance` 决定；旧的程序化/收藏角色系统已删除。
 
@@ -28,7 +28,7 @@ Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动�
 
 `task:complete-tree` 接收主任务及所有待完成步骤的 revision 映射。主进程在事务中验证集合与版本、完成并记录撤销快照。事务提交前不向 renderer 发送增量事件，回滚不泄漏部分状态。撤销保留此前已经完成的步骤。
 
-重复生成在生产 TaskService 中关闭，包括 set-status 和 update-status 两条路径；旧规则字段保留。备份版本为 v7，导入 v1–v6 时转换旧日期，v7 显式 null 不回退。旧规划、时间块、步骤层级、提醒和专注表继续参与导出/恢复。
+重复生成在生产 TaskService 中关闭，包括 set-status 和 update-status 两条路径；旧规则字段保留。数据库 schema 为 v5；备份格式当前为 **v8**（`src/main/backup.ts` 的 `version: 8`）。导入旧版本时转换日期；显式 null 不回退旧日期。旧规划、时间块、步骤层级、提醒和专注表继续参与导出/恢复。
 
 ## 番茄钟
 
@@ -45,3 +45,58 @@ Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动�
 Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态，不暴露一般应用 API 或由页面指定提醒 ID。
 
 `simple-experience.test.ts` 覆盖迁移、日期/DST、备份、原子完成及回滚；`pomodoro.test.ts` 覆盖时钟、暂停恢复、休息和结束阶段。保留旧存储/备份测试作为兼容验证。`smoke-simple-experience.mjs` 与 `smoke-simple-pet-failure.mjs` 是当前打包验收入口；旧 UI 专项脚本不再用于当前 CI。
+
+## 遗留面清单
+
+产品已收敛为待办 / 完成记录 / 设置 + 桌宠 / 气泡 / 休息遮罩 / 番茄钟，但仓库仍保留上一代工作台的代码与数据域，用于备份兼容、旧资料只读恢复，以及尚未删除的 IPC/测试面。
+
+**文档权威**：`CLAUDE.md` 与本文描述当前产品；`AGENTS.md` 应与本文对齐。修改遗留面前先确认目标是「兼容路径」还是「活跃 UI」。
+
+### 活跃路径（默认改动落点）
+
+| 层 | 位置 |
+| --- | --- |
+| 启动装配 | `src/main/index.ts`：`ReminderScheduler`、`SchedulerKernel`、`TaskService(store, false)`、`TaskScheduler`、`PomodoroService` |
+| 工作台 UI | `WorkbenchView.tsx` + `workbenchNavigation.ts`（仅 today/review/settings）+ `SimpleSettings.tsx` |
+| 其它窗口 UI | `PetView.tsx`、`BubbleView.tsx`、`AlertView.tsx` |
+| 样式 | `styles/simple.css`（工作台）、`styles.css` + `styles/theme.css`（桌宠/气泡/提醒） |
+| CI smoke | `scripts/smoke-simple-experience.mjs`、`scripts/smoke-simple-pet-failure.mjs` |
+
+### 遗留 / 兼容面（不在主 UI 路径）
+
+**主进程模块（源码仍在，生产启动不按旧产品实例化）**
+
+- `focusRuntime.ts`、`focusSession.ts`、`taskWorkTracker.ts` — 旧专注/工时
+- `standaloneReminders.ts`、`dailyReview.ts` — 旧独立提醒与日复盘
+- `taskStore.ts` 中仍存在的规划 / TimeBlock / Section / FocusSession / StandaloneReminder 表与方法（备份与兼容读取）
+
+**IPC / preload（`window.eyeProtect` 仍暴露，活跃 UI 不应新增依赖）**
+
+- `focus:*`、`plan:*`、`timeblock:*`、`section:*`、`standalone-reminder:*`、`daily:review`、`daily:reflection:*`、`checkpoint:*`、`history:report` 等
+- `data:legacy` / `task:restore-legacy` — 设置页「旧资料与恢复」仍使用
+
+**孤儿 renderer（无活跃入口 import）**
+
+- `src/renderer/src/views/SettingsView.tsx` — 设置以 `SimpleSettings.tsx` 为准
+- `src/renderer/src/features/tasks/`：`PlanWorkspace.tsx`、`ProjectWorkspace.tsx`、`ProjectList.tsx`、`FocusSurface.tsx`、`TaskDetail.tsx`、`TaskList.tsx`、`TaskComposer.tsx`、`PetTasksView.tsx` 及对应 module CSS；`todaySections.ts` / `todayViewModel.ts` / `planLayout.ts` 等仍有测试，但工作台不加载旧 Today/Focus 视图
+- `src/renderer/src/features/planning/DailyPlanningFlow.tsx`
+- `src/renderer/src/features/review/DailyReview.tsx`
+- `src/renderer/src/features/reminders/StandaloneReminderSection.tsx`
+- `src/renderer/src/components/CommandPalette.tsx`
+- 相关 hooks：`useTimeBlocks`、`useDailyPlans`、`useFocusStatus`、`useWeeklyReport`、`useStandaloneReminders` 等（多被上述孤儿组件使用）
+
+**脚本（磁盘存在，不在 package.json / CI）**
+
+- `scripts/smoke-running-app.mjs`、`smoke-reminder-experience.mjs`、`smoke-emergency-reminder.mjs`、`smoke-workbench-interactions.mjs`、`smoke-plan-interactions.mjs`、`smoke-project-lifecycle.mjs`、`smoke-focus-runtime.mjs`、`smoke-pet-tasks.mjs`、`smoke-bubble-opt-out.mjs`、`scripts/smoke-pet-failure.mjs`（旧名；当前入口是 `smoke-simple-pet-failure.mjs`）
+- `scripts/capture-*.mjs`、`scripts/build-reminder-preview.tsx`
+
+**测试仍覆盖但对应 UI 已下线**
+
+- `tests/focus-session.test.ts`、`focus-runtime.test.ts`、`daily-planning.test.ts`、`today-sections.test.ts`、`today-view-model.test.ts`、`project-sections.test.ts`、`standalone-reminders.test.ts`、`plan-layout.test.ts` 等 — 视为**兼容/回归网**，删除遗留代码前需要先决定这些测试的去留。
+
+### 使用约束
+
+1. 活跃 UI 不要 import 孤儿组件，也不要为遗留 IPC 扩展 preload 类型以外的“产品功能”。
+2. 改 `taskStore` schema / 备份时，必须保持旧域导出与恢复路径，或同步删除对应兼容测试并更新本文。
+3. 新文档与新 smoke 只描述 `package.json` 中真实存在的命令。
+4. 删除遗留代码属于独立变更：先更新本文清单与测试，再动源码。

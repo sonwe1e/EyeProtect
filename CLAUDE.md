@@ -15,12 +15,12 @@ EyeProtect 是本地优先的 Windows 休息提醒与待办助手，使用 Elect
 | 主任务、清单、步骤 | src/main/taskService.ts、src/main/taskStore.ts、src/shared/simpleTasks.ts |
 | 日期与 IPC | src/shared/types.ts、src/main/ipcTaskInput.ts、src/preload/index.ts、src/main/index.ts |
 | 休息节奏与生命周期 | src/main/reminders.ts、src/main/scheduling/kernel.ts、src/main/activityMonitor.ts |
-| 提醒界面（遮罩卡片） | src/renderer/src/views/AlertView.tsx、src/renderer/src/features/reminders/restViewModel.ts、src/renderer/src/features/reminders/ActivityGuide.tsx |
+| 提醒界面（遮罩卡片） | src/renderer/src/views/AlertView.tsx、src/renderer/src/features/reminders/restViewModel.ts |
 | 番茄钟 | src/main/pomodoro.ts、src/renderer/src/features/simple/PomodoroCard.tsx |
 | 主界面与设置 | src/renderer/src/views/WorkbenchView.tsx、src/renderer/src/features/simple/SimpleSettings.tsx |
 | 桌宠与像素动物 | src/renderer/src/views/PetView.tsx、src/shared/pixelAnimals.ts、src/renderer/src/features/characters/PixelAnimal.tsx |
 | 窗口与兜底 | src/main/windows.ts、src/main/windowBounds.ts、src/main/reminderSurface.ts |
-| 数据兼容 | src/main/backup.ts；数据库 v5、备份 v7 |
+| 数据兼容 | src/main/backup.ts；数据库 v5、备份 v8 |
 
 ## 开发约定
 

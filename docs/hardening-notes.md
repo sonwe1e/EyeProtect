@@ -3,6 +3,8 @@
 本文记录两轮自主代码审计（渲染端 + 主进程 + 共享层）的发现、修复与验证结果，
 作为后续开发的决策背景。修复均已合入 `codex/eyeprotect-runtime-hardening` 分支。
 
+> **历史文档。** 文中提到的 `smoke:running` / `smoke:experience` / `smoke:workbench-interactions` 等命令与部分 UI 路径对应**精简前**产品。当前权威入口见根目录 `package.json` 与 `AGENTS.md`；遗留面清单见 `docs/architecture.md` §遗留面清单。
+
 ## 审计范围
 
 - 渲染端：`src/renderer/src/` 全部 hooks / views / features / components / lib / CSS。

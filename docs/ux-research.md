@@ -1,5 +1,7 @@
 # 体验设计研究：桌宠 · 休息卡 · 计划
 
+> **历史研究稿。** 文中部分验收命令（如 `smoke:experience`）与 `docs/ipc-guide.md` 等引用对应精简前或已删除入口；当前权威命令与文档地图见根目录 `AGENTS.md` 与 `package.json`。
+
 > 目的：回答「怎么把 EyeProtect 的界面、交互和动画做到让用户真正喜欢」。
 > 方法：收集业界被广泛认可的参考产品与规范 → 提炼可迁移的设计原则 → 落成逐界面的改造提案与优先级。
 > 基线：当前简化版体验（Pet / Bubble / Alert / 简化工作台），对应分支 `codex/simple-experience-split` 的方向。
