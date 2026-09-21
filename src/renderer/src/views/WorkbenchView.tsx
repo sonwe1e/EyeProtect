@@ -132,14 +132,14 @@ export default function WorkbenchView(): JSX.Element {
               </div>
               <div className="simple-rhythm-sub">
                 {history.length > 0
-                  ? `已累计完成 ${history.length} 项任务，见证你的每日点滴专注`
+                  ? `筛选结果 ${history.length} 项完成，见证你的每日点滴专注`
                   : '完成的任务会自动收录在此处'}
               </div>
             </div>
             <div className="simple-rhythm-stats">
               <span className="simple-stat-pill is-done">
                 <CheckCircle2 size={13} aria-hidden="true" />
-                <span>累计完成 {history.length}</span>
+                <span>筛选结果 {history.length}</span>
               </span>
               {days.length > 0 ? (
                 <span className="simple-stat-pill">

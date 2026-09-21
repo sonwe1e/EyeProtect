@@ -58,7 +58,13 @@ export default function AlertView(): JSX.Element {
   }, [active?.id]);
 
   const [customAssets, setCustomAssets] = useState<CustomPetAssets | null>(null);
-  const [quote] = useState(() => COMPANION_QUOTES[Math.floor(Math.random() * COMPANION_QUOTES.length)]);
+  const [quote, setQuote] = useState(() => COMPANION_QUOTES[Math.floor(Math.random() * COMPANION_QUOTES.length)]);
+
+  useEffect(() => {
+    if (active?.id) {
+      setQuote(COMPANION_QUOTES[Math.floor(Math.random() * COMPANION_QUOTES.length)]);
+    }
+  }, [active?.id]);
 
   useEffect(() => {
     void window.eyeProtect.getCustomPetAssets(settings.customPetTheme).then(setCustomAssets);

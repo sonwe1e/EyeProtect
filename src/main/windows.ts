@@ -29,6 +29,7 @@ const TODO_BUBBLE_SIZE = { width: 260, height: 180 } as const;
 const PRE_ALERT_BUBBLE_SIZE = { width: 300, height: 172 } as const;
 const GENTLE_BUBBLE_SIZE = { width: 300, height: 224 } as const;
 const GENTLE_COMBINED_BUBBLE_SIZE = { width: 320, height: 292 } as const;
+const POMODORO_BUBBLE_SIZE = { width: 280, height: 220 } as const;
 /** How long the bubble stays up showing "all done" after the last pending todo is completed. */
 const ALL_DONE_DISPLAY_MS = 2_500;
 /** Coalesce bursts of display-added/removed/metrics events into one relayout. */
@@ -941,7 +942,15 @@ export class AppWindows {
 
   private getBubbleSize(): { width: number; height: number } {
     const status = this.scheduler.getStatus();
-    const surface = status.preAlert ? 'prealert' : status.activeReminder?.mode === 'gentle' ? `gentle-${status.activeReminder.id}` : 'todo';
+    const pomodoro = this.getPomodoro();
+    const focusing = Boolean(pomodoro && pomodoro.phase !== 'idle');
+    const surface = status.preAlert
+      ? 'prealert'
+      : status.activeReminder?.mode === 'gentle'
+        ? `gentle-${status.activeReminder.id}`
+        : focusing
+          ? `pomodoro-${pomodoro!.phase}`
+          : 'todo';
     if (surface !== this.bubbleSurface) {
       this.bubbleSurface = surface;
       this.bubbleHeight = null;
@@ -955,6 +964,10 @@ export class AppWindows {
         ? GENTLE_COMBINED_BUBBLE_SIZE
         : GENTLE_BUBBLE_SIZE;
       return { ...size, height: this.bubbleHeight ?? size.height };
+    }
+    // Match BubbleView priority: health gentle > pomodoro > todo list.
+    if (focusing) {
+      return { ...POMODORO_BUBBLE_SIZE, height: this.bubbleHeight ?? POMODORO_BUBBLE_SIZE.height };
     }
     return { ...TODO_BUBBLE_SIZE, height: this.bubbleHeight ?? TODO_BUBBLE_SIZE.height };
   }

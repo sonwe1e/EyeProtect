@@ -1,6 +1,6 @@
 import { SIMPLE_SETTING_LIMITS } from '../../../../shared/types';
 import { useEffect, useState } from 'react';
-import type { Settings, LegacyData, CustomPetAssets } from '../../../../shared/types';
+import type { Settings, LegacyData, CustomPetAssets, CommandResult } from '../../../../shared/types';
 import { PIXEL_ANIMALS, PIXEL_ANIMAL_NAMES } from '../../../../shared/pixelAnimals';
 import { useSettings } from '../../hooks/useSettings';
 import { useProjects } from '../../hooks/useProjects';
@@ -121,12 +121,13 @@ function SettingNumberField({
 }
 
 export function SimpleSettings(): JSX.Element {
-  const { settings } = useSettings();
+  const { settings, setSettings } = useSettings();
   const projects = useProjects();
   const tasks = useTasks();
   const [legacy, setLegacy] = useState<LegacyData | null>(null);
   const [customAssets, setCustomAssets] = useState<CustomPetAssets | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
 
@@ -139,12 +140,26 @@ export function SimpleSettings(): JSX.Element {
     return () => window.removeEventListener('focus', loadThemes);
   }, []);
 
+  const runBusy = (key: string, start: () => Promise<CommandResult<unknown>>): void => {
+    setBusyKey(key);
+    setSaveError(null);
+    void start()
+      .then((result) => {
+        if (!result.ok) setSaveError(result.message || '操作失败');
+      })
+      .finally(() => setBusyKey((current) => (current === key ? null : current)));
+  };
+
   const save = (key: string, patch: Partial<Settings>): Promise<boolean> => {
+    const previous = settings;
     setSavingKey(key);
     setSaveError(null);
+    // Optimistic UI: switches flip immediately; broadcast will confirm or we roll back.
+    setSettings({ ...settings, ...patch });
     return run(() => window.eyeProtect.saveSettings(patch))
       .then((result) => {
         if (!result.ok) {
+          setSettings(previous);
           setSaveError(result.message || '设置保存失败');
           return false;
         }
@@ -328,8 +343,8 @@ export function SimpleSettings(): JSX.Element {
               </button>
               <button
                 type="button"
-                disabled={action.isPending}
-                onClick={() => void action.run(() => window.eyeProtect.testReminder('eye'))}
+                disabled={busyKey === 'testReminderEye'}
+                onClick={() => runBusy('testReminderEye', () => run(() => window.eyeProtect.testReminder('eye')))}
               >
                 <Play size={14} style={{ marginRight: '6px' }} />
                 试一下护眼提醒
@@ -565,12 +580,8 @@ export function SimpleSettings(): JSX.Element {
             <div className="simple-button-row" style={{ marginTop: '14px' }}>
               <button
                 type="button"
-                disabled={action.isPending}
-                onClick={() =>
-                  void action.run(() =>
-                    window.eyeProtect.openCustomPetFolder(settings.customPetTheme ?? undefined)
-                  )
-                }
+                disabled={busyKey === 'openPetFolder'}
+                onClick={() => runBusy('openPetFolder', () => run(() => window.eyeProtect.openCustomPetFolder(settings.customPetTheme ?? undefined)))}
               >
                 <FolderOpen size={15} style={{ marginRight: '6px' }} />
                 打开自定义动图文件夹
@@ -637,16 +648,16 @@ export function SimpleSettings(): JSX.Element {
             <div className="simple-button-row">
               <button
                 type="button"
-                disabled={action.isPending}
-                onClick={() => void action.run(() => window.eyeProtect.exportBackup())}
+                disabled={busyKey === 'exportBackup'}
+                onClick={() => runBusy('exportBackup', () => run(() => window.eyeProtect.exportBackup()))}
               >
                 <Download size={14} style={{ marginRight: '6px' }} />
                 导出完整备份
               </button>
               <button
                 type="button"
-                disabled={action.isPending}
-                onClick={() => void action.run(() => window.eyeProtect.importBackup())}
+                disabled={busyKey === 'importBackup'}
+                onClick={() => runBusy('importBackup', () => run(() => window.eyeProtect.importBackup()))}
               >
                 <Upload size={14} style={{ marginRight: '6px' }} />
                 恢复备份
