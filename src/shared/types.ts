@@ -933,10 +933,10 @@ export interface EyeProtectApi {
   showPetContextMenu: () => Promise<void>;
   togglePetVisibility: () => Promise<boolean>;
   recallPet: () => Promise<void>;
-  openWorkbench: (section?: 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks') => Promise<void>;
+  openWorkbench: (section?: 'today' | 'review' | 'settings') => Promise<void>;
   closeWorkbench: () => Promise<void>;
-  getWorkbenchSection: () => Promise<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>;
-  onWorkbenchNavigate: (callback: (section: 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks') => void) => () => void;
+  getWorkbenchSection: () => Promise<'today' | 'review' | 'settings'>;
+  onWorkbenchNavigate: (callback: (section: 'today' | 'review' | 'settings') => void) => () => void;
 
   openCustomPetFolder: (subfolder?: string) => Promise<{ success: boolean; message: string }>;
   getCustomPetAssets: (themeId?: string | null) => Promise<CustomPetAssets>;
@@ -951,16 +951,8 @@ export interface EyeProtectApi {
   getLegacyData: () => Promise<LegacyData>;
   restoreLegacyTask: (id: string) => Promise<Task[]>;
 
-  // ── History (handlers registered; not used by simplified workbench UI) ─
-  getWeeklyReport: () => Promise<WeeklyReport>;
-  getCareStatus: () => Promise<CareStatus>;
-  clearReminderHistory: () => Promise<WeeklyReport>;
-  exportReminderHistory: (format: 'json' | 'csv') => Promise<boolean>;
-  onWeeklyReportChanged: (callback: (report: WeeklyReport) => void) => () => void;
-  onCareStatusChanged: (callback: (status: CareStatus) => void) => () => void;
   getHotkeyStatus: () => Promise<HotkeyStatus>;
   onHotkeyStatusChanged: (callback: (status: HotkeyStatus) => void) => () => void;
-  getStandaloneReminders: () => Promise<StandaloneReminder[]>;
 }
 
 export const SIMPLE_SETTING_LIMITS = {

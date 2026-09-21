@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppHealth,
-  CareStatus,
   CustomPetAssets,
   DataActionResult,
   DataRecoveryInfo,
@@ -20,14 +19,12 @@ import type {
   ReminderStatus,
   RuntimeInfo,
   Settings,
-  StandaloneReminder,
   Task,
   TaskInput,
   TaskMoveInput,
   TaskStatus,
   TaskUpdateInput,
-  UndoState,
-  WeeklyReport
+  UndoState
 } from '../shared/types';
 
 const on = <T>(channel: string, callback: (payload: T) => void): (() => void) => {
@@ -129,11 +126,9 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<
-      'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'
-    >,
+    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'review' | 'settings'>,
   onWorkbenchNavigate: (callback) =>
-    on<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>('workbench:navigate', callback),
+    on<'today' | 'review' | 'settings'>('workbench:navigate', callback),
 
   openCustomPetFolder: (subfolder?: string) =>
     ipcRenderer.invoke('pet:custom:open-folder', subfolder) as Promise<{ success: boolean; message: string }>,
@@ -148,16 +143,8 @@ const api: EyeProtectApi = {
   getLegacyData: () => ipcRenderer.invoke('data:legacy') as Promise<LegacyData>,
   restoreLegacyTask: (id) => ipcRenderer.invoke('task:restore-legacy', id) as Promise<Task[]>,
 
-  getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
-  getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
-  clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,
-  exportReminderHistory: (format) => ipcRenderer.invoke('history:export', format) as Promise<boolean>,
-  onWeeklyReportChanged: (callback) => on<WeeklyReport>('history:changed', callback),
-  onCareStatusChanged: (callback) => on<CareStatus>('care:changed', callback),
   getHotkeyStatus: () => ipcRenderer.invoke('hotkeys:status') as Promise<HotkeyStatus>,
-  onHotkeyStatusChanged: (callback) => on<HotkeyStatus>('hotkeys:changed', callback),
-  getStandaloneReminders: () =>
-    ipcRenderer.invoke('standalone-reminder:list') as Promise<StandaloneReminder[]>
+  onHotkeyStatusChanged: (callback) => on<HotkeyStatus>('hotkeys:changed', callback)
 };
 
 contextBridge.exposeInMainWorld('eyeProtect', api);

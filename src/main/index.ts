@@ -39,7 +39,7 @@ import { startDiagnostics } from './diagnostics';
 import { logger, setLoggerSink } from './logger';
 import { ReminderScheduler } from './reminders';
 import { ReminderSurfaceManager } from './reminderSurface';
-import { buildCareStatus, ReminderHistoryStore } from './reminderHistory';
+import { ReminderHistoryStore } from './reminderHistory';
 import { RuntimeStateStore } from './runtimeState';
 import { ReminderTrace, noopReminderTrace, type ReminderTraceSink } from './scheduling/reminderTrace';
 import { SchedulerKernel } from './scheduling/kernel';
@@ -541,11 +541,11 @@ app.whenReady().then(async () => {
       windows.broadcastFailedDeliveries(taskStore.getFailedDeliveries());
     },
     onClick: (delivery) => {
-      void windows.showWorkbenchWindow(delivery.source === 'standalone' ? 'reminders' : 'today');
+      void windows.showWorkbenchWindow('today');
     },
     onFailed: (delivery) => {
       windows.broadcastFailedDeliveries(taskStore.getFailedDeliveries());
-      void windows.showWorkbenchWindow(delivery.source === 'standalone' ? 'reminders' : 'today');
+      void windows.showWorkbenchWindow('today');
     }
   });
   let hotkeyStatus: HotkeyStatus = {
@@ -595,15 +595,6 @@ app.whenReady().then(async () => {
     hotkeyStatus = { enabled, registered, conflicts };
     windows.broadcastHotkeyStatus(hotkeyStatus);
     return hotkeyStatus;
-  };
-  const getWeeklyReport = () =>
-    historyStore.getWeeklyReport(settingsStore.get());
-  const getCareStatus = () =>
-    settingsStore.get().historyEnabled
-      ? historyStore.getCareStatus()
-      : buildCareStatus([]);
-  const broadcastHistory = (): void => {
-    windows.broadcastHistory(getWeeklyReport(), getCareStatus());
   };
 
   // OS lifecycle: sleep/wake/unlock are reconciled by the scheduler with an
@@ -697,7 +688,6 @@ app.whenReady().then(async () => {
       settings.eyeIntervalMinutes !== previous.eyeIntervalMinutes ||
       settings.walkIntervalMinutes !== previous.walkIntervalMinutes
     ) {
-      broadcastHistory();
     }
     if (
       settings.petScale !== previous.petScale ||
@@ -746,13 +736,11 @@ app.whenReady().then(async () => {
     windows.broadcastTasks(tasks);
     windows.broadcastProjects(taskService.getProjects());
     windows.broadcastActiveTask(taskService.getActiveTaskId());
-    windows.broadcastStandaloneReminders(taskStore.getStandaloneReminders());
     windows.broadcastHotkeyStatus(hotkeyStatus);
     // Health is derived, not part of any domain push, so seed it explicitly —
     // otherwise a recovery-mode launch would show no banner until the next
     // successful task/character write.
     windows.broadcastAppHealth(getAppHealth());
-    broadcastHistory();
   };
 
   // Every handler is sender-verified (handleIpc) and coerces its arguments:
@@ -785,7 +773,6 @@ app.whenReady().then(async () => {
   handleIpc('reminder:pause', (minutes) => scheduler.pause(asNumber(minutes, 60)));
   handleIpc('reminder:resume', () => scheduler.resume());
   handleIpc('reminder:restart', () => scheduler.restartCycle());
-  handleIpc('standalone-reminder:list', () => taskStore.getStandaloneReminders());
   handleIpc('delivery:failed:list', () => taskStore.getFailedDeliveries());
   handleIpc('delivery:failed:retry', (id) => {
     requireWritableTaskDatabase(() => taskStore.retryFailedDelivery(asString(id)));
@@ -807,38 +794,6 @@ app.whenReady().then(async () => {
     const notices = taskStore.getFailedDeliveries();
     windows.broadcastFailedDeliveries(notices);
     return notices;
-  });
-  handleIpc('history:report', () => getWeeklyReport());
-  handleIpc('history:care', () => getCareStatus());
-  handleIpc('history:clear', () => {
-    historyStore.clear();
-    return getWeeklyReport();
-  });
-  handleIpc('history:export', async (format) => {
-    const normalized = format === 'csv' ? 'csv' : 'json';
-    const date = new Date().toISOString().slice(0, 10);
-    const result = await dialog.showSaveDialog({
-      title: '导出 EyeProtect 本地提醒记录',
-      defaultPath: `EyeProtect-history-${date}.${normalized}`,
-      filters: [
-        normalized === 'csv'
-          ? { name: 'CSV 表格', extensions: ['csv'] }
-          : { name: 'JSON 数据', extensions: ['json'] }
-      ]
-    });
-    if (result.canceled || !result.filePath) {
-      return false;
-    }
-    try {
-      writeFileSync(result.filePath, historyStore.export(normalized), 'utf8');
-      return true;
-    } catch (error) {
-      // A failed export (disk full, permission, portable read-only dir) must
-      // not surface as an unhandled rejection; report it like the other data
-      // actions do.
-      logger.error('reminder history export failed', error);
-      return false;
-    }
   });
   handleIpc('hotkeys:status', () => hotkeyStatus);
   handleIpc('data:backup:export', async () => {
@@ -982,6 +937,10 @@ app.whenReady().then(async () => {
     settingsStore.save(DEFAULT_SETTINGS);
     taskStore.replaceAll([]);
     taskStore.replaceProjects([]);
+    taskStore.replaceAllDailyTaskPlans([]);
+    taskStore.replaceAllTimeBlocks([]);
+    taskStore.replaceAllFocusSessions([]);
+    taskStore.replaceAllTaskCheckpoints([]);
     taskStore.replaceAllDailyReflections([]);
     taskStore.replaceStandaloneReminders([]);
     taskStore.setActiveTaskId(null);
@@ -1269,12 +1228,7 @@ app.whenReady().then(async () => {
 
   handleIpc('window:workbench:open', (section) =>
     windows.showWorkbenchWindow(
-      section === 'settings' ||
-      section === 'reminders' ||
-      section === 'pet-tasks' ||
-      section === 'review'
-        ? section
-        : 'today'
+      section === 'settings' || section === 'review' ? section : 'today'
     )
   );
   handleIpc('task:move', (input) => {

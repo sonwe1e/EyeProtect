@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import type {
   ActiveReminder,
   AppHealth,
-  CareStatus,
   FocusStatus,
   HotkeyStatus,
   Project,
@@ -13,12 +12,10 @@ import type {
   ReminderStatus,
   RuntimeInfo,
   Settings,
-  StandaloneReminder,
   FailedDeliveryNotice,
   Task,
   TaskWorkSummary,
-  UndoState,
-  WeeklyReport
+  UndoState
 } from '../shared/types';
 import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
@@ -127,12 +124,7 @@ export class AppWindows {
   private dimWindows: BrowserWindow[] = [];
   private workbenchWindow: BrowserWindow | null = null;
   private workbenchLoading: Promise<void> | null = null;
-  private workbenchSection:
-    | 'today'
-    | 'settings'
-    | 'reminders'
-    | 'pet-tasks'
-    | 'review' = 'today';
+  private workbenchSection: 'today' | 'review' | 'settings' = 'today';
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
   private applyingBounds = false;
@@ -316,14 +308,7 @@ export class AppWindows {
    * Focus/Projects views. Unlike the pet it is not a floating overlay —
    * it is a real workspace the user switches to.
    */
-  showWorkbenchWindow(
-    section:
-      | 'today'
-      | 'settings'
-      | 'reminders'
-      | 'pet-tasks'
-      | 'review' = 'today'
-  ): void {
+  showWorkbenchWindow(section: 'today' | 'review' | 'settings' = 'today'): void {
     this.workbenchSection = section;
     const activeDisplay = this.getActiveDisplay();
 
@@ -433,7 +418,7 @@ export class AppWindows {
     }
   }
 
-  getWorkbenchSection(): 'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks' {
+  getWorkbenchSection(): 'today' | 'review' | 'settings' {
     return this.workbenchSection;
   }
 
@@ -667,24 +652,9 @@ export class AppWindows {
     this.applyReminderStatus(status);
   }
 
-  broadcastStandaloneReminders(reminders: StandaloneReminder[]): void {
-    this.sendTo([this.workbenchWindow], 'standalone-reminder:changed', reminders);
-  }
-
-  broadcastStandaloneReminderFired(reminder: StandaloneReminder): void {
-    // The pet is the only renderer that renders the dismiss badge for a fired
-    // standalone reminder (PetView.onStandaloneReminderFired); the workbench
-    // shows the persisted list instead.
-    this.sendTo([this.petWindow], 'standalone-reminder:fired', reminder);
-  }
 
   broadcastFailedDeliveries(notices: FailedDeliveryNotice[]): void {
     this.sendTo([this.workbenchWindow], 'delivery:failed-changed', notices);
-  }
-
-  broadcastHistory(report: WeeklyReport, care: CareStatus): void {
-    this.sendTo([this.workbenchWindow], 'history:changed', report);
-    this.sendTo([this.petWindow, this.workbenchWindow], 'care:changed', care);
   }
 
   broadcastHotkeyStatus(status: HotkeyStatus): void {
