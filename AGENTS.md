@@ -52,9 +52,9 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 - `src/main/`：Electron 主进程——生命周期、托盘、窗口、IPC、提醒调度、设置读写、开机自启。`index.ts` 是装配与 IPC 入口；`reminders.ts` + `scheduling/kernel.ts` 拥有计时权威；`taskService.ts` / `taskStore.ts` 拥有任务数据。
 - `src/preload/`：`contextBridge` 暴露 `window.eyeProtect`。`emergency.ts` 是紧急提醒页的最小桥。API 面与 `src/main/index.ts` 的 `handleIpc` 列表对齐；规划/专注/Section 等死通道已移除。见 [docs/architecture.md](docs/architecture.md) §主进程与 preload 收口结论。
 - `src/shared/`：跨进程类型与策略（`types.ts`、`simpleTasks.ts`、`pixelAnimals.ts`、`projectPolicy.ts`、`breakActivities.ts` 等）。
-- `src/renderer/`：`App.tsx` 按 URL hash 加载 `#pet`（默认）、`#bubble`、`#workbench`/`#settings`、`#alert`。活跃视图为 `views/PetView.tsx`、`BubbleView.tsx`、`WorkbenchView.tsx`、`AlertView.tsx`。工作台设置页是 `features/simple/SimpleSettings.tsx`（**不是** `views/SettingsView.tsx`）。`styles/simple.css` 服务精简工作台；`styles.css` 服务桌宠/气泡/提醒窗。
-- `tests/`：Node 内置 test runner（`tsx --test tests/*.test.ts`）。覆盖调度、存储、备份、IPC 清洗、安全、rest view-model 等；部分用例保护**遗留数据兼容**路径，不代表这些功能仍在 UI 中。
-- `scripts/`：当前 CI/打包验收入口只有 `verify-build-contract.mjs`、`verify-ui-contract.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`build-app-icon.mjs`。历史 `smoke-*` / `capture-*` 在 `scripts/legacy/`，**未**挂进 `package.json`，也**不在** CI。
+- `src/renderer/`：`App.tsx` 按 URL hash 加载 `#pet`（默认）、`#bubble`、`#workbench`/`#settings`、`#alert`。活跃视图为 `views/PetView.tsx`、`BubbleView.tsx`、`WorkbenchView.tsx`、`AlertView.tsx`。工作台设置页是 `features/simple/SimpleSettings.tsx`。`styles/simple.css` 服务精简工作台；`styles.css` 服务桌宠/气泡/提醒窗。**无** `_legacy` 目录。
+- `tests/`：Node 内置 test runner（`tsx --test tests/*.test.ts`）。覆盖调度、存储、备份、IPC 契约、安全等。
+- `scripts/`：CI/npm 权威入口 `verify-build-contract.mjs`、`verify-ui-contract.mjs`、`verify-product-boundary.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`build-app-icon.mjs`。`scripts/legacy/` **已删除**。
 - `public/assets/`：`tray-icon.png`、`app-icon.ico`；桌宠与提醒视觉主要为内联 SVG。
 - `out/`、`release/`、`node_modules/`、`data/`、`artifacts/`：生成物或本地数据，不提交。
 
@@ -77,7 +77,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 | 像素动物 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx` | 仅内置橘猫/小狗/白兔；`PIXEL_ANIMALS` 是唯一来源。 |
 | 打包与产物 | `package.json` `build`、`electron.vite.config.ts` | 默认输出 `release/`；NSIS + portable x64。 |
 | 备份导入/导出与旧资料 | `src/main/backup.ts`、`src/main/taskStore.ts` | 备份格式当前为 **v8**，数据库 schema **v5**；导入前建回滚快照。旧规划/专注/独立提醒域仍参与导出与只读恢复。 |
-| 遗留功能代码 | [docs/architecture.md](docs/architecture.md) §遗留面清单 | 孤儿 UI 在 `src/renderer/src/_legacy/`；历史脚本在 `scripts/legacy/`。活跃路径不要依赖它们。 |
+| 产品边界 / 命令层 | [docs/architecture.md](docs/architecture.md) §产品边界 lint | 写操作走 `run`/`useCommand`；`npm run verify:product` / `npm run lint` |
 
 ## 构建、测试与运行命令
 
@@ -123,8 +123,8 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 
 完整清单与处置见 [docs/architecture.md](docs/architecture.md) §遗留面清单 / §处置结论。
 
-- **已归档 renderer**：`src/renderer/src/_legacy/**`（孤儿 UI 与仅服务它们的 hooks）。活跃 UI 不得 import。
-- **原地保留的纯函数**：`features/tasks/` 下 `todaySections` / `planLayout` 等，仍有测试。
-- **主进程**：测试专用服务模块已删（轮次 B）。`taskStore` 规划/专注/独立提醒表、backup、`data:legacy` 仍保留（轮次 C）；`history:*` / `standalone-reminder:list` 已从 preload/API 移除（轮次 D）。
-- **IPC 契约**：`tests/ipc-contract.test.ts` 强制 `EyeProtectApi` ↔ preload ↔ `handleIpc`/broadcast 对齐；新增通道须三方一起改。
-- **脚本**：权威入口在 `scripts/` 根目录；历史脚本在 `scripts/legacy/`。
+- **遗留 renderer/脚本**：`_legacy` 与 `scripts/legacy` **已删除**。纯函数回归网在 `features/tasks/` + `tests/`。
+- **主进程**：测试专用服务模块已删；`taskStore` 兼容表 + backup + `data:legacy` 保留；history/standalone list IPC 已移除。
+- **IPC 契约**：`tests/ipc-contract.test.ts`（API ↔ preload ↔ handleIpc）。
+- **产品边界**：`npm run verify:product`（遗留路径 ban + 写操作须 `run`）；`npm run lint` = product + ui-contract。
+- **命令层**：用户可见写操作经 `run`/`useCommand`；读与窗口几何/导航可直调。

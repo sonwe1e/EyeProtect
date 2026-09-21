@@ -69,7 +69,17 @@ export const commands = {
     action: (action: ReminderAction, reminderId: string) =>
       run<ReminderStatus>(() => window.eyeProtect.reminderAction(action, reminderId)),
     test: (kind: ReminderKind) =>
-      run<ReminderStatus>(() => window.eyeProtect.testReminder(kind))
+      run<ReminderStatus>(() => window.eyeProtect.testReminder(kind)),
+    beginRest: (id: string) =>
+      run<ReminderStatus>(() => window.eyeProtect.beginHealthRest(id))
+  },
+  pomodoro: {
+    prepare: (taskId: string | null, replace: boolean) =>
+      run(() => window.eyeProtect.preparePomodoro(taskId, replace)),
+    start: (taskId: string | null, minutes: number, replace: boolean) =>
+      run(() => window.eyeProtect.startPomodoro(taskId, minutes, replace)),
+    action: (action: 'pause' | 'resume' | 'stop' | 'break') =>
+      run(() => window.eyeProtect.pomodoroAction(action))
   },
   settings: {
     save: (patch: Partial<Settings>) =>
@@ -81,9 +91,13 @@ export const commands = {
     importBackup: () =>
       run<DataActionResult>(() => window.eyeProtect.importBackup()),
     openDataDirectory: () =>
-      run<DataActionResult>(() => window.eyeProtect.openDataDirectory())
+      run<DataActionResult>(() => window.eyeProtect.openDataDirectory()),
+    restoreLegacyTask: (id: string) =>
+      run<Task[]>(() => window.eyeProtect.restoreLegacyTask(id))
   },
   system: {
-    relaunch: () => run<void>(() => window.eyeProtect.relaunchApp())
+    relaunch: () => run<void>(() => window.eyeProtect.relaunchApp()),
+    openCustomPetFolder: (subfolder?: string) =>
+      run(() => window.eyeProtect.openCustomPetFolder(subfolder))
   }
 };

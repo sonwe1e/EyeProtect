@@ -16,8 +16,7 @@ const settings = read('src/renderer/src/styles/settings.css');
 const simple = read('src/renderer/src/styles/simple.css');
 const health = read('src/renderer/src/components/AppHealthBanner.module.css');
 const manifest = JSON.parse(read('package.json'));
-// Active product chrome only. Legacy UI lives under src/renderer/src/_legacy
-// and is out of product-path contracts (docs/architecture.md §遗留面清单).
+// Active product chrome only (docs/architecture.md §产品边界 lint).
 const chrome = [
   read('src/renderer/src/views/WorkbenchView.tsx'),
   read('src/renderer/src/views/AlertView.tsx'),
@@ -60,7 +59,7 @@ const cssFilesIn = (directory) => readdirSync(directory, { withFileTypes: true }
 });
 for (const path of cssFilesIn(resolve(root, 'src/renderer/src'))) {
   if (path.endsWith('theme.css')) continue;
-  if (path.includes('_legacy')) continue;
+
   if (rawColor.test(readFileSync(path, 'utf8'))) {
     failures.push(`${path.slice(root.length + 1)} contains a raw color outside theme.css`);
   }
