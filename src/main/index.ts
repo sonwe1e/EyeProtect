@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AppHealth,
+  CustomPetThemeInfo,
   DailyTaskPlanInput,
   DailyReflectionInput,
   HotkeyAction,
@@ -1059,6 +1060,182 @@ app.whenReady().then(async () => {
       const message = error instanceof Error ? error.message : '无法打开数据目录';
       return { success: false, message };
     }
+  });
+  handleIpc('pet:custom:open-folder', async (subfolder) => {
+    const baseDir = join(settingsStore.getDataDir(), 'custom-pet');
+    const customDir =
+      typeof subfolder === 'string' && subfolder.trim().length > 0
+        ? join(baseDir, subfolder.trim())
+        : baseDir;
+    try {
+      if (!existsSync(customDir)) {
+        mkdirSync(customDir, { recursive: true });
+      }
+      const readmePath = join(baseDir, '使用说明.txt');
+      if (!existsSync(readmePath)) {
+        const readme =
+          'EyeProtect 自定义桌宠说明文档\r\n\r\n' +
+          '【1. 如何添加多种动物？】\r\n' +
+          '在当前 custom-pet 文件夹下新建子文件夹即可，每个子文件夹对应一个独立角色，例如：\r\n' +
+          '  custom-pet/\r\n' +
+          '    ├── 柴犬/\r\n' +
+          '    │    ├── idle.gif\r\n' +
+          '    │    ├── click1.gif\r\n' +
+          '    │    └── click2.gif\r\n' +
+          '    └── 卡皮巴拉/\r\n' +
+          '         ├── idle.gif\r\n' +
+          '         ├── click.gif\r\n' +
+          '         └── sleep.gif\r\n' +
+          '创建后，在工作台「设置 - 桌面外观」中将直接列出所有角色，点击即可自由切换！\r\n\r\n' +
+          '【2. 如何让点击（Click）触发多种随机动作？】\r\n' +
+          '只要在角色文件夹中放入多个以 click 开头的动图即可，点击时会自动随机抽取播放：\r\n' +
+          '  - click1.gif（例如开心跳跃）\r\n' +
+          '  - click2.gif（例如冒爱心）\r\n' +
+          '  - click3.gif（例如打哈欠）\r\n' +
+          '  - 或 interact_*.gif\r\n' +
+          '每次鼠标单击桌宠时，都会在这些动作中随机播放一个！\r\n\r\n' +
+          '【3. 动作文件命名规范】\r\n' +
+          '- idle*.gif / idle*.png：平时常驻桌面的待机/呼吸循环\r\n' +
+          '- click*.gif / interact*.gif：鼠标单击桌宠时的随机互动动作\r\n' +
+          '- fidget*.gif / action*.gif：闲置时每隔十几秒自发触发的随机小动作（如伸懒腰、打滚）\r\n' +
+          '- sleep*.gif / rest*.gif：护眼休息提醒期间播放的休息动作\r\n';
+        writeFileSync(readmePath, readme, 'utf8');
+      }
+      const error = await shell.openPath(customDir);
+      return error
+        ? { success: false, message: error }
+        : { success: true, message: '已打开自定义桌宠目录' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法打开自定义桌宠目录';
+      return { success: false, message };
+    }
+  });
+  handleIpc('pet:custom:get-assets', (requestedTheme) => {
+    const baseDir = join(settingsStore.getDataDir(), 'custom-pet');
+    if (!existsSync(baseDir)) {
+      return {
+        hasCustomPet: false,
+        activeTheme: null,
+        availableThemes: [],
+        idles: [],
+        clicks: [],
+        fidgets: [],
+        sleeps: []
+      };
+    }
+
+    const isImageFile = (filename: string): boolean => {
+      const lower = filename.toLowerCase();
+      return lower.endsWith('.gif') || lower.endsWith('.png') || lower.endsWith('.webp') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+    };
+
+    const toDataUrl = (filePath: string): string | null => {
+      try {
+        const buf = readFileSync(filePath);
+        const lower = filePath.toLowerCase();
+        const ext = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'image/jpeg' : 'image/gif';
+        return `data:${ext};base64,${buf.toString('base64')}`;
+      } catch {
+        return null;
+      }
+    };
+
+    const loadDirAssets = (dirPath: string) => {
+      if (!existsSync(dirPath)) return { idles: [], clicks: [], fidgets: [], sleeps: [] };
+      try {
+        const entries = readdirSync(dirPath, { withFileTypes: true });
+        const idles: string[] = [];
+        const clicks: string[] = [];
+        const fidgets: string[] = [];
+        const sleeps: string[] = [];
+
+        for (const entry of entries) {
+          if (!entry.isFile() || !isImageFile(entry.name)) continue;
+          const lower = entry.name.toLowerCase();
+          const fullPath = join(dirPath, entry.name);
+          const dataUrl = toDataUrl(fullPath);
+          if (!dataUrl) continue;
+
+          if (lower.startsWith('click') || lower.startsWith('interact') || lower.startsWith('tap')) {
+            clicks.push(dataUrl);
+          } else if (lower.startsWith('fidget') || lower.startsWith('action') || lower.startsWith('play')) {
+            fidgets.push(dataUrl);
+          } else if (lower.startsWith('sleep') || lower.startsWith('rest')) {
+            sleeps.push(dataUrl);
+          } else if (lower.startsWith('idle') || lower.startsWith('stand') || lower.startsWith('stay')) {
+            idles.push(dataUrl);
+          } else {
+            idles.push(dataUrl);
+          }
+        }
+        return { idles, clicks, fidgets, sleeps };
+      } catch {
+        return { idles: [], clicks: [], fidgets: [], sleeps: [] };
+      }
+    };
+
+    const availableThemes: CustomPetThemeInfo[] = [];
+    const rootAssets = loadDirAssets(baseDir);
+    if (rootAssets.idles.length > 0 || rootAssets.clicks.length > 0 || rootAssets.fidgets.length > 0 || rootAssets.sleeps.length > 0) {
+      availableThemes.push({
+        id: 'default',
+        name: '默认角色',
+        preview: rootAssets.idles[0] ?? rootAssets.clicks[0] ?? rootAssets.fidgets[0] ?? null
+      });
+    }
+
+    try {
+      const dirEntries = readdirSync(baseDir, { withFileTypes: true });
+      for (const entry of dirEntries) {
+        if (entry.isDirectory()) {
+          const subDirPath = join(baseDir, entry.name);
+          const subAssets = loadDirAssets(subDirPath);
+          if (subAssets.idles.length > 0 || subAssets.clicks.length > 0 || subAssets.fidgets.length > 0 || subAssets.sleeps.length > 0) {
+            availableThemes.push({
+              id: entry.name,
+              name: entry.name,
+              preview: subAssets.idles[0] ?? subAssets.clicks[0] ?? subAssets.fidgets[0] ?? null
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const currentThemeSetting =
+      typeof requestedTheme === 'string'
+        ? requestedTheme
+        : settingsStore.get().customPetTheme;
+
+    let activeDir: string | null = null;
+    let resolvedActiveTheme: string | null = null;
+
+    if (currentThemeSetting) {
+      const match = availableThemes.find((t) => t.id === currentThemeSetting);
+      if (match) {
+        resolvedActiveTheme = match.id;
+        activeDir = match.id === 'default' ? baseDir : join(baseDir, match.id);
+      }
+    }
+
+    const activeAssets = activeDir ? loadDirAssets(activeDir) : { idles: [], clicks: [], fidgets: [], sleeps: [] };
+    const hasCustomPet = Boolean(
+      activeAssets.idles.length > 0 ||
+      activeAssets.clicks.length > 0 ||
+      activeAssets.fidgets.length > 0 ||
+      activeAssets.sleeps.length > 0
+    );
+
+    return {
+      hasCustomPet,
+      activeTheme: resolvedActiveTheme,
+      availableThemes,
+      idles: activeAssets.idles,
+      clicks: activeAssets.clicks,
+      fidgets: activeAssets.fidgets,
+      sleeps: activeAssets.sleeps
+    };
   });
   handleIpc('data:recovery-info', () => {
     const dataDir = settingsStore.getDataDir();

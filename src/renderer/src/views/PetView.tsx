@@ -122,6 +122,7 @@ export default function PetView(): JSX.Element {
         >
           <PetCharacter
             animal={animal}
+            theme={settings.customPetTheme}
             reacting={reacting}
             motion={settings.petMotion}
             doubleClickHint={

@@ -534,6 +534,8 @@ export interface Settings {
   todoBubbleEnabled: boolean;
   todoBubbleTaskIds: string[];
   petAppearance: PixelAnimal;
+  /** Custom character theme subfolder name under custom-pet/, or null to use built-in pixel animal. */
+  customPetTheme: string | null;
   petScale: number;
   /**
    * Whether the idle pet animates its small periodic actions (blink/fidget).
@@ -819,6 +821,22 @@ export interface PomodoroState {
 }
 export interface LegacyData { sections: Array<{ title: string; items: Array<{ title: string; detail: string }> }> }
 
+export interface CustomPetThemeInfo {
+  id: string;
+  name: string;
+  preview?: string | null;
+}
+
+export interface CustomPetAssets {
+  hasCustomPet: boolean;
+  activeTheme: string | null;
+  availableThemes: CustomPetThemeInfo[];
+  idles: string[];
+  clicks: string[];
+  fidgets: string[];
+  sleeps: string[];
+}
+
 export interface EyeProtectApi {
   preparePomodoro: (taskId: string | null, replace: boolean) => Promise<PomodoroState>;
   getPomodoro: () => Promise<PomodoroState>;
@@ -828,6 +846,8 @@ export interface EyeProtectApi {
   beginHealthRest: (id: string) => Promise<ReminderStatus>;
   getLegacyData: () => Promise<LegacyData>;
   restoreLegacyTask: (id: string) => Promise<Task[]>;
+  openCustomPetFolder: (subfolder?: string) => Promise<{ success: boolean; message: string }>;
+  getCustomPetAssets: (themeId?: string | null) => Promise<CustomPetAssets>;
 
   getSettings: () => Promise<Settings>;
   saveSettings: (settings: Partial<Settings>) => Promise<Settings>;
@@ -990,6 +1010,7 @@ export const DEFAULT_SETTINGS: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
+  customPetTheme: null,
   petScale: 1,
   petMotion: true,
   petPosition: null,

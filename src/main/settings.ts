@@ -284,6 +284,10 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       ? [...new Set(input.todoBubbleTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
       : [],
     petAppearance: isPixelAnimal(input.petAppearance) ? input.petAppearance : 'cat',
+    customPetTheme:
+      typeof input.customPetTheme === 'string' && input.customPetTheme.trim().length > 0
+        ? input.customPetTheme.trim().slice(0, 60)
+        : null,
     todoBubbleEnabled:
       typeof input.todoBubbleEnabled === 'boolean'
         ? input.todoBubbleEnabled

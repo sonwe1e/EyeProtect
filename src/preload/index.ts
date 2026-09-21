@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   CareStatus,
+  CustomPetAssets,
   DailyReviewSummary,
   DailyReflection,
   DailyReflectionInput,
@@ -210,7 +211,11 @@ const api: EyeProtectApi = {
   resetToDefaults: () => ipcRenderer.invoke('data:reset') as Promise<DataActionResult>,
   openDataDirectory: () => ipcRenderer.invoke('data:open-directory') as Promise<DataActionResult>,
   getDataRecoveryInfo: () =>
-    ipcRenderer.invoke('data:recovery-info') as Promise<DataRecoveryInfo>
+    ipcRenderer.invoke('data:recovery-info') as Promise<DataRecoveryInfo>,
+  openCustomPetFolder: (subfolder?: string) =>
+    ipcRenderer.invoke('pet:custom:open-folder', subfolder) as Promise<{ success: boolean; message: string }>,
+  getCustomPetAssets: (themeId?: string | null) =>
+    ipcRenderer.invoke('pet:custom:get-assets', themeId) as Promise<CustomPetAssets>
 };
 
 contextBridge.exposeInMainWorld('eyeProtect', api);

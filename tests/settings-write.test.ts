@@ -133,3 +133,19 @@ test('sound and fullscreen DND settings are persisted and sanitized within bound
     assert.equal(new SettingsStore().get().soundVolume, 0);
   });
 });
+
+test('customPetTheme setting persists and sanitizes correctly', () => {
+  withTempStore((store) => {
+    assert.equal(store.get().customPetTheme, null);
+
+    store.save({ customPetTheme: '  pixel-cat  ' });
+    assert.equal(new SettingsStore().get().customPetTheme, 'pixel-cat');
+
+    store.save({ customPetTheme: '   ' });
+    assert.equal(new SettingsStore().get().customPetTheme, null);
+
+    store.save({ customPetTheme: null });
+    assert.equal(new SettingsStore().get().customPetTheme, null);
+  });
+});
+

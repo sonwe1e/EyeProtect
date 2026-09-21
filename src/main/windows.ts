@@ -1,5 +1,5 @@
 import { app, BrowserWindow, nativeTheme, screen } from 'electron';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -80,6 +80,14 @@ const getAppVersion = (): string => {
   } catch {
     return app.getVersion();
   }
+};
+
+const getAppIconPath = (): string => {
+  const devPath = join(process.cwd(), 'public/assets/app-icon.ico');
+  if (existsSync(devPath)) return devPath;
+  const packagedPath = join(moduleDir, '../../public/assets/app-icon.ico');
+  if (existsSync(packagedPath)) return packagedPath;
+  return devPath;
 };
 
 export const getRuntimeInfo = (settingsStore: SettingsStore): RuntimeInfo => ({
@@ -363,6 +371,7 @@ export class AppWindows {
       minWidth: 880,
       minHeight: 560,
       title: 'EyeProtect · 工作台',
+      icon: getAppIconPath(),
       autoHideMenuBar: true,
       backgroundColor: getWorkbenchBackgroundColor(
         this.settingsStore.get().theme,

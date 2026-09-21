@@ -133,17 +133,27 @@
   display: none;
 }
 
+@keyframes pet-idle-breathe {
+  0%, 100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-1.5px) scaleY(1.02);
+  }
+}
+
 .pet-character .pixel-animal {
   display: block;
   width: 100%;
   height: 100%;
   user-select: none;
   pointer-events: none;
-  transform-origin: 50% 75%;
+  transform-origin: 50% 85%;
+  animation: pet-idle-breathe 3.6s ease-in-out infinite;
 }
 
 .pet-character.is-animating .pixel-animal {
-  animation: pet-idle-sway 3.4s var(--ease-move) 1;
+  animation: pet-idle-sway 3.2s var(--ease-move) 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1502,7 +1512,7 @@
 .bubble-select { align-self: flex-start; min-height: 28px; padding: 2px 8px; }
 .bubble-todos .bubble-title { padding-right: 24px; }
 .bubble-close { min-width: 24px; min-height: 24px; }
-.pet-character .pixel-animal { animation: none; filter: none; }
+.pet-character .pixel-animal { filter: none; }
 .pixel-animal svg { display: block; width: 100%; height: 100%; image-rendering: pixelated; overflow: hidden; }
 
 
