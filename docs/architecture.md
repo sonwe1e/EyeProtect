@@ -85,8 +85,8 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | 事实 | 含义 |
 | --- | --- |
 | `src/main/index.ts` **未注册** `plan:*` / `timeblock:*` / `focus:*` / `section:*` / `checkpoint:*` / `daily:*` / standalone 的写通道 | preload 若仍暴露这些方法，调用必然失败（死 API） |
-| `focusRuntime` / `focusSession` / `taskWorkTracker` / `standaloneReminders` / `sceneAwareness` **无生产 import** | 仅 `tests/` 直接引用；`dailyReview` 仅被 `index.ts` 的 `data:legacy` 使用 |
-| `buildDailyReview` 仍被 `index.ts` 使用 | `dailyReview.ts` 模块保留 |
+| `focusRuntime` / `focusSession` / `taskWorkTracker` / `standaloneReminders` / `sceneAwareness` **无生产 import** | 仅 `tests/` 直接引用（PR #7 时点） |
+| `buildDailyReview` **无**生产调用 | `data:legacy` 直接读 `taskStore`；`dailyReview.ts` 在轮次 B 删除 |
 | 备份 `data:backup:*` 仍导出/恢复规划、专注、独立提醒域 | **存储层**兼容保留；不等于需要活跃 IPC 写入口 |
 | 活跃 UI 的 `window.eyeProtect` 调用集中在 settings/reminder/pomodoro/task/project/pet/bubble/workbench/delivery/backup/legacy | preload 应以这些通道为准 |
 
@@ -95,23 +95,42 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 1. **类型**：`EyeProtectApi` 只描述主进程真实注册 + 活跃/兼容路径需要的方法；删除无 handler 的死 API 声明。
 2. **preload**：与 `EyeProtectApi` 对齐，移除无 handler 的 invoke/on 封装。
 3. **commands.ts**：只保留活跃路径命令组（`run` + tasks/projects/reminder/settings/data/app）；旧 plans/sections/focus/timeBlocks 组删除。
-4. **主进程模块**：`focusRuntime` / `focusSession` / `taskWorkTracker` / `standaloneReminders` / `sceneAwareness` 留在 `src/main/` **仅供兼容测试**；不在 `index.ts` 装配。删除它们必须先改/删对应测试。
+4. **主进程模块（轮次 B）**：无生产 import 的测试专用服务模块 **删除**；存储/备份/`data:legacy` 仍触达的域 **只读兼容保留**。
 5. **`src/renderer/src/_legacy`**：从 typecheck include 排除（`tsconfig.json` exclude）；活跃代码不得 import。被测试 import 的纯函数（如 `interpolateTaskWork`）抽到 `features/tasks/`（`taskWorkInterpolation.ts`）。
-6. **存储与备份表**：本轮不动 `taskStore` 中的规划/专注/独立提醒域。
+6. **存储与备份表**：本轮不动 `taskStore` 中的规划/专注/独立提醒表与 backup 导出/恢复。
 7. **commands.ts**：仅保留 tasks/projects/deliveries/reminders/settings/data/system。
+
+### 轮次 B：主进程测试专用模块处置
+
+盘点（v1.6 精简产品，PR #7 合入后）：
+
+| 模块 | 生产 import | 直接测试 | 存储 / 备份 / IPC | 处置 |
+| --- | --- | --- | --- | --- |
+| `sceneAwareness.ts` | 无 | `scene-awareness.test.ts` | 无表；调度策略未装配 | **删除**模块+测试 |
+| `focusRuntime.ts` | 无 | `focus-runtime.test.ts` | 依赖 focusSession/tracker 服务 | **删除**模块+测试 |
+| `taskWorkTracker.ts` | 无 | `task-work-tracker.test.ts` | 无独立表 | **删除**模块+测试 |
+| `focusSession.ts`（`FocusSessionService`） | 无 | `focus-session.test.ts` | `taskStore` FocusSession 表 + backup + `data:legacy`（直接读 store，不经 service） | **删除服务模块+服务测试**；**存储方法保留**（`schema-v4.test.ts` 仍覆盖） |
+| `standaloneReminders.ts`（`StandaloneReminderService`） | 无 | `standalone-reminders.test.ts`（含 shared 纯函数） | `taskStore` 表 + backup + `standalone-reminder:list` + `data:legacy` | **删除服务模块**；测试**只保留** `shared/types` 的 schedule sanitizer / `nextStandaloneReminderFireAt` |
+| `dailyReview.ts` | **盘点更正**：`data:legacy` 已直接读 store，**不再**调用 `buildDailyReview` | `daily-review.test.ts` | 无生产调用方 | **删除**模块+测试（import 已死） |
+
+同步清理：
+
+- `index.ts` 中未再注册写通道、也无调用方的 `asStandaloneReminderInput` / `asStandaloneReminderUpdate` **删除**。
+- `preload` 仍暴露 `getStandaloneReminders`（handler 为 `standalone-reminder:list`）：活跃 UI 不调用；本轮**保留**以便 `_legacy` 与后续 Round D 再收。
+- `windows.broadcastStandaloneReminders` 与 backup 导出路径**不动**。
 
 ### 遗留 / 兼容面（不在主 UI 路径）
 
-**主进程模块（源码仍在，生产启动不按旧产品实例化）**
+**主进程模块**
 
-- `focusRuntime.ts`、`focusSession.ts`、`taskWorkTracker.ts` — 旧专注/工时
-- `standaloneReminders.ts`、`dailyReview.ts` — 旧独立提醒与日复盘
-- `taskStore.ts` 中仍存在的规划 / TimeBlock / Section / FocusSession / StandaloneReminder 表与方法（备份与兼容读取）
+- **已删除（轮次 B）**：`focusRuntime.ts`、`focusSession.ts`、`taskWorkTracker.ts`、`standaloneReminders.ts`、`sceneAwareness.ts`、`dailyReview.ts` 及仅服务它们的测试。盘点更正：`data:legacy` **不再**调用 `buildDailyReview`，改为直接读 store 列旧资料。
+- `taskStore.ts` 中仍存在的规划 / TimeBlock / Section / FocusSession / StandaloneReminder 表与方法（备份、`data:legacy` 与兼容读取；本轮未删表）。
 
 **IPC / preload（`window.eyeProtect` 仍暴露，活跃 UI 不应新增依赖）**
 
-- `focus:*`、`plan:*`、`timeblock:*`、`section:*`、`standalone-reminder:*`、`daily:review`、`daily:reflection:*`、`checkpoint:*`、`history:report` 等
-- `data:legacy` / `task:restore-legacy` — 设置页「旧资料与恢复」仍使用
+- PR #7 已移除无 handler 的死 API（plan/timeblock/focus/section/checkpoint/daily **写**通道等）。
+- **仍在且主进程有 handler**：`standalone-reminder:list`、`history:report` / `history:care` / `history:clear` / `history:export`、`data:legacy` / `task:restore-legacy` 等。
+- 活跃设置页「旧资料与恢复」使用 `data:legacy`；history / standalone list 活跃 UI 不读，去留见后续轮次。
 
 **孤儿 renderer（已归档 / 待归档至 `src/renderer/src/_legacy/`）**
 
@@ -133,7 +152,8 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 **测试仍覆盖但对应 UI 已下线**
 
-- `tests/focus-session.test.ts`、`focus-runtime.test.ts`、`daily-planning.test.ts`、`today-sections.test.ts`、`today-view-model.test.ts`、`project-sections.test.ts`、`standalone-reminders.test.ts`、`plan-layout.test.ts` 等 — 视为**兼容/回归网**，删除遗留代码前需要先决定这些测试的去留。
+- **已随轮次 B 删除**：`focus-session.test.ts`、`focus-runtime.test.ts`、`task-work-tracker.test.ts`、`scene-awareness.test.ts`、`daily-review.test.ts`；`standalone-reminders.test.ts` 缩为 shared 纯函数网。
+- **仍在（存储/纯函数/遗留规划面）**：`schema-v4.test.ts`（FocusSession/StandaloneReminder 表）、`daily-planning.test.ts`、`today-sections.test.ts`、`today-view-model.test.ts`、`project-sections.test.ts`、`plan-layout.test.ts`、`focus-completion.test.ts` 等。
 
 ### 使用约束
 

@@ -125,5 +125,5 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 
 - **已归档 renderer**：`src/renderer/src/_legacy/**`（孤儿 UI 与仅服务它们的 hooks）。活跃 UI 不得 import。
 - **原地保留的纯函数**：`features/tasks/` 下 `todaySections` / `planLayout` 等，仍有测试。
-- **主进程兼容模块**：`focusRuntime` / `standaloneReminders` / `dailyReview` 等本轮未删，备份与部分 IPC/测试仍触达。
+- **主进程**：测试专用服务模块（`focusRuntime` / `focusSession` / `taskWorkTracker` / `standaloneReminders` / `sceneAwareness` / `dailyReview`）已删；`taskStore` 规划/专注/独立提醒表、backup、`data:legacy` 仍保留。
 - **脚本**：权威入口在 `scripts/` 根目录；历史脚本在 `scripts/legacy/`。
