@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { TaskWorkSummary } from '../src/shared/types';
-import { interpolateTaskWork } from '../src/renderer/src/hooks/useTaskWork';
+import { interpolateTaskWork } from '../src/renderer/src/features/tasks/taskWorkInterpolation';
 
 const summary = (tracking: boolean): TaskWorkSummary => ({
   taskId: 'task-1',

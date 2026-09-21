@@ -1,26 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AppHealth,
   CareStatus,
   CustomPetAssets,
-  DailyReviewSummary,
-  DailyReflection,
-  DailyReflectionInput,
-  DailyTaskPlan,
-  DailyTaskPlanInput,
   DataActionResult,
   DataRecoveryInfo,
-  AppHealth,
   EyeProtectApi,
   FailedDeliveryNotice,
-  FocusStatus,
   HotkeyStatus,
+  LegacyData,
   PetPosition,
+  PomodoroState,
   PreAlertAction,
   Project,
   ProjectInput,
-  ProjectSection,
-  ProjectSectionInput,
-  ProjectWorkstreamSummary,
   ProjectUpdateInput,
   ReminderAction,
   ReminderKind,
@@ -28,19 +21,12 @@ import type {
   RuntimeInfo,
   Settings,
   StandaloneReminder,
-  StandaloneReminderInput,
   Task,
-  TaskCheckpoint,
-  TaskCheckpointDraft,
-  TaskCheckpointInput,
   TaskInput,
   TaskMoveInput,
   TaskStatus,
-  TaskWorkSummary,
-  TimeBlock,
-  TimeBlockInput,
-  UndoState,
   TaskUpdateInput,
+  UndoState,
   WeeklyReport
 } from '../shared/types';
 
@@ -50,14 +36,20 @@ const on = <T>(channel: string, callback: (payload: T) => void): (() => void) =>
   return () => ipcRenderer.removeListener(channel, listener);
 };
 
+/**
+ * Keep in lockstep with `EyeProtectApi` and the `handleIpc(...)` list in
+ * `src/main/index.ts`. Do not re-add planning/focus/section write bridges
+ * until main registers matching handlers again (docs/architecture.md).
+ */
 const api: EyeProtectApi = {
   getSettings: () => ipcRenderer.invoke('settings:get') as Promise<Settings>,
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings) as Promise<Settings>,
+  onSettingsChanged: (callback) => on<Settings>('settings:changed', callback),
   getRuntimeInfo: () => ipcRenderer.invoke('runtime:get') as Promise<RuntimeInfo>,
-  // --- AppHealth (USERPLAN §二十八) ---
   getAppHealth: () => ipcRenderer.invoke('app:health:get') as Promise<AppHealth>,
   onAppHealthChanged: (callback) => on<AppHealth>('app:health:changed', callback),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch') as Promise<void>,
+
   getReminderStatus: () => ipcRenderer.invoke('reminder:status') as Promise<ReminderStatus>,
   reminderAction: (action: ReminderAction, reminderId: string) =>
     ipcRenderer.invoke('reminder:action', action, reminderId) as Promise<ReminderStatus>,
@@ -68,19 +60,17 @@ const api: EyeProtectApi = {
   pause: (minutes: number) => ipcRenderer.invoke('reminder:pause', minutes) as Promise<ReminderStatus>,
   resume: () => ipcRenderer.invoke('reminder:resume') as Promise<ReminderStatus>,
   restartCycle: () => ipcRenderer.invoke('reminder:restart') as Promise<ReminderStatus>,
-  onSettingsChanged: (callback) => on<Settings>('settings:changed', callback),
   onReminderChanged: (callback) => on<ReminderStatus>('reminder:changed', callback),
-  completeTaskTree: (id, revisions) => ipcRenderer.invoke('task:complete-tree', id, revisions) as Promise<Task[]>,
-  moveStep: (id, direction) => ipcRenderer.invoke('task:move-step', id, direction),
-  createStep: (rootId, title) => ipcRenderer.invoke('task:create-step', rootId, title) as Promise<Task[]>,
-  preparePomodoro: (taskId, replace) => ipcRenderer.invoke('pomodoro:prepare', taskId, replace),
-  getPomodoro: () => ipcRenderer.invoke('pomodoro:get'),
-  startPomodoro: (taskId, minutes, replace) => ipcRenderer.invoke('pomodoro:start', taskId, minutes, replace),
-  pomodoroAction: (action) => ipcRenderer.invoke('pomodoro:action', action),
-  onPomodoroChanged: (callback) => on('pomodoro:changed', callback),
-  beginHealthRest: (id) => ipcRenderer.invoke('reminder:begin-rest', id),
-  getLegacyData: () => ipcRenderer.invoke('data:legacy'),
-  restoreLegacyTask: (id) => ipcRenderer.invoke('task:restore-legacy', id),
+  beginHealthRest: (id) => ipcRenderer.invoke('reminder:begin-rest', id) as Promise<ReminderStatus>,
+
+  preparePomodoro: (taskId, replace) =>
+    ipcRenderer.invoke('pomodoro:prepare', taskId, replace) as Promise<PomodoroState>,
+  getPomodoro: () => ipcRenderer.invoke('pomodoro:get') as Promise<PomodoroState>,
+  startPomodoro: (taskId, minutes, replace) =>
+    ipcRenderer.invoke('pomodoro:start', taskId, minutes, replace) as Promise<PomodoroState>,
+  pomodoroAction: (action) => ipcRenderer.invoke('pomodoro:action', action) as Promise<PomodoroState>,
+  onPomodoroChanged: (callback) => on<PomodoroState>('pomodoro:changed', callback),
+
   getTasks: () => ipcRenderer.invoke('task:list') as Promise<Task[]>,
   getTask: (id: string) => ipcRenderer.invoke('task:get', id) as Promise<Task | null>,
   createTask: (input: TaskInput) => ipcRenderer.invoke('task:create', input) as Promise<Task[]>,
@@ -90,14 +80,19 @@ const api: EyeProtectApi = {
   setTaskStatus: (id: string, status: TaskStatus) =>
     ipcRenderer.invoke('task:set-status', id, status) as Promise<Task[]>,
   deleteTask: (id: string) => ipcRenderer.invoke('task:delete', id) as Promise<Task[]>,
+  completeTaskTree: (id, revisions) =>
+    ipcRenderer.invoke('task:complete-tree', id, revisions) as Promise<Task[]>,
+  moveStep: (id, direction) => ipcRenderer.invoke('task:move-step', id, direction) as Promise<Task[]>,
+  createStep: (rootId, title) => ipcRenderer.invoke('task:create-step', rootId, title) as Promise<Task[]>,
   getUndoState: () => ipcRenderer.invoke('task:undo:get') as Promise<UndoState | null>,
-  undoTaskOperation: (operationId: string) => ipcRenderer.invoke('task:undo', operationId) as Promise<Task[]>,
+  undoTaskOperation: (operationId) => ipcRenderer.invoke('task:undo', operationId) as Promise<Task[]>,
   onUndoChanged: (callback) => on<UndoState | null>('task:undo-changed', callback),
   onTasksChanged: (callback) => on<Task[]>('task:changed', callback),
   onTaskUpserted: (callback) => on<Task>('task:upserted', callback),
   onTaskRemoved: (callback) => on<string>('task:removed', callback),
   getPendingTaskCount: () => ipcRenderer.invoke('task:pending-count') as Promise<number>,
   onPendingTaskCountChanged: (callback) => on<number>('task:pending-count:changed', callback),
+
   getProjects: () => ipcRenderer.invoke('project:list') as Promise<Project[]>,
   getProject: (id: string) => ipcRenderer.invoke('project:get', id) as Promise<Project | null>,
   createProject: (input: ProjectInput) => ipcRenderer.invoke('project:create', input) as Promise<Project[]>,
@@ -107,84 +102,24 @@ const api: EyeProtectApi = {
   onProjectsChanged: (callback) => on<Project[]>('project:changed', callback),
   onProjectUpserted: (callback) => on<Project>('project:upserted', callback),
   onProjectRemoved: (callback) => on<string>('project:removed', callback),
-  getDailyPlans: (localDate: string) =>
-    ipcRenderer.invoke('plan:day:list', localDate) as Promise<DailyTaskPlan[]>,
-  getDailyReview: (localDate: string) =>
-    ipcRenderer.invoke('daily:review', localDate) as Promise<DailyReviewSummary>,
-  upsertDailyPlan: (input: DailyTaskPlanInput) =>
-    ipcRenderer.invoke('plan:upsert', input) as Promise<DailyTaskPlan[]>,
-  removeDailyPlan: (taskId: string, localDate: string) =>
-    ipcRenderer.invoke('plan:remove', taskId, localDate) as Promise<DailyTaskPlan[]>,
-  getTimeBlocks: () => ipcRenderer.invoke('timeblock:list') as Promise<TimeBlock[]>,
-  createTimeBlock: (input: TimeBlockInput) =>
-    ipcRenderer.invoke('timeblock:create', input) as Promise<TimeBlock>,
-  updateTimeBlock: (id: string, input: Partial<TimeBlockInput>) =>
-    ipcRenderer.invoke('timeblock:update', id, input) as Promise<TimeBlock>,
-  deleteTimeBlock: (id: string) => ipcRenderer.invoke('timeblock:delete', id) as Promise<boolean>,
-  onTimeBlocksChanged: (callback) => on<null>('timeblock:changed', callback),
-  onDailyPlansChanged: (callback) => on<{ localDate: string | null }>('plan:changed', callback),
-  getProjectSections: (projectId: string) =>
-    ipcRenderer.invoke('section:list', projectId) as Promise<ProjectSection[]>,
-  createProjectSection: (input: ProjectSectionInput) =>
-    ipcRenderer.invoke('section:create', input) as Promise<ProjectSection>,
-  updateProjectSection: (id: string, input: { name: string }) =>
-    ipcRenderer.invoke('section:update', id, input) as Promise<ProjectSection>,
-  moveProjectSection: (id: string, beforeSectionId: string | null) =>
-    ipcRenderer.invoke('section:move', id, beforeSectionId) as Promise<ProjectSection[]>,
-  deleteProjectSection: (id: string) =>
-    ipcRenderer.invoke('section:delete', id) as Promise<boolean>,
-  onProjectSectionsChanged: (callback) => on<{ projectId: string | null }>('section:changed', callback),
-  setTaskSection: (taskId: string, sectionId: string | null) =>
-    ipcRenderer.invoke('task:set-section', taskId, sectionId) as Promise<Task>,
-  getProjectWorkstreamSummaries: (projectId: string, since: number) =>
-    ipcRenderer.invoke('section:work-summary', projectId, since) as Promise<ProjectWorkstreamSummary[]>,
-  getFocusStatus: () => ipcRenderer.invoke('focus:get') as Promise<FocusStatus>,
-  startFocus: (taskId: string, timeBlockId?: string | null) =>
-    ipcRenderer.invoke('focus:start', taskId, timeBlockId ?? null) as Promise<FocusStatus>,
-  switchFocus: (taskId: string, checkpoint?: TaskCheckpointDraft | null) =>
-    ipcRenderer.invoke('focus:switch', taskId, checkpoint ?? null) as Promise<FocusStatus>,
-  pauseFocus: (checkpoint?: TaskCheckpointDraft | null) =>
-    ipcRenderer.invoke('focus:pause', checkpoint ?? null) as Promise<FocusStatus>,
-  resumeFocus: () => ipcRenderer.invoke('focus:resume') as Promise<FocusStatus>,
-  completeFocus: () => ipcRenderer.invoke('focus:complete') as Promise<FocusStatus>,
-  onFocusStatusChanged: (callback) => on<FocusStatus>('focus:session-changed', callback),
-  getTaskCheckpoints: (taskId: string) =>
-    ipcRenderer.invoke('checkpoint:list', taskId) as Promise<TaskCheckpoint[]>,
-  createTaskCheckpoint: (input: TaskCheckpointInput) =>
-    ipcRenderer.invoke('checkpoint:create', input) as Promise<TaskCheckpoint>,
-  onTaskCheckpointsChanged: (callback) => on<{ taskId: string | null }>('checkpoint:changed', callback),
-  getDailyReflection: (localDate: string) =>
-    ipcRenderer.invoke('daily:reflection:get', localDate) as Promise<DailyReflection | null>,
-  saveDailyReflection: (input: DailyReflectionInput) =>
-    ipcRenderer.invoke('daily:reflection:save', input) as Promise<DailyReflection>,
+
   getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
   onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),
-  getTaskWorkSummary: () => ipcRenderer.invoke('task:work-summary') as Promise<TaskWorkSummary>,
-  onTaskWorkChanged: (callback) => on<TaskWorkSummary>('task:work-changed', callback),
-  getStandaloneReminders: () =>
-    ipcRenderer.invoke('standalone-reminder:list') as Promise<StandaloneReminder[]>,
-  createStandaloneReminder: (input: StandaloneReminderInput) =>
-    ipcRenderer.invoke('standalone-reminder:create', input) as Promise<StandaloneReminder[]>,
-  updateStandaloneReminder: (id: string, input: Partial<StandaloneReminderInput>) =>
-    ipcRenderer.invoke('standalone-reminder:update', id, input) as Promise<StandaloneReminder[]>,
-  deleteStandaloneReminder: (id: string) =>
-    ipcRenderer.invoke('standalone-reminder:delete', id) as Promise<StandaloneReminder[]>,
-  onStandaloneRemindersChanged: (callback) =>
-    on<StandaloneReminder[]>('standalone-reminder:changed', callback),
-  onStandaloneReminderFired: (callback) =>
-    on<StandaloneReminder>('standalone-reminder:fired', callback),
-  getFailedDeliveries: () =>
-    ipcRenderer.invoke('delivery:failed:list') as Promise<FailedDeliveryNotice[]>,
-  retryFailedDelivery: (id: string) =>
+
+  getFailedDeliveries: () => ipcRenderer.invoke('delivery:failed:list') as Promise<FailedDeliveryNotice[]>,
+  retryFailedDelivery: (id) =>
     ipcRenderer.invoke('delivery:failed:retry', id) as Promise<FailedDeliveryNotice[]>,
-  dismissFailedDelivery: (id: string) =>
+  dismissFailedDelivery: (id) =>
     ipcRenderer.invoke('delivery:failed:dismiss', id) as Promise<FailedDeliveryNotice[]>,
   onFailedDeliveriesChanged: (callback) =>
     on<FailedDeliveryNotice[]>('delivery:failed-changed', callback),
-  reportPetArtworkBounds: (bounds) => ipcRenderer.invoke('window:pet:artwork-bounds', bounds) as Promise<void>,
+
+  reportPetArtworkBounds: (bounds) =>
+    ipcRenderer.invoke('window:pet:artwork-bounds', bounds) as Promise<void>,
   reportBubbleHeight: (height) => ipcRenderer.invoke('window:bubble:height', height) as Promise<void>,
-  onBubbleLayout: (callback) => on('bubble:layout', callback),
+  onBubbleLayout: (callback) =>
+    on<{ placement: 'above' | 'below'; tailX: number }>('bubble:layout', callback),
   movePetWindow: (position) =>
     ipcRenderer.invoke('window:pet:move', position) as Promise<PetPosition | null>,
   showPetContextMenu: () => ipcRenderer.invoke('window:pet:context-menu') as Promise<void>,
@@ -194,28 +129,35 @@ const api: EyeProtectApi = {
     ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>,
+    ipcRenderer.invoke('window:workbench:section') as Promise<
+      'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'
+    >,
   onWorkbenchNavigate: (callback) =>
     on<'today' | 'settings' | 'reminders' | 'review' | 'pet-tasks'>('workbench:navigate', callback),
-  getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
-  getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
-  clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,
-  exportReminderHistory: (format) =>
-    ipcRenderer.invoke('history:export', format) as Promise<boolean>,
-  onWeeklyReportChanged: (callback) => on<WeeklyReport>('history:changed', callback),
-  onCareStatusChanged: (callback) => on<CareStatus>('care:changed', callback),
-  getHotkeyStatus: () => ipcRenderer.invoke('hotkeys:status') as Promise<HotkeyStatus>,
-  onHotkeyStatusChanged: (callback) => on<HotkeyStatus>('hotkeys:changed', callback),
+
+  openCustomPetFolder: (subfolder?: string) =>
+    ipcRenderer.invoke('pet:custom:open-folder', subfolder) as Promise<{ success: boolean; message: string }>,
+  getCustomPetAssets: (themeId?: string | null) =>
+    ipcRenderer.invoke('pet:custom:get-assets', themeId) as Promise<CustomPetAssets>,
+
   exportBackup: () => ipcRenderer.invoke('data:backup:export') as Promise<DataActionResult>,
   importBackup: () => ipcRenderer.invoke('data:backup:import') as Promise<DataActionResult>,
   resetToDefaults: () => ipcRenderer.invoke('data:reset') as Promise<DataActionResult>,
   openDataDirectory: () => ipcRenderer.invoke('data:open-directory') as Promise<DataActionResult>,
-  getDataRecoveryInfo: () =>
-    ipcRenderer.invoke('data:recovery-info') as Promise<DataRecoveryInfo>,
-  openCustomPetFolder: (subfolder?: string) =>
-    ipcRenderer.invoke('pet:custom:open-folder', subfolder) as Promise<{ success: boolean; message: string }>,
-  getCustomPetAssets: (themeId?: string | null) =>
-    ipcRenderer.invoke('pet:custom:get-assets', themeId) as Promise<CustomPetAssets>
+  getDataRecoveryInfo: () => ipcRenderer.invoke('data:recovery-info') as Promise<DataRecoveryInfo>,
+  getLegacyData: () => ipcRenderer.invoke('data:legacy') as Promise<LegacyData>,
+  restoreLegacyTask: (id) => ipcRenderer.invoke('task:restore-legacy', id) as Promise<Task[]>,
+
+  getWeeklyReport: () => ipcRenderer.invoke('history:report') as Promise<WeeklyReport>,
+  getCareStatus: () => ipcRenderer.invoke('history:care') as Promise<CareStatus>,
+  clearReminderHistory: () => ipcRenderer.invoke('history:clear') as Promise<WeeklyReport>,
+  exportReminderHistory: (format) => ipcRenderer.invoke('history:export', format) as Promise<boolean>,
+  onWeeklyReportChanged: (callback) => on<WeeklyReport>('history:changed', callback),
+  onCareStatusChanged: (callback) => on<CareStatus>('care:changed', callback),
+  getHotkeyStatus: () => ipcRenderer.invoke('hotkeys:status') as Promise<HotkeyStatus>,
+  onHotkeyStatusChanged: (callback) => on<HotkeyStatus>('hotkeys:changed', callback),
+  getStandaloneReminders: () =>
+    ipcRenderer.invoke('standalone-reminder:list') as Promise<StandaloneReminder[]>
 };
 
 contextBridge.exposeInMainWorld('eyeProtect', api);

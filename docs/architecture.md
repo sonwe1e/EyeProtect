@@ -76,6 +76,30 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 归档后同步调整：`tests/design-system-contract.test.ts`、`tests/modal-keyboard-contract.test.ts`、`scripts/verify-ui-contract.mjs` 只约束**活跃** chrome/样式路径；`scripts/legacy/README.md` 说明这些脚本不在 CI。
 
+**Packaged smoke 与改版休息卡对齐**：`2827ae3` 改版后环标签为「剩余时长 / 已到时间」，进行中主按钮为「完成休息（还剩 N 秒）」，完成按钮为「完成休息打卡」；`AlertView` 每次提醒随机 follow/breathe/pet，breathe 会把环文案改成「余 mm:ss」。`smoke-simple-experience.mjs` 在断言前固定「视线光球」模式，并按上述现行文案断言。master 在该对齐合入前，`verify-and-package` 会因旧 smoke 文案红。
+
+### 主进程与 preload 收口结论（本轮）
+
+盘点事实（v1.6 精简产品）：
+
+| 事实 | 含义 |
+| --- | --- |
+| `src/main/index.ts` **未注册** `plan:*` / `timeblock:*` / `focus:*` / `section:*` / `checkpoint:*` / `daily:*` / standalone 的写通道 | preload 若仍暴露这些方法，调用必然失败（死 API） |
+| `focusRuntime` / `focusSession` / `taskWorkTracker` / `standaloneReminders` / `sceneAwareness` **无生产 import** | 仅 `tests/` 直接引用；`dailyReview` 仅被 `index.ts` 的 `data:legacy` 使用 |
+| `buildDailyReview` 仍被 `index.ts` 使用 | `dailyReview.ts` 模块保留 |
+| 备份 `data:backup:*` 仍导出/恢复规划、专注、独立提醒域 | **存储层**兼容保留；不等于需要活跃 IPC 写入口 |
+| 活跃 UI 的 `window.eyeProtect` 调用集中在 settings/reminder/pomodoro/task/project/pet/bubble/workbench/delivery/backup/legacy | preload 应以这些通道为准 |
+
+**处置：**
+
+1. **类型**：`EyeProtectApi` 只描述主进程真实注册 + 活跃/兼容路径需要的方法；删除无 handler 的死 API 声明。
+2. **preload**：与 `EyeProtectApi` 对齐，移除无 handler 的 invoke/on 封装。
+3. **commands.ts**：只保留活跃路径命令组（`run` + tasks/projects/reminder/settings/data/app）；旧 plans/sections/focus/timeBlocks 组删除。
+4. **主进程模块**：`focusRuntime` / `focusSession` / `taskWorkTracker` / `standaloneReminders` / `sceneAwareness` 留在 `src/main/` **仅供兼容测试**；不在 `index.ts` 装配。删除它们必须先改/删对应测试。
+5. **`src/renderer/src/_legacy`**：从 typecheck include 排除（`tsconfig.json` exclude）；活跃代码不得 import。被测试 import 的纯函数（如 `interpolateTaskWork`）抽到 `features/tasks/`（`taskWorkInterpolation.ts`）。
+6. **存储与备份表**：本轮不动 `taskStore` 中的规划/专注/独立提醒域。
+7. **commands.ts**：仅保留 tasks/projects/deliveries/reminders/settings/data/system。
+
 ### 遗留 / 兼容面（不在主 UI 路径）
 
 **主进程模块（源码仍在，生产启动不按旧产品实例化）**

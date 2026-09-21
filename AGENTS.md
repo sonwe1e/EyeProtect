@@ -50,7 +50,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 ## 项目结构
 
 - `src/main/`：Electron 主进程——生命周期、托盘、窗口、IPC、提醒调度、设置读写、开机自启。`index.ts` 是装配与 IPC 入口；`reminders.ts` + `scheduling/kernel.ts` 拥有计时权威；`taskService.ts` / `taskStore.ts` 拥有任务数据。
-- `src/preload/`：`contextBridge` 暴露 `window.eyeProtect`。`emergency.ts` 是紧急提醒页的最小桥。API 面仍包含部分**兼容/遗留**通道（见 architecture §遗留面清单），活跃 UI 不应新增对它们的依赖。
+- `src/preload/`：`contextBridge` 暴露 `window.eyeProtect`。`emergency.ts` 是紧急提醒页的最小桥。API 面与 `src/main/index.ts` 的 `handleIpc` 列表对齐；规划/专注/Section 等死通道已移除。见 [docs/architecture.md](docs/architecture.md) §主进程与 preload 收口结论。
 - `src/shared/`：跨进程类型与策略（`types.ts`、`simpleTasks.ts`、`pixelAnimals.ts`、`projectPolicy.ts`、`breakActivities.ts` 等）。
 - `src/renderer/`：`App.tsx` 按 URL hash 加载 `#pet`（默认）、`#bubble`、`#workbench`/`#settings`、`#alert`。活跃视图为 `views/PetView.tsx`、`BubbleView.tsx`、`WorkbenchView.tsx`、`AlertView.tsx`。工作台设置页是 `features/simple/SimpleSettings.tsx`（**不是** `views/SettingsView.tsx`）。`styles/simple.css` 服务精简工作台；`styles.css` 服务桌宠/气泡/提醒窗。
 - `tests/`：Node 内置 test runner（`tsx --test tests/*.test.ts`）。覆盖调度、存储、备份、IPC 清洗、安全、rest view-model 等；部分用例保护**遗留数据兼容**路径，不代表这些功能仍在 UI 中。
