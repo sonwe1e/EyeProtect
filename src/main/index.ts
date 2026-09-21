@@ -23,25 +23,17 @@ import { fileURLToPath } from 'node:url';
 import type {
   AppHealth,
   CustomPetThemeInfo,
-  DailyTaskPlanInput,
-  DailyReflectionInput,
   HotkeyAction,
   HotkeyStatus,
   PreAlertAction,
   ReminderAction,
   ReminderKind,
   Settings,
-  StandaloneReminderInput,
   Task,
-  TaskCheckpointDraft,
-  TaskCheckpointInput,
   TaskMoveInput,
-  TaskStatus,
-  TimeBlockInput
+  TaskStatus
 } from '../shared/types';
-import type { Project } from '../shared/types';
-import { DEFAULT_SETTINGS, isLocalDateKey, sanitizeStandaloneReminderSchedule } from '../shared/types';
-import { startOfLocalDate } from '../shared/calendar';
+import { DEFAULT_SETTINGS } from '../shared/types';
 import { createBackup, parseBackup } from './backup';
 import { startDiagnostics } from './diagnostics';
 import { logger, setLoggerSink } from './logger';
@@ -61,7 +53,6 @@ import { PomodoroService } from './pomodoro';
 import { isCurrentTask } from '../shared/simpleTasks';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
-import { buildDailyReview } from './dailyReview';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
 import { asSimpleTaskInput, asSimpleTaskUpdateInput } from './ipcTaskInput';
 
@@ -338,61 +329,6 @@ const asString = (value: unknown): string => (typeof value === 'string' ? value 
 
 const asNumber = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-
-const asCheckpointDraft = (value: unknown): TaskCheckpointDraft | null => {
-  if (!value || typeof value !== 'object') return null;
-  const candidate = value as TaskCheckpointDraft;
-  return {
-    progress: typeof candidate.progress === 'string' ? candidate.progress : null,
-    nextStep: typeof candidate.nextStep === 'string' ? candidate.nextStep : null,
-    feeling: typeof candidate.feeling === 'string' ? candidate.feeling : null
-  };
-};
-
-const asCheckpointInput = (value: unknown): TaskCheckpointInput => {
-  const candidate = (value && typeof value === 'object' ? value : {}) as TaskCheckpointInput;
-  const kind = candidate.kind === 'pause' || candidate.kind === 'switch' || candidate.kind === 'complete'
-    ? candidate.kind
-    : 'manual';
-  return {
-    taskId: asString(candidate.taskId),
-    focusSessionId: typeof candidate.focusSessionId === 'string' ? candidate.focusSessionId : null,
-    kind,
-    ...asCheckpointDraft(candidate)
-  };
-};
-
-const asDailyReflectionInput = (value: unknown): DailyReflectionInput => {
-  const candidate = (value && typeof value === 'object' ? value : {}) as DailyReflectionInput;
-  return {
-    localDate: asString(candidate.localDate),
-    note: asString(candidate.note),
-    nextStep: typeof candidate.nextStep === 'string' ? candidate.nextStep : null
-  };
-};
-
-const asStandaloneReminderInput = (value: unknown): StandaloneReminderInput | null => {
-  const candidate = (value && typeof value === 'object' ? value : {}) as Partial<StandaloneReminderInput>;
-  const schedule = sanitizeStandaloneReminderSchedule(candidate.schedule);
-  return schedule ? {
-    label: typeof candidate.label === 'string' ? candidate.label : undefined,
-    schedule,
-    enabled: candidate.enabled !== false
-  } : null;
-};
-
-const asStandaloneReminderUpdate = (value: unknown): Partial<StandaloneReminderInput> => {
-  if (!value || typeof value !== 'object') {
-    return {};
-  }
-  const candidate = value as Partial<StandaloneReminderInput>;
-  const schedule = candidate.schedule === undefined ? undefined : sanitizeStandaloneReminderSchedule(candidate.schedule);
-  return {
-    label: typeof candidate.label === 'string' ? candidate.label : undefined,
-    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : undefined,
-    schedule: schedule ?? undefined
-  };
-};
 
 app.setAppUserModelId('local.eyeprotect.pet');
 
@@ -1331,41 +1267,6 @@ app.whenReady().then(async () => {
     requireWritableTaskDatabase(() => taskService.deleteProject(asString(id)))
   );
 
-  // ── Daily planning domain (USERPLAN 1.2 PR3) ────────────────────────────
-  // The store enforces the (task, date) uniqueness and rank exclusivity; IPC
-  // only sanitizes transport input. Reads accept a civil date key, never a
-  // timestamp — day math stays on the calendar module's side.
-  const asDailyPlanInput = (value: unknown): DailyTaskPlanInput => {
-    if (!value || typeof value !== 'object') {
-      throw new Error('无效的日计划输入');
-    }
-    const candidate = value as Partial<DailyTaskPlanInput>;
-    if (typeof candidate.taskId !== 'string' || !candidate.taskId) {
-      throw new Error('无效的日计划输入');
-    }
-    if (!isLocalDateKey(candidate.localDate)) {
-      throw new Error('无效的日计划输入');
-    }
-    return {
-      taskId: candidate.taskId,
-      localDate: candidate.localDate,
-      plannedMinutes:
-        candidate.plannedMinutes === null ||
-        (typeof candidate.plannedMinutes === 'number' && Number.isFinite(candidate.plannedMinutes))
-          ? candidate.plannedMinutes
-          : undefined,
-      dailyRank:
-        candidate.dailyRank === 1 || candidate.dailyRank === 2 || candidate.dailyRank === 3
-          ? candidate.dailyRank
-          : candidate.dailyRank === null
-            ? null
-            : undefined,
-      sortOrder:
-        typeof candidate.sortOrder === 'number' && Number.isInteger(candidate.sortOrder) && candidate.sortOrder >= 0
-          ? candidate.sortOrder
-          : undefined
-    };
-  };
   handleIpc('window:workbench:open', (section) =>
     windows.showWorkbenchWindow(
       section === 'settings' ||
