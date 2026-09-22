@@ -30,6 +30,7 @@ Var pid
 !macroend
 
 !macro customCheckAppRunning
+  !insertmacro IS_POWERSHELL_AVAILABLE
   !insertmacro _CHECK_APP_RUNNING
   !insertmacro preserveEyeProtectData
 !macroend
