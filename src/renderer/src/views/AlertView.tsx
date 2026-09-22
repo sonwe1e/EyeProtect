@@ -8,6 +8,7 @@ import { useSettings } from '../hooks/useSettings';
 import { getActivity } from '../../../shared/breakActivities';
 import { PIXEL_ANIMAL_NAMES } from '../../../shared/pixelAnimals';
 import type { BreakActivity, CustomPetAssets } from '../../../shared/types';
+import { PetImage } from '../features/characters/PetImage';
 import { run } from '../lib/commands';
 import { soundPlayer } from '../lib/audio';
 import { PixelAnimal } from '../features/characters/PixelAnimal';
@@ -34,6 +35,24 @@ const COMPANION_QUOTES = [
 
 type RelaxMode = 'follow' | 'breathe' | 'pet';
 const RELAX_MODES: RelaxMode[] = ['follow', 'breathe', 'pet'];
+const REST_MODE_STORAGE_KEY = 'eyeprotect.restRelaxMode';
+
+const readRestMode = (): RelaxMode | null => {
+  try {
+    const saved = window.localStorage.getItem(REST_MODE_STORAGE_KEY);
+    return RELAX_MODES.includes(saved as RelaxMode) ? (saved as RelaxMode) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeRestMode = (mode: RelaxMode): void => {
+  try {
+    window.localStorage.setItem(REST_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Preference is best-effort; the rest surface still works without storage.
+  }
+};
 
 export default function AlertView(): JSX.Element {
   const { activeReminder: active } = useReminderStatus();
@@ -42,18 +61,21 @@ export default function AlertView(): JSX.Element {
   const { settings } = useSettings();
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
 
-  // Default to random interactive mode on mount
+  // Prefer the user's last choice so each reminder does not force a new mode.
+  // Randomize only on the very first open (no saved preference yet).
   const [relaxMode, setRelaxMode] = useState<RelaxMode>(() => {
-    return RELAX_MODES[Math.floor(Math.random() * RELAX_MODES.length)];
+    return readRestMode() ?? RELAX_MODES[Math.floor(Math.random() * RELAX_MODES.length)];
   });
   const activeReminderIdRef = useRef<string | null>(null);
 
-  // Randomize interactive mode whenever a new reminder fires
+  useEffect(() => {
+    writeRestMode(relaxMode);
+  }, [relaxMode]);
+
+  // Keep the saved mode across reminders; only track the reminder id for sound.
   useEffect(() => {
     if (active?.id && active.id !== activeReminderIdRef.current) {
       activeReminderIdRef.current = active.id;
-      const random = RELAX_MODES[Math.floor(Math.random() * RELAX_MODES.length)];
-      setRelaxMode(random);
     }
   }, [active?.id]);
 
@@ -67,8 +89,8 @@ export default function AlertView(): JSX.Element {
   }, [active?.id]);
 
   useEffect(() => {
-    void window.eyeProtect.getCustomPetAssets(settings.customPetTheme).then(setCustomAssets);
-  }, [settings.customPetTheme, settings.petAppearance]);
+    void window.eyeProtect.getCustomPetAssets().then(setCustomAssets);
+  }, [settings.petAppearance]);
 
   const phase = active ? restPhase(active, now) : 'ready';
   const started = phase !== 'ready';
@@ -100,7 +122,18 @@ export default function AlertView(): JSX.Element {
     if (!active) return;
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (action.isPending) return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const target = e.target;
+      // Keep native button/tab semantics: Enter/Space on a focused control
+      // must activate that control, not start/complete the rest session.
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement &&
+          target.closest('button, [role="button"], [role="tab"], a[href], summary, details'))
+      ) {
+        return;
+      }
 
       if (e.code === 'Space' || e.code === 'Enter') {
         e.preventDefault();
@@ -322,21 +355,15 @@ export default function AlertView(): JSX.Element {
               {/* Center Companion Artwork */}
               <div className="rest-stage-art">
                 {restCustomSrc ? (
-                  <img
+                  <PetImage
                     src={restCustomSrc}
-                    alt="桌宠休息中"
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'contain',
-                      imageRendering: 'pixelated',
-                      pointerEvents: 'none'
-                    }}
+                    label="桌宠休息中"
+                    motion={settings.petMotion}
                   />
                 ) : (
                   <PixelAnimal
                     animal={animal}
+                    motion={settings.petMotion}
                     action={restAnimalAction(active.kind, phase)}
                     label={`${copy.badge} · ${animalName}`}
                   />

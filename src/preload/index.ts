@@ -24,7 +24,8 @@ import type {
   TaskMoveInput,
   TaskStatus,
   TaskUpdateInput,
-  UndoState
+  UndoState,
+  WorkbenchNavPayload
 } from '../shared/types';
 
 const on = <T>(channel: string, callback: (payload: T) => void): (() => void) => {
@@ -116,18 +117,18 @@ const api: EyeProtectApi = {
   showPetContextMenu: () => ipcRenderer.invoke('window:pet:context-menu') as Promise<void>,
   togglePetVisibility: () => ipcRenderer.invoke('window:pet:toggle-visibility') as Promise<boolean>,
   recallPet: () => ipcRenderer.invoke('window:pet:recall') as Promise<void>,
-  openWorkbench: (section = 'today') =>
-    ipcRenderer.invoke('window:workbench:open', section) as Promise<void>,
+  openWorkbench: (section = 'today', focusTaskId = null) =>
+    ipcRenderer.invoke('window:workbench:open', section, focusTaskId) as Promise<void>,
   closeWorkbench: () => ipcRenderer.invoke('window:workbench:close') as Promise<void>,
   getWorkbenchSection: () =>
-    ipcRenderer.invoke('window:workbench:section') as Promise<'today' | 'review' | 'settings'>,
+    ipcRenderer.invoke('window:workbench:section') as Promise<WorkbenchNavPayload>,
   onWorkbenchNavigate: (callback) =>
-    on<'today' | 'review' | 'settings'>('workbench:navigate', callback),
+    on<WorkbenchNavPayload>('workbench:navigate', callback),
 
-  openCustomPetFolder: (subfolder?: string) =>
-    ipcRenderer.invoke('pet:custom:open-folder', subfolder) as Promise<{ success: boolean; message: string }>,
-  getCustomPetAssets: (themeId?: string | null) =>
-    ipcRenderer.invoke('pet:custom:get-assets', themeId) as Promise<CustomPetAssets>,
+  openCustomPetFolder: () =>
+    ipcRenderer.invoke('pet:custom:open-folder') as Promise<{ success: boolean; message: string }>,
+  getCustomPetAssets: () =>
+    ipcRenderer.invoke('pet:custom:get-assets') as Promise<CustomPetAssets>,
 
   exportBackup: () => ipcRenderer.invoke('data:backup:export') as Promise<DataActionResult>,
   importBackup: () => ipcRenderer.invoke('data:backup:import') as Promise<DataActionResult>,

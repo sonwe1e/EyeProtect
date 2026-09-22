@@ -39,7 +39,7 @@
 | 发布与验收 | [docs/release-checklist.md](docs/release-checklist.md) | `package.json`、`.github/workflows/windows.yml` | — |
 | 备份与恢复 / 旧资料 | [docs/architecture.md](docs/architecture.md) | `src/main/backup.ts`、`src/main/taskStore.ts` | `tests/backup.test.ts`、`tests/schema-v4.test.ts` |
 | 工作台（待办/完成/设置） | [docs/architecture.md](docs/architecture.md) §界面 | `src/renderer/src/views/WorkbenchView.tsx`、`src/renderer/src/features/workbench/workbenchNavigation.ts`、`src/renderer/src/features/simple/SimpleSettings.tsx` | `tests/workbench-navigation.test.ts`、`tests/simple-experience.test.ts` |
-| 桌宠与像素动物 | [CLAUDE.md](CLAUDE.md) | `src/shared/pixelAnimals.ts`、`src/renderer/src/views/PetView.tsx`、`src/renderer/src/features/characters/PixelAnimal.tsx` | `tests/rest-view-model.test.ts` |
+| 桌宠与像素动物 | [CLAUDE.md](CLAUDE.md) | `src/shared/pixelAnimals.ts`、`src/renderer/src/views/PetView.tsx`、`src/renderer/src/features/characters/PixelAnimal.tsx` | `tests/rest-view-model.test.ts`、`tests/pet-themes.test.ts` |
 | 休息提醒界面 | [docs/architecture.md](docs/architecture.md) §界面 | `src/renderer/src/views/AlertView.tsx`、`src/renderer/src/features/reminders/restViewModel.ts` | `tests/rest-view-model.test.ts` |
 | 遗留面（不在主流程） | [docs/architecture.md](docs/architecture.md) §遗留面清单 | 见该节清单 | 对应兼容测试仍在 `tests/` |
 
@@ -64,7 +64,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 | --- | --- | --- |
 | 护眼/走动提醒间隔、稍后、完成、跳过、暂停、合并 | `src/main/reminders.ts` | 同步补 `tests/reminders.test.ts`；区分真实提醒与测试提醒是否重置日程。 |
 | 番茄钟阶段、暂停恢复、与健康提醒合并 | `src/main/pomodoro.ts` | 计时权威在主进程 + SchedulerKernel；补 `tests/pomodoro.test.ts`。 |
-| 新增/调整设置项 | `src/shared/types.ts`、`src/main/settings.ts`、`src/renderer/src/features/simple/SimpleSettings.tsx` | 类型、清洗、UI 必须一起改。**不要**改孤儿文件 `views/SettingsView.tsx`。 |
+| 新增/调整设置项 | `src/shared/types.ts`、`src/main/settings.ts`、`src/renderer/src/features/simple/SimpleSettings.tsx` | 类型、清洗、UI 必须一起改；`SimpleSettings.tsx` 是唯一设置界面。 |
 | 设置文件读写与保存目录 | `src/main/settings.ts` | 目录由 `getDataDir()` 决定；不要提交 `data/settings.json`。 |
 | 开机自启 | `src/main/settings.ts` | `syncStartupShortcut()`；仅 packaged 模式写 Windows Startup。 |
 | 托盘、单实例、退出、IPC 注册 | `src/main/index.ts` | 托盘菜单在 `createTray()`；IPC handler 集中在此注册，通道名须与 preload 一致。 |
@@ -74,7 +74,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 | 工作台待办/完成记录 UI | `src/renderer/src/views/WorkbenchView.tsx`、`src/features/simple/SimpleSettings.tsx`、`src/features/workbench/workbenchNavigation.ts` | 导航权威是 `workbenchNavigation.ts`（仅 `today`/`review`/`settings`）。任务列表 UI 目前内联在 WorkbenchView，**不要**默认挂载 `PlanWorkspace` / `FocusSurface` / `ProjectWorkspace` 等遗留组件。 |
 | 提醒遮罩卡片文案与进度 | `src/renderer/src/views/AlertView.tsx`、`src/renderer/src/features/reminders/restViewModel.ts` | 进度由 `restViewModel` 从主进程状态派生；仓库中**没有** `ActivityGuide.tsx`，活动解析在 AlertView 内完成。 |
 | 视觉令牌与窗口样式 | `src/renderer/src/styles/`、`src/renderer/src/styles.css` | 交互元素必须 `no-drag`；颜色用语义令牌。见 [docs/color-system.md](docs/color-system.md)。 |
-| 像素动物 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx` | 仅内置橘猫/小狗/白兔；`PIXEL_ANIMALS` 是唯一来源。 |
+| 像素动物 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx` | 仅内置奋斗猫（像素 `cat`）；`PIXEL_ANIMALS` 是唯一来源。 |
 | 打包与产物 | `package.json` `build`、`electron.vite.config.ts` | 默认输出 `release/`；NSIS + portable x64。 |
 | 备份导入/导出与旧资料 | `src/main/backup.ts`、`src/main/taskStore.ts` | 备份格式当前为 **v8**，数据库 schema **v5**；导入前建回滚快照。旧规划/专注/独立提醒域仍参与导出与只读恢复。 |
 | 产品边界 / 命令层 | [docs/architecture.md](docs/architecture.md) §产品边界 lint | 写操作走 `run`/`useCommand`；`npm run verify:product` / `npm run lint` |

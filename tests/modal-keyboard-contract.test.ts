@@ -6,17 +6,15 @@ import test from 'node:test';
 const root = resolve(import.meta.dirname, '..');
 const read = (relative: string): string => readFileSync(resolve(root, relative), 'utf8');
 
-test('command palette owns initial focus and modal panels stop shortcuts before window handlers', () => {
-  // CommandPalette is archived under _legacy; keyboard ownership is still
-  // asserted on live modal primitives plus WorkbenchView not remounting them.
+test('modal dialog owns initial focus and stops shortcuts before window handlers', () => {
+  // CommandPalette and SideSheet are archived; keyboard ownership is still
+  // asserted on the live modal primitive (Dialog, via ConfirmDialog) plus
+  // WorkbenchView not remounting any archived modal.
   const dialog = read('src/renderer/src/components/Dialog.tsx');
-  const sheet = read('src/renderer/src/components/SideSheet.tsx');
   const workbench = read('src/renderer/src/views/WorkbenchView.tsx');
 
   assert.match(dialog, /onKeyDown=/);
-  assert.match(sheet, /onKeyDown=/);
   assert.doesNotMatch(dialog, /window\.addEventListener\('keydown'/);
-  assert.doesNotMatch(sheet, /window\.addEventListener\('keydown'/);
   assert.doesNotMatch(workbench, /<SideSheet|<CommandPalette|<DailyPlanningFlow|_legacy/);
   assert.match(workbench, /aria-expanded=/);
 });

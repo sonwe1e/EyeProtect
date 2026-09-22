@@ -238,11 +238,31 @@ export class SchedulerKernel extends EventEmitter {
 
   private registered(event: ScheduledEvent): RegisteredEvent {
     const fireAt = event.fireAt;
+    const duration = Math.max(0, fireAt - this.clock.now());
     // Map the wall-clock fire time onto the monotonic timeline so the watchdog
-    // can detect when wall and monotonic diverge.
-    const monotonicFireAt =
-      this.clock.monotonic() + Math.max(0, fireAt - this.clock.now());
-    return { ...event, clock: event.clock ?? 'wall', monotonicFireAt };
+    // can detect when wall and monotonic diverge. While elapsed time is frozen
+    // the elapsed-domain "now" is the freeze instant, not the raw monotonic
+    // clock: a deadline registered during a freeze counts its active-use
+    // duration from the freeze. Anchoring to the live monotonic clock instead
+    // would add the whole frozen span on top when resumeElapsed() shifts the
+    // event (the pomodoro started during an idle window used to end minutes
+    // late while its own countdown already showed 00:00).
+    const baseline = event.clock === 'elapsed' && this.elapsedPausedAt !== null
+      ? this.elapsedPausedAt
+      : this.clock.monotonic();
+    return { ...event, clock: event.clock ?? 'wall', monotonicFireAt: baseline + duration };
+  }
+
+  /**
+   * Remaining active-use time (ms) for one registered deadline, measured on the
+   * same elapsed-domain clock the kernel fires it with. Lets a service derive
+   * its user-facing countdown from the kernel's own timeline instead of
+   * keeping a second, subtly different one (frozen idle time included or not).
+   * Returns null when no such deadline is registered.
+   */
+  remainingMs(owner: string, id: string): number | null {
+    const event = this.events.find((entry) => entry.owner === owner && entry.id === id);
+    return event ? Math.max(0, this.remaining(event)) : null;
   }
 
   private remaining(event: RegisteredEvent): number {

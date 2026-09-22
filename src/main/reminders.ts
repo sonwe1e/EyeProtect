@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { pickActivityIds } from '../shared/breakActivities';
+import { reminderEnforcesRestWait } from '../shared/reminderModes';
 import type { ScheduledEvent, SchedulerKernel } from './scheduling/kernel';
 import type { AppWindows } from './windows';
 import type {
@@ -554,6 +555,15 @@ export class ReminderScheduler extends EventEmitter {
       this.status.activeReminder.scheduledAt += delta;
       this.status.activeReminder.unlockAt += delta;
       this.status.activeReminder.snoozeAllowedAt += delta;
+      // restStartedAt is a PAST timestamp, but it must move with the same
+      // delta: the rest window (unlockAt - restStartedAt), the elapsed rest
+      // time (now - restStartedAt) and the activity progress derived from it
+      // all describe a duration the clock jump did not actually consume.
+      // Leaving it behind inflates the countdown total and fast-forwards the
+      // suggested activity steps by the size of the jump.
+      if (typeof this.status.activeReminder.restStartedAt === 'number') {
+        this.status.activeReminder.restStartedAt += delta;
+      }
     }
     this.quietUntil += delta;
     this.emitChanged();
@@ -945,7 +955,7 @@ export class ReminderScheduler extends EventEmitter {
     const now = this.now();
     const mode = this.getEffectiveMode?.(this.settings) ?? this.settings.reminderMode;
     // Only focused mode enforces the rest wait; gentle/guided unlock at once.
-    const unlockAt = mode === 'focused' ? now + COMPLETE_WAIT_MS[kind] : now;
+    const unlockAt = reminderEnforcesRestWait(mode) ? now + COMPLETE_WAIT_MS[kind] : now;
     const active: ActiveReminder = {
       id: `${now}-${++this.sequence}`,
       kind,
@@ -1090,7 +1100,7 @@ export class ReminderScheduler extends EventEmitter {
     for (const kind of missing) {
       active.activityIds = [...active.activityIds, ...this.pickActivities(kind)];
     }
-    if (active.mode === 'focused') {
+    if (reminderEnforcesRestWait(active.mode)) {
       // Extend the enforced rest to the combined duration (counted from the
       // reminder's start) — this is what the renderer countdown must reflect.
       // Gentle/guided reminders stay unlocked.

@@ -82,13 +82,13 @@ test('corrupt settings.json is quarantined and the next save writes a clean file
 test('pet selection persists with order and returns an isolated snapshot', () => {
   withTempStore((store) => {
     assert.equal(store.get().petAppearance, 'cat');
-    store.save({ todoBubbleTaskIds: ['b', 'a', 'b'], petAppearance: 'rabbit' });
+    store.save({ todoBubbleTaskIds: ['b', 'a', 'b'], petAppearance: 'cat' });
     const snapshot = store.get();
     snapshot.todoBubbleTaskIds.push('unwanted');
     const restored = new SettingsStore().get();
     assert.deepEqual(restored.todoBubbleTaskIds, ['b', 'a']);
     assert.deepEqual(store.get().todoBubbleTaskIds, ['b', 'a']);
-    assert.equal(restored.petAppearance, 'rabbit');
+    assert.equal(restored.petAppearance, 'cat');
   });
 });
 
@@ -134,18 +134,11 @@ test('sound and fullscreen DND settings are persisted and sanitized within bound
   });
 });
 
-test('customPetTheme setting persists and sanitizes correctly', () => {
-  withTempStore((store) => {
-    assert.equal(store.get().customPetTheme, null);
-
-    store.save({ customPetTheme: '  pixel-cat  ' });
-    assert.equal(new SettingsStore().get().customPetTheme, 'pixel-cat');
-
-    store.save({ customPetTheme: '   ' });
-    assert.equal(new SettingsStore().get().customPetTheme, null);
-
-    store.save({ customPetTheme: null });
-    assert.equal(new SettingsStore().get().customPetTheme, null);
+test('legacy multi-pet ids fall back to 奋斗猫', () => {
+  withTempStore((_store, dir) => {
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ petAppearance: 'rabbit', customPetTheme: 'shiba' }));
+    const restored = new SettingsStore().get();
+    assert.equal(restored.petAppearance, 'cat');
   });
 });
 

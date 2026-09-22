@@ -19,6 +19,7 @@ import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
 import { selectPetTasks } from '../shared/petTasks';
+import { reminderDimsDesktopForMode, reminderSurfaceForMode } from '../shared/reminderModes';
 import { getAlertBounds, getPetMoveBounds, getPetBubbleLayout, resolveTargetDisplay } from './windowBounds';
 import { getWorkbenchBackgroundColor } from './workbenchTheme';
 
@@ -124,6 +125,7 @@ export class AppWindows {
   private workbenchWindow: BrowserWindow | null = null;
   private workbenchLoading: Promise<void> | null = null;
   private workbenchSection: 'today' | 'review' | 'settings' = 'today';
+  private workbenchFocusTaskId: string | null = null;
   private savePositionTimer: NodeJS.Timeout | null = null;
   private displayChangeTimer: NodeJS.Timeout | null = null;
   private applyingBounds = false;
@@ -307,9 +309,14 @@ export class AppWindows {
    * Focus/Projects views. Unlike the pet it is not a floating overlay —
    * it is a real workspace the user switches to.
    */
-  showWorkbenchWindow(section: 'today' | 'review' | 'settings' = 'today'): void {
+  showWorkbenchWindow(section: 'today' | 'review' | 'settings' = 'today', focusTaskId: string | null = null): void {
     this.workbenchSection = section;
+    this.workbenchFocusTaskId = focusTaskId;
     const activeDisplay = this.getActiveDisplay();
+    const navPayload = (): { section: 'today' | 'review' | 'settings'; focusTaskId: string | null } => ({
+      section: this.workbenchSection,
+      focusTaskId: this.workbenchFocusTaskId
+    });
 
     if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
       const currentBounds = this.workbenchWindow.getBounds();
@@ -330,7 +337,7 @@ export class AppWindows {
           if (this.workbenchWindow && !this.workbenchWindow.isDestroyed()) {
             this.workbenchWindow.show();
             this.workbenchWindow.focus();
-            this.workbenchWindow.webContents.send('workbench:navigate', this.workbenchSection);
+            this.workbenchWindow.webContents.send('workbench:navigate', navPayload());
           }
         });
         return;
@@ -379,7 +386,7 @@ export class AppWindows {
 
     window.webContents.once('did-finish-load', () => {
       if (this.workbenchWindow !== window || window.isDestroyed()) return;
-      window.webContents.send('workbench:navigate', this.workbenchSection);
+      window.webContents.send('workbench:navigate', navPayload());
       window.show();
       window.focus();
     });
@@ -417,8 +424,8 @@ export class AppWindows {
     }
   }
 
-  getWorkbenchSection(): 'today' | 'review' | 'settings' {
-    return this.workbenchSection;
+  getWorkbenchSection(): { section: 'today' | 'review' | 'settings'; focusTaskId: string | null } {
+    return { section: this.workbenchSection, focusTaskId: this.workbenchFocusTaskId };
   }
 
   // The pet window is only 160px with overflow:hidden, so the todo bubble lives
@@ -675,7 +682,7 @@ export class AppWindows {
   private applyReminderStatus(status: ReminderStatus, settings = this.settingsStore.get()): void {
     const active = status.activeReminder;
     if (active) {
-      if (active.mode === 'gentle') {
+      if (reminderSurfaceForMode(active.mode) === 'bubble') {
         if (this.petWindow && !this.petWindow.isDestroyed()) {
           const petBounds = this.petWindow.getBounds();
           const petDisplay = screen.getDisplayMatching(petBounds);
@@ -694,7 +701,7 @@ export class AppWindows {
         this.petWindow.hide();
       }
       this.destroyBubble();
-      this.updateDimWindows(active.mode === 'focused', settings);
+      this.updateDimWindows(reminderDimsDesktopForMode(active.mode), settings);
       return;
     }
 
@@ -1034,7 +1041,7 @@ export class AppWindows {
       const settings = this.settingsStore.get();
       this.destroyDimWindows();
       const active = this.scheduler.getStatus().activeReminder;
-      this.updateDimWindows(active?.mode === 'focused', settings);
+      this.updateDimWindows(active ? reminderDimsDesktopForMode(active.mode) : false, settings);
     }
 
     this.positionBubbleWindow();
@@ -1086,7 +1093,7 @@ export class AppWindows {
     if (forceEmergencySmoke) {
       return false;
     }
-    if (active.mode === 'gentle') {
+    if (reminderSurfaceForMode(active.mode) === 'bubble') {
       // Gentle reminders surface through the bubble, not the alert window.
       this.refreshBubble();
       if (this.bubbleLoading) {
@@ -1111,13 +1118,13 @@ export class AppWindows {
 
   getReminderSurfaceWebContentsId(): number | null {
     const active = this.scheduler.getStatus().activeReminder;
-    const window = active?.mode === 'gentle' ? this.bubbleWindow : this.alertWindow;
+    const window = active && reminderSurfaceForMode(active.mode) === 'bubble' ? this.bubbleWindow : this.alertWindow;
     return window && !window.isDestroyed() ? window.webContents.id : null;
   }
 
   isReminderSurfaceHealthy(): boolean {
     const active = this.scheduler.getStatus().activeReminder;
-    const window = active?.mode === 'gentle' ? this.bubbleWindow : this.alertWindow;
+    const window = active && reminderSurfaceForMode(active.mode) === 'bubble' ? this.bubbleWindow : this.alertWindow;
     return Boolean(window && !window.isDestroyed() && !window.webContents.isCrashed() && window.isVisible());
   }
 

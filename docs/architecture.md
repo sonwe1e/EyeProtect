@@ -12,17 +12,21 @@
 
 `WorkbenchView` 仅展示待办、完成记录和设置；导航权威为 `workbenchNavigation.ts`。顶部筛选清单，任务原地展开，一次展开一项。日程、看板、规划、独立专注、复盘和养成页不再加载。
 
-`SimpleSettings` 只展示休息、外观、应用三组。旧资料入口只读展示旧规则和历史资料，并允许恢复归档项目/任务；完整原数据通过备份保存。
+`SimpleSettings` 只展示休息、外观、应用三组。旧资料入口只读展示旧规则和历史资料，并允许恢复归档项目/任务；完整原数据通过备份保存。恢复走 `task:restore-legacy` → `TaskService.restoreTask`：这是唯一允许把任务迁出 completed/archived 清单的限定权限事务（步骤随根任务一起迁回默认清单），普通编辑的只读保护不受影响。
 
 `BubbleView` 复用同一个窗口显示手选待办、番茄钟设置或计时。优先级为健康提醒 > 番茄钟 > 手选待办。遮罩健康提醒使用独立 Alert 窗口；原主界面故障时，Emergency HTML 和原生通知继续兜底。
 
+提醒方式（`settings.reminderMode`）有三种真实策略，映射集中在 `src/shared/reminderModes.ts`：`gentle` 走桌宠旁气泡（无 Alert 窗口、无暗化、桌宠留在屏幕上），`guided` 走 Alert 窗口但不暗化桌面，`focused` 走 Alert 窗口 + 暗化遮罩；只有 `focused` 强制等待休息时长（`unlockAt`），其它模式出现即可完成。旧字段值非法时回退 `focused`。
+
 Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动物、提醒类型与节拍文案，面板显示标题、主进程选中的微休息活动（`ActiveReminder.activityIds` 经 `breakActivities.getActivity` 解析；活动进度在 `AlertView.tsx` 内用 `restViewModel` 的 `getActivityProgress` 按 `restStartedAt` 推进。仓库中不存在独立的 `ActivityGuide.tsx`）、倒计时环、走动提醒携带的待办、开始/完成/稍后/跳过动作。文案、阶段与倒计时由 `features/reminders/restViewModel.ts` 从主进程状态派生（`tests/rest-view-model.test.ts`），渲染端不持有计时权威。
 
-`PetView` 的时钟按钮开启自由专注；任务行可以关联主任务启动。桌宠只渲染三只内置像素动物（橘猫/小狗/白兔），外观由 `settings.petAppearance` 决定；旧的程序化/收藏角色系统已删除。
+桌宠右键菜单开启自由专注；任务行可以关联主任务启动。桌宠固定为奋斗猫（像素 `cat` 兜底）；用户可把动图放在 `custom-pet` 根目录替换动画。内置柴犬/白兔/仓鼠与经典像素小狗/白兔已删除，设置与托盘不再提供角色切换。
+
+`useAnimalFrame` 只推进短时美术帧，不参与业务倒计时。待机保持静止，每隔 14–24 秒执行一次小动作；互动约 1.6 秒，小动作约 2.9 秒，结束回到站姿。奋斗猫保留像素对齐的伸展/抬爪/踏步帧。关闭 `petMotion` 或系统减少动态效果时停止像素帧推进；用户 GIF 默认持续播放，仅在系统“减少动态效果”时由 `PetImage` 截取静态画面。`node scripts/smoke-pet-ui.mjs 1 --packaged` 验证开关几何、键盘操作、奋斗猫与减少动态效果，并输出截图到 `artifacts/pet-ui/`。
 
 ## 数据与迁移
 
-数据库 v5 为任务新增 `due_date`，对外字段 `dueDate` 为有效 `YYYY-MM-DD` 或 null。升级前 checkpoint WAL 并复制原数据库及旁文件；新增列和日期转换在同一事务完成，5001 标记防止重复转换。迁移失败进入只读恢复模式。旧 `dueAt` 保留，日常分组不再读取它；新日期被清空后不会复活旧日期。
+数据库 v5 为任务新增 `due_date`，对外字段 `dueDate` 为有效 `YYYY-MM-DD` 或 null。升级前 checkpoint WAL 并复制原数据库及旁文件；新增列和日期转换在同一事务完成，5001 标记防止重复转换。迁移失败进入只读恢复模式。旧 `dueAt` 保留，日常分组不再读取它；新日期被清空后不会复活旧日期。旧 `dueAt` / `plannedAt` 只作兼容留存：活跃工作台不读取它们分组，也不展示；界面可编辑的只有 `dueDate` 与 `reminderAt`。
 
 主任务 `parentId=null`。新步骤通过 `task:create-step` 创建，父级必须是未完成主任务。旧多层关系只在展示时按既有顺序平铺，不重写关系。清单复用 Project ID，active/onHold 可用，completed/archived 仅在旧资料和完成历史中显示。
 
@@ -34,7 +38,7 @@ Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动�
 
 `pomodoro:prepare` 进入气泡设置阶段；`pomodoro:start` 接收可空任务 ID、分钟数和替换确认。状态阶段为 idle、ready、focus、break、focus-finished、break-finished，另有 running、remainingMs 和 revision。
 
-服务用单调时钟计算剩余时间，并向 Kernel 注册结束与 10 秒检查点。`pomodoro-state.json` 原子写入成功后才发布状态和注册新期限。renderer 仅插值显示，不能自行完成计时。锁屏/休眠/退出暂停；重启一律恢复为暂停，失效关联任务使计时结束。
+服务不自行持有第二套倒计时：运行中的剩余时间由 `SchedulerKernel` 的阶段结束期限推导（`kernel.remainingMs('pomodoro', 'pomodoro-end')`），与 Kernel 用同一条 elapsed 时钟。键入闲置会冻结 Kernel 的 elapsed 时钟，番茄钟随之继承该语义——闲置期间倒计时停走，恢复输入后按真实活跃时间继续；只有 elapsed 期限享受冻结，wall 期限不受影响。`pomodoro-state.json` 原子写入成功后才发布状态和注册新期限。renderer 仅插值显示，不能自行完成计时。锁屏/休眠/退出暂停；重启一律恢复为暂停，失效关联任务使计时结束。
 
 健康提醒初次出现时不自动暂停专注；`reminder:begin-rest` 才启动实际休息并暂停 focus。休息结束不恢复番茄钟，必须手动继续。专注到点或短休息与健康提醒重叠时，开始健康休息会合并为一次展示，使用健康时长与短休息剩余时长的较大值；结束短休息绝不自动记录护眼或走动完成。
 
@@ -48,7 +52,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 ## 遗留面清单
 
-产品已收敛为待办 / 完成记录 / 设置 + 桌宠 / 气泡 / 休息遮罩 / 番茄钟，但仓库仍保留上一代工作台的代码与数据域，用于备份兼容、旧资料只读恢复，以及尚未删除的 IPC/测试面。
+产品已收敛为待办 / 完成记录 / 设置 + 桌宠 / 气泡 / 休息遮罩 / 番茄钟。上一代工作台的 renderer 代码（旧设置视图、`NumberField`、`SideSheet`、`lib/time.ts`、`styles/settings.css` 及其孤儿 CSS）已全部删除；仍在的是主进程数据域（规划 / 时间块 / 专注 / 检查点表）与 `data:legacy` / 备份 v8 的只读兼容面，以及尚未删除的 IPC/测试面。
 
 **文档权威**：`CLAUDE.md` 与本文描述当前产品；`AGENTS.md` 应与本文对齐。修改遗留面前先确认目标是「兼容路径」还是「活跃 UI」。
 
@@ -72,7 +76,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | `src/shared/projectSections.ts`（+ 测试） | 仅测试存活；`project_sections` 写 CRUD 生产 0 调用 |
 | `src/renderer/src/features/tasks/taskWorkInterpolation.ts`（+ 测试） | 仅测试存活，不属保留名单 |
 | `src/renderer/src/components/primitives/`（6 文件） | 上代组件框架残留，barrel 无 importers |
-| `src/renderer/src/styles/workbench.css`、`styles/settings.css`、`base.css` 的 `.visually-hidden`、`styles.css` 的 `.workbench-v2 *` | 旧工作台样式；唯二引用来自已删的 NavItem |
+| `src/renderer/src/styles/workbench.css`、`base.css` 的 `.visually-hidden`、`styles.css` 的 `.workbench-v2 *` | 旧工作台样式；唯二引用来自已删的 NavItem |
 | `getTask` / `getProject` / `getActiveTaskId` / `onActiveTaskChanged` / `getPendingTaskCount` / `onPendingTaskCountChanged`（types + preload + `handleIpc` + `windows` 广播） | renderer 0 调用；待办计数实际由 `useTasks()` 全量订阅派生 |
 
 同步调整：`scripts/verify-ui-contract.mjs` 移除针对上述死 CSS 的断言（`.app-nav-item` 命中区、`.workbench-v2 .task-row`、container-query 契约），forced-colors 断言改指 `simple.css`；`tests/design-system-contract.test.ts` 移除死选择器断言。`taskStore` 的 legacy 写 CRUD 与 `features/tasks/` 其余 6 个纯函数仍按保留名单原地保留（备份 v8 / `data:legacy` 只读兼容）。
@@ -220,6 +224,25 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 `src/preload/emergency.ts` 是紧急页最小桥，**不在**本契约范围。
 
 新增 IPC 时：先扩展 `EyeProtectApi` → preload invoke/on → main `handleIpc` / broadcast，再让本测试变绿。
+
+### 项目审计修复轮（2026-09-22，`artifacts/project-audit-2026-09-22/report.md`）
+
+按报告顺序修完可验证问题，每项先补复现测试再改实现：
+
+| 项 | 修复 | 回归 |
+| --- | --- | --- |
+| F01 撤销恢复顺序 | `undoOperation` 改两阶段关系写入（先插全部行、再按父先子后重连 `parent_id`，与 `replaceAll` 一致）；快照顺序不再决定成败 | `tests/task-undo-restore.test.ts` |
+| F03 撤销丢从属资料 | `deleteTaskTreeWithSnapshot` 在删除的同一事务内、级联发生前捕获 `work_sessions` / `daily_task_plans` / `time_blocks` / `focus_sessions` / `task_checkpoints` / `task_work_state`，撤销按依赖顺序恢复（任务 → 时间块 → 专注会话 → 检查点） | 同上 |
+| F04 恢复迁不出只读清单 | `task:restore-legacy` 改调 `TaskService.restoreTask`：一个限定权限的事务，是唯一允许把任务迁出 completed/archived 清单的位置；步骤随根任务一起迁。普通 `updateTask` / `setTaskStatus` 的只读保护不变 | 同上 |
+| F02 番茄钟与 Kernel 时间基准 | `SchedulerKernel.registered()` 在 elapsed 冻结期把新期限锚定到冻结时刻（而非实时单调钟），`resumeElapsed()` 统一平移；`PomodoroService.getState()` 改为从 Kernel 的阶段结束期限推导剩余时间，冻结期不再双基准漂移。产品语义：**番茄钟继承输入的闲置冻结** | `tests/pomodoro.test.ts`、`tests/scheduler-kernel.test.ts` |
+| F05 双击提交丢结果 | `useCommand` 仅在有新意图（参数不同）时推进 generation；同参数加入在途请求不再让首个调用作废自己的结果 | `tests/use-command-hook.test.ts`（转译真实 Hook + 最小 Hook 运行时） |
+| F06 提醒方式 | 三种模式均为真实策略，收敛到 `src/shared/reminderModes.ts`（`reminderSurfaceForMode` / `reminderDimsDesktopForMode` / `reminderEnforcesRestWait`），`windows.ts` 与 `reminders.ts` 只消费该模块；设置页三选项保留 | `tests/reminder-modes.test.ts` |
+| F07 时钟跳变吃掉休息 | `handleWallClockDrift` 同步平移活跃提醒的 `restStartedAt`，休息窗口（`unlockAt - restStartedAt`）与活动进度不被跳变放大 | `tests/reminders.test.ts` |
+| F08 冗余写入与空广播 | `updateTask` 只在清单**真的变化**时同步步骤，且只写 projectId 确实不同的步骤；`TaskService` 删除无消费者的 `tasks-changed` 全量推送（生产只消费 `task-upserted` / `task-removed` / `tasks-replaced` 增量与 bulk 通道） | `tests/task-service.test.ts` |
+
+**死代码清理（0 引用 + 专属契约同步删）**：`components/NumberField.tsx`、`components/SideSheet.tsx`、`lib/time.ts`、`styles/settings.css`，以及 `styles.css` 的旧设置页选择器（`.settings-shell` / `.status-item` / `.number-*` / `.switch-row` / `.mode-card*` / `.custom-pause` / `.meeting-end-pause` / `.test-actions` / `.settings-footer`）和 `primitives.css` 的 `.ui-side-sheet*` / `@keyframes ui-sheet-enter`；`modal-keyboard-contract` / `workbench-navigation` / `verify-ui-contract` / `smoke-simple-experience` 中针对上述文件的断言一并移除。
+
+**事件契约**：任务写入后 renderer 的刷新只来自增量事件（单条 `task-upserted` / `task-removed`）与 bulk 事件（撤销、备份导入、旧资料迁移的 `tasks-replaced`）；恢复模式启动时 `publishApplicationState` 仍做一次全量广播。`windows.broadcastTasks` 发送 IPC `task:changed`（`preload.onTasksChanged` → `useTasks` 全量 hydrate），仅服务 bulk 场景。
 
 ## 使用约束
 

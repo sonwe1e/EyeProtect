@@ -1,19 +1,11 @@
 /**
- * Built-in + user custom pet theme discovery helpers.
- * Pure functions so main-process IPC and unit tests share one merge policy.
+ * 奋斗猫 custom GIF discovery helpers.
+ * Pure functions so main-process IPC and unit tests share one policy: only the
+ * user custom-pet root is loaded — multi-character skins are out of product.
  */
 import { existsSync, readdirSync } from 'fs';
-import { join } from 'path';
 
-export const BUILTIN_PET_THEME_NAMES: Record<string, string> = {
-  shiba: '治愈柴犬',
-  bunny: '粉耳白兔',
-  hamster: '软萌仓鼠',
-  default: '奋斗猫（默认）',
-  // Legacy recolored folder ids keep readable labels if still present on disk.
-  dog: '治愈柴犬',
-  rabbit: '粉耳白兔'
-};
+export const PET_DISPLAY_NAME = '奋斗猫';
 
 export type PetThemeDirInfo = {
   id: string;
@@ -44,51 +36,8 @@ export const themeDirHasAssets = (dir: string): boolean => {
   }
 };
 
-/**
- * Merge built-in theme dirs with user custom-pet dirs.
- * Later sources override earlier ones on the same id, so user folders win.
- */
-export const mergePetThemeDirs = (
-  sources: PetThemeDirInfo[][]
-): PetThemeDirInfo[] => {
-  const map = new Map<string, PetThemeDirInfo>();
-  for (const source of sources) {
-    for (const theme of source) {
-      if (!theme.id) continue;
-      map.set(theme.id, theme);
-    }
-  }
-  return [...map.values()];
-};
-
-export const listThemeDirsIn = (
-  root: string,
-  nameLookup: Record<string, string> = BUILTIN_PET_THEME_NAMES
-): PetThemeDirInfo[] => {
-  if (!existsSync(root)) return [];
-  const found: PetThemeDirInfo[] = [];
-  try {
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const dir = join(root, entry.name);
-      if (!themeDirHasAssets(dir)) continue;
-      found.push({
-        id: entry.name,
-        name: nameLookup[entry.name] ?? entry.name,
-        dir
-      });
-    }
-  } catch {
-    return [];
-  }
-  return found;
-};
-
-export const listRootTheme = (
-  root: string,
-  id = 'default',
-  nameLookup: Record<string, string> = BUILTIN_PET_THEME_NAMES
-): PetThemeDirInfo[] => {
+/** The only pet theme: user GIFs in custom-pet root personalize 奋斗猫. */
+export const listRootTheme = (root: string): PetThemeDirInfo[] => {
   if (!themeDirHasAssets(root)) return [];
-  return [{ id, name: nameLookup[id] ?? id, dir: root }];
+  return [{ id: 'default', name: PET_DISPLAY_NAME, dir: root }];
 };

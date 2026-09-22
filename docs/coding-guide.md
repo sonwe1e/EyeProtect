@@ -84,15 +84,17 @@ export const sanitizeTaskUpdateInput = (input: TaskUpdateInput): WhitelistedTask
 
 ## 4. The Pet Window Stays Lightweight
 
-The always-resident pet window subscribes only to lightweight channels (pending-task count, care status, reminder status). It never receives the full task list.
+The always-resident pet window subscribes only to lightweight channels (reminder status). It never receives the full task list — the bulk `task:changed` channel is sent to the workbench and bubble windows only, and the pet's own surfaces read the pending count from `useTasks()` in those windows.
 
 **Pattern:**
 ```typescript
-// ✅ Correct — lightweight channel for the pet
-window.eyeProtect.onPendingTaskCountChanged(setCount);
+// ✅ Correct — the pet window only needs reminder status
+window.eyeProtect.onReminderChanged(setStatus);
 
-// ❌ Wrong — full task list in the pet window
-window.eyeProtect.onTasksChanged(setTasks); // never do this
+// ✅ Correct — the bulk task list goes to the workbench/bubble windows
+window.eyeProtect.onTasksChanged(setTasks); // never in the pet window
+
+// ❌ Wrong — the long-lived pet window must not rebuild the task list
 ```
 
 **Rule reference:** `RULES.md` §5 (Preserve scope) — don't subscribe a window to data it doesn't need.
@@ -168,7 +170,7 @@ Tests use `*.test.ts` in `tests/`. They run under Node's built-in test runner (`
 When adding a settings field:
 1. `src/shared/types.ts` — add to `Settings` interface + `DEFAULT_SETTINGS` + `SETTINGS_LIMITS`
 2. `src/main/settings.ts` — the store reads/writes `settings.json`; sanitization happens on read
-3. `src/renderer/src/features/simple/SimpleSettings.tsx` — add the UI control (active workbench settings; `views/SettingsView.tsx` is legacy and not routed)
+3. `src/renderer/src/features/simple/SimpleSettings.tsx` — add the UI control (the only settings surface the workbench routes to)
 
 **Rule reference:** `RULES.md` §18 (Documentation is part of the system) — when the data model changes, all three layers must agree.
 

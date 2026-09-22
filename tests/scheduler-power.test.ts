@@ -21,7 +21,6 @@ const baseSettings: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
-  customPetTheme: null,
   petScale: 1,
   petMotion: true,
   petPosition: null,

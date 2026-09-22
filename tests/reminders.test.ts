@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ReminderScheduler } from '../src/main/reminders';
 import { SchedulerKernel } from '../src/main/scheduling/kernel';
+import { restCountdown } from '../src/renderer/src/features/reminders/restViewModel';
 import type { ReminderEvent, ReminderStatus, Settings, Task } from '../src/shared/types';
 
 const MINUTE = 60_000;
@@ -22,7 +23,6 @@ const baseSettings: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
-  customPetTheme: null,
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -553,6 +553,56 @@ test('wall-clock drift shifts deadlines and ignores zero/non-finite deltas', () 
   assert.equal(scheduler.getStatus().pausedUntil, shifted.pausedUntil);
   drift(Number.NaN);
   assert.equal(scheduler.getStatus().pausedUntil, shifted.pausedUntil);
+});
+
+// ── F07: a wall-clock jump must not consume the in-progress rest ─────────────
+
+test('F07: wall-clock drift keeps an in-progress rest window intact', () => {
+  let now = T0;
+  const settings = { ...baseSettings, reminderMode: 'focused' as const, eyeRestSeconds: 30 };
+  const scheduler = new ReminderScheduler(settings, { manualStart: true, now: () => now });
+  now += 20 * MINUTE;
+  scheduler.tick();
+  const id = scheduler.getStatus().activeReminder!.id;
+  scheduler.beginRest(id);
+  const started = scheduler.getStatus().activeReminder!;
+  assert.equal(started.unlockAt - started.restStartedAt!, 30_000, 'a 30-second rest window');
+
+  // Ten real seconds of the rest elapse, then the civil clock jumps forward
+  // ten minutes (NTP correction or the user changing the system time).
+  now += 10_000;
+  now += 10 * MINUTE;
+  const drift = (delta: number): void =>
+    (scheduler as unknown as { handleWallClockDrift: (value: number) => void }).handleWallClockDrift.call(scheduler, delta);
+  drift(10 * MINUTE);
+
+  const shifted = scheduler.getStatus().activeReminder!;
+  assert.equal(shifted.restStartedAt, started.restStartedAt! + 10 * MINUTE, 'restStartedAt moves with the jump');
+  assert.equal(shifted.unlockAt, started.unlockAt + 10 * MINUTE, 'the deadline keeps its remaining time');
+  assert.equal(shifted.unlockAt - shifted.restStartedAt, 30_000, 'the rest duration itself is unchanged');
+  assert.equal(shifted.unlockAt - now, 20_000, 'twenty rest seconds remain, as before the jump');
+
+  // The user-visible countdown derives everything from those two timestamps.
+  const view = restCountdown(shifted, now, settings);
+  assert.equal(view.totalSeconds, 30, 'the ring still shows a 30-second rest');
+  assert.equal(view.remainingSeconds, 20, 'the ring still shows 20 seconds left');
+  scheduler.stop();
+});
+
+test('F07: wall-clock drift leaves a not-yet-started rest boundary alone', () => {
+  let now = T0;
+  const settings = { ...baseSettings, reminderMode: 'focused' as const, eyeRestSeconds: 30 };
+  const scheduler = new ReminderScheduler(settings, { manualStart: true, now: () => now });
+  now += 20 * MINUTE;
+  scheduler.tick();
+  const drift = (delta: number): void =>
+    (scheduler as unknown as { handleWallClockDrift: (value: number) => void }).handleWallClockDrift.call(scheduler, delta);
+  drift(10 * MINUTE);
+
+  const active = scheduler.getStatus().activeReminder!;
+  assert.equal(active.restStartedAt, null, 'the rest has not begun, so there is no boundary to shift');
+  assert.equal(active.startedAt, T0 + 30 * MINUTE, 'the reminder start still tracks the corrected clock');
+  scheduler.stop();
 });
 
 test('activities are picked per kind and avoid immediate repeats', () => {

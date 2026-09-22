@@ -47,7 +47,7 @@ try {
   await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
   const workbench = await waitForTarget(endpoint, '#workbench');
   await waitFor(workbench, `document.querySelector('.simple-add') !== null`);
-  assert.equal(await evaluate(workbench, `document.querySelectorAll('.app-sidebar, .ui-side-sheet').length`), 0);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.app-sidebar').length`), 0);
   await fill(workbench, '[aria-label="添加任务"]', '整理今天的工作');
   await evaluate(workbench, `document.querySelector('[aria-label="添加任务"]').focus()`);
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r', unmodifiedText: '\r' });
@@ -73,7 +73,7 @@ try {
   await capture(bubble, 'manual-task-bubble');
   await evaluate(workbench, `document.querySelector('.simple-step input[type="checkbox"]').click()`);
   await waitFor(workbench, `document.querySelector('.simple-step input').checked === true`);
-  await evaluate(workbench, `document.querySelector('.simple-task-row > input').click()`);
+  await evaluate(workbench, `document.querySelector('.simple-task-row input[type="checkbox"]').click()`);
   await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 0`);
   await click(workbench, '完成记录');
   await waitFor(workbench, `document.querySelectorAll('.simple-history-row').length === 1`);

@@ -1,41 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  BUILTIN_PET_THEME_NAMES,
-  mergePetThemeDirs,
-  type PetThemeDirInfo
+  PET_DISPLAY_NAME,
+  listRootTheme,
+  themeDirHasAssets
 } from '../src/main/petThemes';
 
-test('mergePetThemeDirs keeps built-ins then lets user dirs override same id', () => {
-  const builtin: PetThemeDirInfo[] = [
-    { id: 'shiba', name: '治愈柴犬', dir: '/app/pet-themes/shiba' },
-    { id: 'bunny', name: '粉耳白兔', dir: '/app/pet-themes/bunny' }
-  ];
-  const user: PetThemeDirInfo[] = [
-    { id: 'bunny', name: 'bunny', dir: '/data/custom-pet/bunny' },
-    { id: 'capy', name: '卡皮巴拉', dir: '/data/custom-pet/capy' }
-  ];
-  const merged = mergePetThemeDirs([builtin, user]);
-  const byId = Object.fromEntries(merged.map((t) => [t.id, t]));
-  assert.equal(byId.shiba.dir, '/app/pet-themes/shiba');
-  assert.equal(byId.bunny.dir, '/data/custom-pet/bunny');
-  assert.equal(byId.capy.name, '卡皮巴拉');
-  assert.equal(merged.filter((t) => t.id === 'bunny').length, 1);
+test('listRootTheme exposes only 奋斗猫 when custom-pet root has images', () => {
+  // themeDirHasAssets is fs-backed; empty/missing root yields no themes.
+  assert.deepEqual(listRootTheme('/definitely/missing/custom-pet'), []);
 });
 
-test('builtin display names cover independent dynamic characters', () => {
-  assert.equal(BUILTIN_PET_THEME_NAMES.shiba, '治愈柴犬');
-  assert.equal(BUILTIN_PET_THEME_NAMES.bunny, '粉耳白兔');
-  assert.equal(BUILTIN_PET_THEME_NAMES.hamster, '软萌仓鼠');
-  assert.equal(BUILTIN_PET_THEME_NAMES.default, '奋斗猫（默认）');
+test('PET_DISPLAY_NAME is 奋斗猫', () => {
+  assert.equal(PET_DISPLAY_NAME, '奋斗猫');
 });
 
-test('mergePetThemeDirs ignores empty ids', () => {
-  const merged = mergePetThemeDirs([
-    [{ id: '', name: 'x', dir: '/x' }, { id: 'hamster', name: '软萌仓鼠', dir: '/h' }]
-  ]);
-  assert.deepEqual(
-    merged.map((t) => t.id),
-    ['hamster']
-  );
+test('themeDirHasAssets rejects missing dirs', () => {
+  assert.equal(themeDirHasAssets('/definitely/missing/custom-pet'), false);
 });

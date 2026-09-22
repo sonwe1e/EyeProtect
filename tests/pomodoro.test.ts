@@ -86,3 +86,41 @@ test('health rest at focus expiry joins the short rest instead of prompting twic
   setHealth(false);
   assert.equal(service.getState().running, false);
 }));
+
+// ── F02: idle freeze semantics shared with the kernel ────────────────────────
+
+test('focus started inside an idle freeze keeps its countdown and ends on active time', () => fixture(({ service, kernel, advance }) => {
+  // Production wiring: 60s without input freezes the kernel's elapsed clocks
+  // (and pauses the pomodoro); the tray can still start a focus inside that
+  // window before the next activity sample.
+  advance(60_000);
+  kernel.pauseElapsed();
+  advance(600_000);
+
+  service.start(null, 1);
+  assert.equal(service.getState().remainingMs, 60_000, 'countdown does not run while idle');
+  advance(600_000);
+  assert.equal(service.getState().remainingMs, 60_000, 'ten more idle minutes change nothing');
+
+  kernel.resumeElapsed();
+  advance(5_000);
+  assert.equal(service.getState().remainingMs, 55_000, 'countdown resumes with active-use time');
+  assert.equal(service.getState().phase, 'focus', 'phase still running right after resume');
+  advance(55_000);
+  assert.equal(service.getState().phase, 'focus-finished', 'phase ends exactly when the countdown reaches zero');
+  assert.equal(service.getState().remainingMs, 0);
+}));
+
+test('the countdown never shows 00:00 while the phase is still running', () => fixture(({ service, kernel, advance }) => {
+  service.start(null, 1);
+  advance(59_000);
+  kernel.pauseElapsed();
+  advance(120_000);
+  assert.equal(service.getState().phase, 'focus');
+  assert.equal(service.getState().remainingMs, 1_000, 'the last second survives the freeze');
+  kernel.resumeElapsed();
+  advance(500);
+  assert.equal(service.getState().remainingMs, 500);
+  advance(500);
+  assert.equal(service.getState().phase, 'focus-finished');
+}));

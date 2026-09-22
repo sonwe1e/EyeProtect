@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { taskSteps } from '../shared/simpleTasks';
+import { resolveRestoredTaskProjectId, taskSteps } from '../shared/simpleTasks';
 import { TASK_STALE_WRITE_MESSAGE } from '../shared/types';
 import { isProjectWritable } from '../shared/projectPolicy';
 import { nextRecurrenceFireAt } from '../shared/types';
@@ -72,7 +72,6 @@ export class TaskService extends EventEmitter {
   setActiveTask(id: string | null, now: number = Date.now()): Task[] {
     this.store.setActiveTaskId(id, now);
     this.emit('active-task-changed', this.store.getActiveTaskId());
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
 
@@ -81,7 +80,6 @@ export class TaskService extends EventEmitter {
   createTask(input: TaskInput, now: number = Date.now()): Task[] {
     if (!this.legacyRecurrence && !input.title.trim()) throw new Error('请输入任务名称');
     this.store.createTask(input, now);
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
 
@@ -94,8 +92,19 @@ export class TaskService extends EventEmitter {
       const { status, ...fields } = input;
       if (!this.legacyRecurrence && before?.projectId && !isProjectWritable(this.store.getProject(before.projectId))) throw new Error('清单只读');
       this.store.updateTask(id, fields, now);
-      if (!this.legacyRecurrence && before && !before.parentId && Object.prototype.hasOwnProperty.call(fields, 'projectId')) {
-        for (const step of taskSteps(id, this.store.getTasks())) this.store.updateTask(step.id, { projectId: fields.projectId }, now);
+      // Only a REAL list move rehomes the steps. Re-saving the same list (the
+      // renderer always submits the full form) used to rewrite every step —
+      // bumping revision/updatedAt/restStartedAt on rows the user never
+      // touched — so the move is detected by value, not by key presence.
+      const listMoved = !this.legacyRecurrence && before && !before.parentId
+        && Object.prototype.hasOwnProperty.call(fields, 'projectId')
+        && fields.projectId !== before.projectId;
+      if (listMoved) {
+        for (const step of taskSteps(id, this.store.getTasks())) {
+          if (step.projectId !== fields.projectId) {
+            this.store.updateTask(step.id, { projectId: fields.projectId }, now);
+          }
+        }
       }
       const updated = this.store.getTask(id);
       if (status !== undefined && updated && status !== before?.status) {
@@ -111,7 +120,6 @@ export class TaskService extends EventEmitter {
       }
     });
     if (undoOperation) this.emit('undo-changed', undoOperation);
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
 
@@ -124,7 +132,6 @@ export class TaskService extends EventEmitter {
   setTaskStatus(id: string, status: TaskStatus, now: number = Date.now()): Task[] {
     const task = this.store.getTask(id);
     if (!task) {
-      this.emit('tasks-changed', this.store.getTasks());
       return this.store.getTasks();
     }
 
@@ -155,7 +162,6 @@ export class TaskService extends EventEmitter {
     if (undoOperation) this.emit('undo-changed', undoOperation);
 
     this.emit('active-task-changed', this.store.getActiveTaskId());
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
 
@@ -171,7 +177,6 @@ export class TaskService extends EventEmitter {
       return this.store.createUndoOperation('complete', root.title, affected, [], previousActive, now);
     });
     this.emit('undo-changed', operation);
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
 
@@ -195,15 +200,44 @@ export class TaskService extends EventEmitter {
     return this.createTask({ title, parentId: rootId, projectId: root.projectId });
   }
 
+  /**
+   * Restore a task from the completion record back to the todo list. This is a
+   * scoped recovery operation, not a normal edit: it is the single place that
+   * may move a task OUT of a read-only (completed/archived) list into the
+   * default list, which plain `updateTask` refuses because the source list is
+   * not writable. Steps follow their root so a restored checklist stays
+   * together and editable. Ordinary editing keeps the read-only protection.
+   */
+  restoreTask(id: string, now: number = Date.now()): Task[] {
+    const existed = this.store.runInTransaction(() => {
+      const before = this.store.getTask(id);
+      if (!before) return false;
+      const project = before.projectId ? this.store.getProject(before.projectId) : null;
+      const nextProjectId = resolveRestoredTaskProjectId(before.projectId, project?.status);
+      if (nextProjectId !== before.projectId) {
+        this.store.updateTask(id, { projectId: nextProjectId }, now);
+        for (const step of taskSteps(id, this.store.getTasks())) {
+          this.store.updateTask(step.id, { projectId: nextProjectId }, now);
+        }
+      }
+      this.store.setTaskStatus(id, 'open', now);
+      return true;
+    });
+    return this.store.getTasks();
+  }
+
   deleteTask(id: string, now: number = Date.now()): Task[] {
     const task = this.store.getTask(id);
     if (!task) return this.store.getTasks();
     const previousActive = this.store.getActiveTaskId();
-    const removed = this.store.deleteTaskTree(id);
-    const operation = this.store.createUndoOperation('delete', task.title, removed, [], previousActive, now);
+    // The store snapshots dependent rows (plans, time blocks, focus sessions,
+    // checkpoints, work segments) inside the delete transaction so the undo
+    // payload can restore them; querying after the delete would see the
+    // cascade already having removed them.
+    const { removed, dependents } = this.store.deleteTaskTreeWithSnapshot(id);
+    const operation = this.store.createUndoOperation('delete', task.title, removed, [], previousActive, now, dependents);
     this.emit('undo-changed', operation);
     this.emit('active-task-changed', this.store.getActiveTaskId());
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getTasks();
   }
 
@@ -214,7 +248,6 @@ export class TaskService extends EventEmitter {
   undo(operationId: string, now: number = Date.now()): Task[] {
     if (this.store.undoOperation(operationId, now)) {
       this.emit('active-task-changed', this.store.getActiveTaskId());
-      this.emit('tasks-changed', this.store.getTasks());
     }
     this.emit('undo-changed', this.store.getUndoState(now));
     return this.store.getTasks();
@@ -222,7 +255,6 @@ export class TaskService extends EventEmitter {
 
   moveTask(input: TaskMoveInput, now: number = Date.now()): Task[] {
     const tasks = this.store.moveTask(input, now);
-    this.emit('tasks-changed', tasks);
     return tasks;
   }
 
@@ -244,7 +276,6 @@ export class TaskService extends EventEmitter {
     this.store.deleteProject(id, now);
     // Deleting a project detaches its tasks, so both domain events fire.
     this.emit('projects-changed', this.store.getProjects());
-    this.emit('tasks-changed', this.store.getTasks());
     return this.store.getProjects();
   }
 
@@ -256,7 +287,6 @@ export class TaskService extends EventEmitter {
    */
   migrateFromTodos(legacyTodos: TodoItem[], now: number = Date.now(), legacyAlarms: Alarm[] = []): Task[] {
     const tasks = this.store.migrateLegacy(legacyTodos, legacyAlarms, now);
-    this.emit('tasks-changed', this.store.getTasks());
     return tasks;
   }
 

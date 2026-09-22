@@ -184,8 +184,7 @@
 }
 .command-palette-list p { margin: 18px 0 4px; color: var(--fg-secondary); text-align: center; }
 
-.ui-dialog-backdrop,
-.ui-sheet-layer {
+.ui-dialog-backdrop {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -211,8 +210,7 @@
   animation: ui-dialog-enter var(--motion-standard) var(--ease-out);
 }
 
-.ui-dialog__header,
-.ui-side-sheet__header {
+.ui-dialog__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -230,43 +228,9 @@
   padding: 0 22px 22px;
 }
 
-.ui-sheet-scrim {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  background: var(--overlay);
-  border-radius: 0;
-}
-
-.ui-side-sheet {
-  position: absolute;
-  inset: 0 0 0 auto;
-  width: min(520px, calc(100% - 48px));
-  color: var(--fg-primary);
-  background: var(--surface);
-  border-left: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-overlay);
-  animation: ui-sheet-enter var(--motion-standard) var(--ease-out);
-}
-
-.ui-side-sheet__header {
-  min-height: 60px;
-  align-items: center;
-  padding: 12px 18px;
-  color: var(--fg-secondary);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.ui-side-sheet__body { height: calc(100% - 60px); overflow: auto; }
-
 /* Overlay entrances. Every layer travels the short distance from the edge it
-   is anchored to (sheet: its own edge; toast: its own corner; dialog: nowhere,
-   it just scales up in place), so the exit direction always matches. */
-@keyframes ui-sheet-enter {
-  from { transform: translateX(16px); opacity: 0; }
-}
-
+   is anchored to (toast: its own corner; dialog: nowhere, it just scales up in
+   place), so the exit direction always matches. */
 @keyframes ui-fade-in {
   from { opacity: 0; }
 }
@@ -288,8 +252,7 @@
   .ui-icon-button:active { transform: none; }
   .ui-dialog-backdrop,
   .ui-dialog,
-  .ui-toast,
-  .ui-side-sheet { animation: none; }
+  .ui-toast { animation: none; }
   .command-spinner { animation: none; }
 }
 
@@ -300,6 +263,5 @@
   .ui-select,
   .ui-toast,
   .ui-dialog,
-  .ui-side-sheet,
   .command-palette-list button { border: 1px solid ButtonText; }
 }

@@ -62,6 +62,46 @@ test('task editor resyncs external updates and disables pristine saves', () => {
   assert.ok(view.includes('!dirty'), 'save should disable when nothing changed');
 });
 
+test('task drafts survive unmount and surface unsaved state', () => {
+  const view = read('src/renderer/src/views/WorkbenchView.tsx');
+  assert.ok(view.includes('taskDrafts'), 'parent must keep per-task drafts across collapse');
+  assert.ok(view.includes('有未保存修改'), 'dirty drafts must be labeled');
+  assert.ok(view.includes('步骤名称失焦即自动保存'), 'steps must declare independent autosave');
+});
+
+test('today stats avoid the misleading completion percentage', () => {
+  const view = read('src/renderer/src/views/WorkbenchView.tsx');
+  assert.ok(view.includes('当前清单待办'), 'pending count must name its scope');
+  assert.ok(view.includes('今日完成'), 'today completed count must stay visible');
+  assert.ok(!view.includes('progressPercent'), 'misleading progress percent is retired');
+  assert.ok(!view.includes('今日完成率'), 'completion-rate copy is retired');
+});
+
+test('bubble hooks stay unconditional and can locate a task', () => {
+  const bubble = read('src/renderer/src/views/BubbleView.tsx');
+  const confirmAt = bubble.indexOf('useConfirm()');
+  const preAlertReturn = bubble.indexOf('if (preAlert) return');
+  assert.ok(confirmAt >= 0 && preAlertReturn > confirmAt, 'useConfirm must run before early returns');
+  assert.ok(bubble.includes("openWorkbench('today', task.id)"), 'bubble task click must pass focusTaskId');
+});
+
+test('alert keyboard keeps control semantics and remembers rest mode', () => {
+  const alert = read('src/renderer/src/views/AlertView.tsx');
+  assert.ok(alert.includes("closest('button"), 'Enter/Space on buttons must not hijack rest shortcuts');
+  assert.ok(alert.includes('REST_MODE_STORAGE_KEY'), 'rest mode preference must persist');
+  assert.ok(!alert.includes('setRelaxMode(random)'), 'new reminders must not force a random mode');
+});
+
+test('core task actions stay discoverable with labels', () => {
+  const view = read('src/renderer/src/views/WorkbenchView.tsx');
+  const css = read('src/renderer/src/styles/simple.css');
+  assert.ok(view.includes('开始专注这项任务'), 'focus action needs a tooltip');
+  assert.ok(view.includes('放到浮窗'), 'pin action needs a tooltip');
+  assert.ok(!css.includes('opacity: 0;\n  transition: opacity'), 'row actions must not hide by default');
+  assert.ok(css.includes('simple-check-hit'), 'checkbox needs an expanded hit target');
+  assert.ok(css.includes('simple-live-strip'), 'workbench needs a live focus/pause strip');
+});
+
 test('bubble actions meet a usable hit target', () => {
   const css = read('src/renderer/src/styles.css');
   assert.ok(css.includes('min-height: 36px'), 'bubble actions regressed below 36px');

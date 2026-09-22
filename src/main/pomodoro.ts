@@ -56,8 +56,20 @@ export class PomodoroService extends EventEmitter {
     kernel.on('wake', this.wake);
   }
 
+  /**
+   * Live countdown. While a phase is running the remaining time is derived
+   * from the kernel's own phase-end deadline instead of a second monotonic
+   * clock inside this service: the pomodoro inherits the kernel's elapsed
+   * (active-use) semantics, so idle time freezes the countdown exactly like it
+   * freezes the health-reminder deadlines, and the displayed 00:00 always
+   * coincides with the phase transition. The internal clock remains as a
+   * fallback for the window where no deadline is registered.
+   */
   getState(): PomodoroState {
-    return { ...this.state, remainingMs: this.state.running ? Math.max(0, this.state.remainingMs - (this.monotonic() - this.sampledMono)) : this.state.remainingMs };
+    if (!this.state.running) return { ...this.state };
+    const kernelRemaining = this.kernel.remainingMs('pomodoro', 'pomodoro-end');
+    const fallback = Math.max(0, this.state.remainingMs - (this.monotonic() - this.sampledMono));
+    return { ...this.state, remainingMs: kernelRemaining ?? fallback };
   }
 
   prepare(taskId: string | null, replace = false): PomodoroState {

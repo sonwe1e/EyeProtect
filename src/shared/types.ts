@@ -534,8 +534,6 @@ export interface Settings {
   todoBubbleEnabled: boolean;
   todoBubbleTaskIds: string[];
   petAppearance: PixelAnimal;
-  /** Custom character theme subfolder name under custom-pet/, or null to use built-in pixel animal. */
-  customPetTheme: string | null;
   petScale: number;
   /**
    * Whether the idle pet animates its small periodic actions (blink/fidget).
@@ -821,16 +819,9 @@ export interface PomodoroState {
 }
 export interface LegacyData { sections: Array<{ title: string; items: Array<{ title: string; detail: string }> }> }
 
-export interface CustomPetThemeInfo {
-  id: string;
-  name: string;
-  preview?: string | null;
-}
-
+/** 奋斗猫 user GIFs in custom-pet root (optional personalization). */
 export interface CustomPetAssets {
   hasCustomPet: boolean;
-  activeTheme: string | null;
-  availableThemes: CustomPetThemeInfo[];
   idles: string[];
   clicks: string[];
   fidgets: string[];
@@ -845,6 +836,12 @@ export interface CustomPetAssets {
  * removed after the product simplified — see docs/architecture.md
  * §主进程与 preload 收口结论.
  */
+/** Cross-window workbench navigation: which tab, and optional task to reveal. */
+export interface WorkbenchNavPayload {
+  section: 'today' | 'review' | 'settings';
+  focusTaskId: string | null;
+}
+
 export interface EyeProtectApi {
   // ── Settings / app health ──────────────────────────────────────────────
   getSettings: () => Promise<Settings>;
@@ -925,13 +922,13 @@ export interface EyeProtectApi {
   showPetContextMenu: () => Promise<void>;
   togglePetVisibility: () => Promise<boolean>;
   recallPet: () => Promise<void>;
-  openWorkbench: (section?: 'today' | 'review' | 'settings') => Promise<void>;
+  openWorkbench: (section?: 'today' | 'review' | 'settings', focusTaskId?: string | null) => Promise<void>;
   closeWorkbench: () => Promise<void>;
-  getWorkbenchSection: () => Promise<'today' | 'review' | 'settings'>;
-  onWorkbenchNavigate: (callback: (section: 'today' | 'review' | 'settings') => void) => () => void;
+  getWorkbenchSection: () => Promise<WorkbenchNavPayload>;
+  onWorkbenchNavigate: (callback: (payload: WorkbenchNavPayload) => void) => () => void;
 
-  openCustomPetFolder: (subfolder?: string) => Promise<{ success: boolean; message: string }>;
-  getCustomPetAssets: (themeId?: string | null) => Promise<CustomPetAssets>;
+  openCustomPetFolder: () => Promise<{ success: boolean; message: string }>;
+  getCustomPetAssets: () => Promise<CustomPetAssets>;
 
   // ── Data / backup / compat ─────────────────────────────────────────────
   exportBackup: () => Promise<DataActionResult>;
@@ -974,7 +971,6 @@ export const DEFAULT_SETTINGS: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
-  customPetTheme: null,
   petScale: 1,
   petMotion: true,
   petPosition: null,

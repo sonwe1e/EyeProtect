@@ -95,7 +95,31 @@ interface LegacyTasksFile {
 }
 
 type SqlValue = string | number | bigint | null | Uint8Array;
-type SqlRow = Record<string, SqlValue>;
+export type SqlRow = Record<string, SqlValue>;
+
+/**
+ * Dependent rows captured before a task tree is deleted so an undo can restore
+ * the full "task + its legacy attachments" promise (plans, time blocks, focus
+ * sessions, checkpoints, work segments). ON DELETE CASCADE removes them with
+ * the tasks, so the snapshot must be taken inside the delete transaction.
+ */
+export interface TaskUndoDependents {
+  workSessions: SqlRow[];
+  dailyPlans: SqlRow[];
+  timeBlocks: SqlRow[];
+  focusSessions: SqlRow[];
+  checkpoints: SqlRow[];
+  workStates: SqlRow[];
+}
+
+export const emptyTaskUndoDependents = (): TaskUndoDependents => ({
+  workSessions: [],
+  dailyPlans: [],
+  timeBlocks: [],
+  focusSessions: [],
+  checkpoints: [],
+  workStates: []
+});
 
 const checkpointText = (value: string | null | undefined): string | null => {
   const text = value?.trim();
@@ -430,6 +454,17 @@ export class TaskStore extends EventEmitter {
   }
 
   deleteTaskTree(id: string): Task[] {
+    return this.deleteTaskTreeWithSnapshot(id).removed;
+  }
+
+  /**
+   * Delete a task tree and capture, in the SAME transaction and BEFORE the
+   * cascade runs, every dependent row an undo is expected to restore. Reading
+   * after the delete would return nothing — ON DELETE CASCADE already removed
+   * them — which is how delete-undo used to lose plans/time blocks/focus
+   * sessions/checkpoints while reporting a successful restore.
+   */
+  deleteTaskTreeWithSnapshot(id: string): { removed: Task[]; dependents: TaskUndoDependents } {
     const tasks = this.getTasks();
     const ids = new Set<string>([id]);
     let changed = true;
@@ -443,8 +478,33 @@ export class TaskStore extends EventEmitter {
       }
     }
     const removed = tasks.filter((task) => ids.has(task.id));
-    if (removed.length === 0) return [];
+    if (removed.length === 0) return { removed: [], dependents: emptyTaskUndoDependents() };
+    const taskIds = [...ids];
+    const placeholders = taskIds.map(() => '?').join(',');
+    const dependents = emptyTaskUndoDependents();
     this.transaction(() => {
+      dependents.workSessions = this.db.prepare(`
+        SELECT id, task_id, started_at, ended_at, active_ms FROM work_sessions WHERE task_id IN (${placeholders})
+      `).all(...taskIds) as SqlRow[];
+      dependents.dailyPlans = this.db.prepare(`
+        SELECT task_id, local_date, planned_minutes, daily_rank, sort_order, created_at, updated_at
+        FROM daily_task_plans WHERE task_id IN (${placeholders})
+      `).all(...taskIds) as SqlRow[];
+      dependents.timeBlocks = this.db.prepare(`
+        SELECT id, task_id, start_at, end_at, time_zone, source, created_at, updated_at
+        FROM time_blocks WHERE task_id IN (${placeholders})
+      `).all(...taskIds) as SqlRow[];
+      dependents.focusSessions = this.db.prepare(`
+        SELECT id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, on_break, live_slot, created_at
+        FROM focus_sessions WHERE task_id IN (${placeholders})
+      `).all(...taskIds) as SqlRow[];
+      dependents.checkpoints = this.db.prepare(`
+        SELECT id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at
+        FROM task_checkpoints WHERE task_id IN (${placeholders})
+      `).all(...taskIds) as SqlRow[];
+      dependents.workStates = this.db.prepare(`
+        SELECT task_id, timebox_notified FROM task_work_state WHERE task_id IN (${placeholders})
+      `).all(...taskIds) as SqlRow[];
       for (const taskId of [...ids].reverse()) {
         this.db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
         this.db.prepare("DELETE FROM app_state WHERE key = 'active_task_id' AND value = ?").run(taskId);
@@ -454,7 +514,7 @@ export class TaskStore extends EventEmitter {
     for (const task of removed) {
       this.emit('task-removed', task.id);
     }
-    return removed;
+    return { removed, dependents };
   }
 
   createUndoOperation(
@@ -463,7 +523,8 @@ export class TaskStore extends EventEmitter {
     tasks: Task[],
     removeIds: string[],
     activeTaskId: string | null,
-    now: number = Date.now()
+    now: number = Date.now(),
+    dependents: TaskUndoDependents = emptyTaskUndoDependents()
   ): UndoState {
     this.purgeExpiredUndo(now);
     const operation: UndoState = { operationId: randomUUID(), kind, taskTitle, expiresAt: now + 10_000 };
@@ -473,7 +534,7 @@ export class TaskStore extends EventEmitter {
     this.db.prepare(`
       INSERT INTO undo_operations(id, kind, task_title, payload_json, expires_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(operation.operationId, kind, taskTitle, JSON.stringify({ tasks, removeIds, activeTaskId, sessions }), operation.expiresAt, now);
+    `).run(operation.operationId, kind, taskTitle, JSON.stringify({ tasks, removeIds, activeTaskId, sessions, dependents }), operation.expiresAt, now);
     return operation;
   }
 
@@ -502,21 +563,55 @@ export class TaskStore extends EventEmitter {
       removeIds: string[];
       activeTaskId: string | null;
       sessions: SqlRow[];
+      dependents?: TaskUndoDependents;
     };
     const tasks = sanitizeTasks(payload.tasks, now);
+    const dependents = payload.dependents;
+    // Complete-undo snapshots (nothing was deleted) carry their work sessions
+    // in `sessions`; delete-undo carries the full dependent snapshot.
+    const workSessions = dependents?.workSessions?.length ? dependents.workSessions : (payload.sessions ?? []);
     this.transaction(() => {
       for (const id of payload.removeIds ?? []) this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
-      for (const task of tasks) {
-        // Undoing completion restores the source instance to its pre-complete
-        // state; release its exactly-once claim so a later genuine completion
-        // may generate the recurrence again.
-        this.db.prepare('DELETE FROM task_recurrence_rollovers WHERE source_task_id = ?').run(task.id);
-        this.upsertTask(task);
-        this.writeTaskTags(task.id, task.tags);
-      }
-      for (const session of payload.sessions ?? []) {
+      this.restoreTaskRows(tasks);
+      // Dependent rows follow task restore (their FKs point at tasks) and each
+      // other's natural order: time blocks before focus sessions, focus
+      // sessions before checkpoints.
+      for (const session of workSessions) {
         this.db.prepare(`INSERT OR IGNORE INTO work_sessions(id, task_id, started_at, ended_at, active_ms) VALUES (?, ?, ?, ?, ?)`)
           .run(session.id, session.task_id, session.started_at, session.ended_at, session.active_ms);
+      }
+      for (const plan of dependents?.dailyPlans ?? []) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO daily_task_plans(task_id, local_date, planned_minutes, daily_rank, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(plan.task_id, plan.local_date, plan.planned_minutes, plan.daily_rank, plan.sort_order, plan.created_at, plan.updated_at);
+      }
+      for (const block of dependents?.timeBlocks ?? []) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO time_blocks(id, task_id, start_at, end_at, time_zone, source, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(block.id, block.task_id, block.start_at, block.end_at, block.time_zone, block.source, block.created_at, block.updated_at);
+      }
+      // OR IGNORE: the single global live-session slot may have been claimed by
+      // another session after the delete; skip the snapshot row instead of
+      // failing the whole undo.
+      for (const session of dependents?.focusSessions ?? []) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO focus_sessions(id, task_id, time_block_id, started_at, ended_at, active_ms, outcome, on_break, live_slot, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(session.id, session.task_id, session.time_block_id, session.started_at, session.ended_at, session.active_ms, session.outcome, session.on_break, session.live_slot, session.created_at);
+      }
+      for (const checkpoint of dependents?.checkpoints ?? []) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO task_checkpoints(id, task_id, focus_session_id, kind, progress, next_step, feeling, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(checkpoint.id, checkpoint.task_id, checkpoint.focus_session_id, checkpoint.kind, checkpoint.progress, checkpoint.next_step, checkpoint.feeling, checkpoint.created_at);
+      }
+      for (const state of dependents?.workStates ?? []) {
+        this.db.prepare(`
+          INSERT INTO task_work_state(task_id, timebox_notified) VALUES (?, ?)
+          ON CONFLICT(task_id) DO UPDATE SET timebox_notified = excluded.timebox_notified
+        `).run(state.task_id, state.timebox_notified);
       }
       if (payload.activeTaskId && this.getTask(payload.activeTaskId)) {
         this.db.prepare(`INSERT INTO app_state(key, value) VALUES ('active_task_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
@@ -528,6 +623,33 @@ export class TaskStore extends EventEmitter {
     // Undo restores/removes whole trees — broadcast the full list as truth.
     this.emit('tasks-replaced', this.getTasks());
     return true;
+  }
+
+  /**
+   * Restore a task snapshot with the same two-phase relation write as
+   * `replaceAll`: insert every row first, then relink parents. A snapshot can
+   * legitimately carry a child before its parent (step reordering reassigns
+   * sortOrder per sibling), and inserting in snapshot order then fails the
+   * parent foreign key. Parent links whose target is absent from both the
+   * snapshot and the database are dropped, matching replaceAll.
+   */
+  private restoreTaskRows(tasks: Task[]): void {
+    if (tasks.length === 0) return;
+    for (const task of tasks) {
+      // Undoing completion restores the source instance to its pre-complete
+      // state; release its exactly-once claim so a later genuine completion
+      // may generate the recurrence again.
+      this.db.prepare('DELETE FROM task_recurrence_rollovers WHERE source_task_id = ?').run(task.id);
+      this.upsertTask({ ...task, parentId: null });
+      this.writeTaskTags(task.id, task.tags);
+    }
+    const restoredIds = new Set(tasks.map((task) => task.id));
+    for (const task of tasks) {
+      if (!task.parentId || task.parentId === task.id) continue;
+      if (restoredIds.has(task.parentId) || this.getTask(task.parentId)) {
+        this.db.prepare('UPDATE tasks SET parent_id = ? WHERE id = ?').run(task.parentId, task.id);
+      }
+    }
   }
 
   private purgeExpiredUndo(now: number): void {

@@ -23,7 +23,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AppHealth,
-  CustomPetThemeInfo,
   HotkeyAction,
   HotkeyStatus,
   PreAlertAction,
@@ -46,19 +45,12 @@ import { ReminderTrace, noopReminderTrace, type ReminderTraceSink } from './sche
 import { SchedulerKernel } from './scheduling/kernel';
 import { isTrustedRendererUrl } from './security';
 import { SettingsStore, syncStartupShortcut } from './settings';
-import {
-  BUILTIN_PET_THEME_NAMES,
-  listRootTheme,
-  listThemeDirsIn,
-  mergePetThemeDirs,
-  type PetThemeDirInfo
-} from './petThemes';
 import { AppWindows, getRuntimeInfo } from './windows';
 import { TaskStore } from './taskStore';
 import { TaskService } from './taskService';
 import { TaskScheduler } from './taskScheduler';
 import { PomodoroService } from './pomodoro';
-import { isCurrentTask, resolveRestoredTaskProjectId } from '../shared/simpleTasks';
+import { isCurrentTask } from '../shared/simpleTasks';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
@@ -164,67 +156,9 @@ const HOTKEYS: Record<HotkeyAction, string> = {
   'pet-toggle': 'CommandOrControl+Alt+H'
 };
 
-const resolvePetThemeRoots = (settingsStore: SettingsStore): { userRoot: string; builtinRoot: string } => ({
-  userRoot: join(settingsStore.getDataDir(), 'custom-pet'),
-  builtinRoot: join(app.getAppPath(), 'public', 'assets', 'pet-themes')
+const resolvePetThemeRoots = (settingsStore: SettingsStore): { userRoot: string } => ({
+  userRoot: join(settingsStore.getDataDir(), 'custom-pet')
 });
-
-/** Built-in themes first; user custom-pet folders override on the same id. */
-const listMergedPetThemes = (settingsStore: SettingsStore): PetThemeDirInfo[] => {
-  const { userRoot, builtinRoot } = resolvePetThemeRoots(settingsStore);
-  return mergePetThemeDirs([
-    listThemeDirsIn(builtinRoot, BUILTIN_PET_THEME_NAMES),
-    listRootTheme(userRoot, 'default', BUILTIN_PET_THEME_NAMES),
-    listThemeDirsIn(userRoot, BUILTIN_PET_THEME_NAMES)
-  ]);
-};
-
-const buildPetSubmenuTemplate = (
-  settingsStore: SettingsStore
-): MenuItemConstructorOptions[] => {
-  const settings = settingsStore.get();
-  const currentTheme = settings.customPetTheme;
-  const currentAppearance = settings.petAppearance;
-  const merged = listMergedPetThemes(settingsStore);
-
-  const customItems: MenuItemConstructorOptions[] = merged.map((theme) => ({
-    label: theme.name,
-    type: 'radio' as const,
-    checked: currentTheme === theme.id,
-    click: () => void settingsStore.save({ customPetTheme: theme.id })
-  }));
-
-  const classicItems: MenuItemConstructorOptions[] = [
-    {
-      label: '经典像素橘猫',
-      type: 'radio',
-      checked: currentTheme === null && currentAppearance === 'cat',
-      click: () => void settingsStore.save({ customPetTheme: null, petAppearance: 'cat' })
-    },
-    {
-      label: '经典像素小狗',
-      type: 'radio',
-      checked: currentTheme === null && currentAppearance === 'dog',
-      click: () => void settingsStore.save({ customPetTheme: null, petAppearance: 'dog' })
-    },
-    {
-      label: '经典像素白兔',
-      type: 'radio',
-      checked: currentTheme === null && currentAppearance === 'rabbit',
-      click: () => void settingsStore.save({ customPetTheme: null, petAppearance: 'rabbit' })
-    }
-  ];
-
-  if (customItems.length > 0) {
-    return [
-      ...customItems,
-      { type: 'separator' },
-      ...classicItems
-    ];
-  }
-
-  return classicItems;
-};
 
 /**
  * The tray is the main control surface: the menu is rebuilt every time it is
@@ -297,10 +231,6 @@ const createTray = (
       { label: `待办：${pendingTodos} 项未完成`, enabled: false },
       { label: '打开工作台', click: (): void => void windows.showWorkbenchWindow('today') },
       { label: '打开设置', click: (): void => windows.showWorkbenchWindow('settings') },
-      {
-        label: '🐾 切换桌宠',
-        submenu: buildPetSubmenuTemplate(settingsStore)
-      },
       {
         label: '召回桌宠到当前屏幕',
         click: (): void => {
@@ -1032,44 +962,23 @@ app.whenReady().then(async () => {
       return { success: false, message };
     }
   });
-  handleIpc('pet:custom:open-folder', async (subfolder) => {
-    const baseDir = join(settingsStore.getDataDir(), 'custom-pet');
-    const customDir =
-      typeof subfolder === 'string' && subfolder.trim().length > 0
-        ? join(baseDir, subfolder.trim())
-        : baseDir;
+  handleIpc('pet:custom:open-folder', async () => {
+    const customDir = join(settingsStore.getDataDir(), 'custom-pet');
     try {
       if (!existsSync(customDir)) {
         mkdirSync(customDir, { recursive: true });
       }
-      const readmePath = join(baseDir, '使用说明.txt');
+      const readmePath = join(customDir, '使用说明.txt');
       if (!existsSync(readmePath)) {
         const readme =
-          'EyeProtect 自定义桌宠说明文档\r\n\r\n' +
-          '【1. 如何添加多种动物？】\r\n' +
-          '在当前 custom-pet 文件夹下新建子文件夹即可，每个子文件夹对应一个独立角色，例如：\r\n' +
-          '  custom-pet/\r\n' +
-          '    ├── 柴犬/\r\n' +
-          '    │    ├── idle.gif\r\n' +
-          '    │    ├── click1.gif\r\n' +
-          '    │    └── click2.gif\r\n' +
-          '    └── 卡皮巴拉/\r\n' +
-          '         ├── idle.gif\r\n' +
-          '         ├── click.gif\r\n' +
-          '         └── sleep.gif\r\n' +
-          '创建后，在工作台「设置 - 桌面外观」中将直接列出所有角色，点击即可自由切换！\r\n\r\n' +
-          '【2. 如何让点击（Click）触发多种随机动作？】\r\n' +
-          '只要在角色文件夹中放入多个以 click 开头的动图即可，点击时会自动随机抽取播放：\r\n' +
-          '  - click1.gif（例如开心跳跃）\r\n' +
-          '  - click2.gif（例如冒爱心）\r\n' +
-          '  - click3.gif（例如打哈欠）\r\n' +
-          '  - 或 interact_*.gif\r\n' +
-          '每次鼠标单击桌宠时，都会在这些动作中随机播放一个！\r\n\r\n' +
-          '【3. 动作文件命名规范】\r\n' +
-          '- idle*.gif / idle*.png：平时常驻桌面的待机/呼吸循环\r\n' +
-          '- click*.gif / interact*.gif：鼠标单击桌宠时的随机互动动作\r\n' +
-          '- fidget*.gif / action*.gif：闲置时每隔十几秒自发触发的随机小动作（如伸懒腰、打滚）\r\n' +
-          '- sleep*.gif / rest*.gif：护眼休息提醒期间播放的休息动作\r\n';
+          'EyeProtect 奋斗猫自定义动图说明\r\n\r\n' +
+          '把动图直接放在本文件夹（custom-pet）根目录，即可替换奋斗猫的动画。\r\n' +
+          '不需要子文件夹，也没有其它可切换角色。\r\n\r\n' +
+          '动作文件命名规范：\r\n' +
+          '- idle*.gif / idle*.png：待机/呼吸循环\r\n' +
+          '- click*.gif / interact*.gif：单击桌宠时随机互动\r\n' +
+          '- fidget*.gif / action*.gif：闲置时偶尔小动作\r\n' +
+          '- sleep*.gif / rest*.gif：护眼休息提醒期间播放\r\n';
         writeFileSync(readmePath, readme, 'utf8');
       }
       const error = await shell.openPath(customDir);
@@ -1081,7 +990,7 @@ app.whenReady().then(async () => {
       return { success: false, message };
     }
   });
-  handleIpc('pet:custom:get-assets', (requestedTheme) => {
+  handleIpc('pet:custom:get-assets', () => {
     const emptyAssets = { idles: [] as string[], clicks: [] as string[], fidgets: [] as string[], sleeps: [] as string[] };
     const isImageFile = (filename: string): boolean => {
       const lower = filename.toLowerCase();
@@ -1121,8 +1030,6 @@ app.whenReady().then(async () => {
             fidgets.push(dataUrl);
           } else if (lower.startsWith('sleep') || lower.startsWith('rest')) {
             sleeps.push(dataUrl);
-          } else if (lower.startsWith('idle') || lower.startsWith('stand') || lower.startsWith('stay')) {
-            idles.push(dataUrl);
           } else {
             idles.push(dataUrl);
           }
@@ -1133,43 +1040,15 @@ app.whenReady().then(async () => {
       }
     };
 
-    const hasAny = (assets: { idles: string[]; clicks: string[]; fidgets: string[]; sleeps: string[] }): boolean =>
-      assets.idles.length > 0 || assets.clicks.length > 0 || assets.fidgets.length > 0 || assets.sleeps.length > 0;
-
-    const mergedThemes = listMergedPetThemes(settingsStore);
-    const availableThemes: CustomPetThemeInfo[] = [];
-    const themeDirById = new Map<string, string>();
-    for (const theme of mergedThemes) {
-      const assets = loadDirAssets(theme.dir);
-      if (!hasAny(assets)) continue;
-      themeDirById.set(theme.id, theme.dir);
-      availableThemes.push({
-        id: theme.id,
-        name: theme.name,
-        preview: assets.idles[0] ?? assets.clicks[0] ?? assets.fidgets[0] ?? assets.sleeps[0] ?? null
-      });
-    }
-
-    const currentThemeSetting =
-      typeof requestedTheme === 'string'
-        ? requestedTheme
-        : settingsStore.get().customPetTheme;
-
-    let activeDir: string | null = null;
-    let resolvedActiveTheme: string | null = null;
-
-    if (currentThemeSetting && themeDirById.has(currentThemeSetting)) {
-      resolvedActiveTheme = currentThemeSetting;
-      activeDir = themeDirById.get(currentThemeSetting) ?? null;
-    }
-
-    const activeAssets = activeDir ? loadDirAssets(activeDir) : emptyAssets;
-    const hasCustomPet = hasAny(activeAssets);
+    const activeAssets = loadDirAssets(resolvePetThemeRoots(settingsStore).userRoot);
+    const hasCustomPet =
+      activeAssets.idles.length > 0 ||
+      activeAssets.clicks.length > 0 ||
+      activeAssets.fidgets.length > 0 ||
+      activeAssets.sleeps.length > 0;
 
     return {
       hasCustomPet,
-      activeTheme: resolvedActiveTheme,
-      availableThemes,
       idles: activeAssets.idles,
       clicks: activeAssets.clicks,
       fidgets: activeAssets.fidgets,
@@ -1195,17 +1074,7 @@ app.whenReady().then(async () => {
   handleIpc('task:move-step', (id, direction) => { if (direction !== -1 && direction !== 1) throw new Error('无效移动方向'); return requireWritableTaskDatabase(() => taskService.moveStep(asString(id), direction)); });
   handleIpc('task:create-step', (id, title) => requireWritableTaskDatabase(() => taskService.createStep(asString(id), asString(title))));
   handleIpc('reminder:begin-rest', (id) => beginHealthRest(asString(id)));
-  handleIpc('task:restore-legacy', (id) => requireWritableTaskDatabase(() => {
-    const taskId = asString(id);
-    const task = taskService.getTask(taskId);
-    if (!task) return taskService.getTasks();
-    const project = task.projectId ? taskService.getProject(task.projectId) : null;
-    const nextProjectId = resolveRestoredTaskProjectId(task.projectId, project?.status);
-    if (nextProjectId !== task.projectId) {
-      taskService.updateTask(taskId, { projectId: nextProjectId, baseRevision: task.revision });
-    }
-    return taskService.setTaskStatus(taskId, 'open');
-  }));
+  handleIpc('task:restore-legacy', (id) => requireWritableTaskDatabase(() => taskService.restoreTask(asString(id))));
   handleIpc('data:legacy', () => ({ sections: [
     { title: '已停用的独立提醒', items: taskStore.getStandaloneReminders().map((item) => ({ title: item.label, detail: '已停用；原规则随备份保留' })) },
     { title: '任务旧附加资料', items: taskService.getTasks().filter((t) => t.recurrence || t.plannedAt || t.dueAt || t.tags.length).map((t) => ({ title: t.title, detail: [t.plannedAt ? `原计划：${new Date(t.plannedAt).toLocaleString()}` : '', t.dueAt ? `原截止：${new Date(t.dueAt).toLocaleString()}` : '', t.recurrence ? `重复规则：${t.recurrence.type}（已停用）` : '', t.tags.join('、')].filter(Boolean).join('；') })) },
@@ -1261,9 +1130,10 @@ app.whenReady().then(async () => {
     requireWritableTaskDatabase(() => taskService.deleteProject(asString(id)))
   );
 
-  handleIpc('window:workbench:open', (section) =>
+  handleIpc('window:workbench:open', (section, focusTaskId) =>
     windows.showWorkbenchWindow(
-      section === 'settings' || section === 'review' ? section : 'today'
+      section === 'settings' || section === 'review' ? section : 'today',
+      typeof focusTaskId === 'string' && focusTaskId.length > 0 ? focusTaskId : null
     )
   );
   handleIpc('task:move', (input) => {
@@ -1335,10 +1205,6 @@ app.whenReady().then(async () => {
         }
       },
       { type: 'separator' },
-      {
-        label: '🐾 切换桌宠',
-        submenu: buildPetSubmenuTemplate(settingsStore)
-      },
       {
         label: '桌宠小动作',
         type: 'checkbox',

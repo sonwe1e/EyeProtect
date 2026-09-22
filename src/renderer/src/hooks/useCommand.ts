@@ -38,7 +38,6 @@ export function useCommand<T, Args extends unknown[]>(
 
   const run = useCallback(
     async (...args: Args): Promise<CommandResult<T>> => {
-      const myTurn = ++generation.current;
       const pending = inFlight.current;
       // Double-submit protection: a repeat call with IDENTICAL arguments (a
       // double-click on 删除, a stale Enter+click pair) joins the pending
@@ -47,8 +46,13 @@ export function useCommand<T, Args extends unknown[]>(
       // selection) and must never be silently dropped — run it concurrently
       // and let the generation guard make the latest outcome win.
       if (pending && pending.args.length === args.length && pending.args.every((value, index) => typeof value === 'function' || typeof args[index] === 'function' ? value === args[index] : JSON.stringify(value) === JSON.stringify(args[index]))) {
+        // Joining is not a new intent: the in-flight call still owns the
+        // generation and publishes the shared outcome. Advancing the guard
+        // here would make that call discard its own result and leave the UI
+        // stuck on pending forever.
         return pending.promise;
       }
+      const myTurn = ++generation.current;
       setState('pending');
       setResult(null);
       const promise = commandRef.current(...args);

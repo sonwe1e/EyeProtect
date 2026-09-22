@@ -24,7 +24,6 @@ const chrome = [
   read('src/renderer/src/features/simple/PomodoroCard.tsx'),
   read('src/renderer/src/components/Button.tsx'),
   read('src/renderer/src/components/Dialog.tsx'),
-  read('src/renderer/src/components/SideSheet.tsx'),
   read('src/renderer/src/components/AppHealthBanner.tsx')
 ].join('\n');
 

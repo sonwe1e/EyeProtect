@@ -97,7 +97,7 @@ export const commands = {
   },
   system: {
     relaunch: () => run<void>(() => window.eyeProtect.relaunchApp()),
-    openCustomPetFolder: (subfolder?: string) =>
-      run(() => window.eyeProtect.openCustomPetFolder(subfolder))
+    openCustomPetFolder: () =>
+      run(() => window.eyeProtect.openCustomPetFolder())
   }
 };

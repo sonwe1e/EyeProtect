@@ -1,11 +1,11 @@
-import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { PetCharacter } from '../features/pet/PetCharacter';
 import { useCommand } from '../hooks/useCommand';
 import { run } from '../lib/commands';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
 
-const REACTION_MS = 1_100;
+const REACTION_MS = 1_600;
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
@@ -14,6 +14,7 @@ export default function PetView(): JSX.Element {
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
 
   useLayoutEffect(() => {
+    // Measure SVG bounds for the pixel pet; GIF path reports a conservative band.
     const svg = document.querySelector<SVGSVGElement>('.pet-character svg');
     if (svg) {
       const box = svg.getBBox();
@@ -30,7 +31,7 @@ export default function PetView(): JSX.Element {
     if (document.querySelector('.pet-character img')) {
       void window.eyeProtect.reportPetArtworkBounds({ top: 0.04, bottom: 0.96 });
     }
-  }, [animal, settings.customPetTheme]);
+  }, [animal]);
 
   const dragRef = useRef<{
     pointerId: number;
@@ -44,6 +45,9 @@ export default function PetView(): JSX.Element {
   const reactionTimer = useRef<number | null>(null);
   const [reacting, setReacting] = useState(false);
   const [dragging, setDragging] = useState(false);
+  useEffect(() => () => {
+    if (reactionTimer.current !== null) clearTimeout(reactionTimer.current);
+  }, []);
 
   const handlePetDoubleClick = useCallback(() => {
     const active = reminderStatus.activeReminder;
@@ -132,7 +136,6 @@ export default function PetView(): JSX.Element {
         >
           <PetCharacter
             animal={animal}
-            theme={settings.customPetTheme}
             reacting={reacting}
             motion={settings.petMotion}
             doubleClickHint={

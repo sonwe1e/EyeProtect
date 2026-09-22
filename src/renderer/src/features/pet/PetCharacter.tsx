@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PIXEL_ANIMAL_NAMES, type PixelAnimal } from '../../../../shared/pixelAnimals';
 import { PixelAnimal as PixelAnimalArtwork } from '../characters/PixelAnimal';
+import { PetImage } from '../characters/PetImage';
 import type { CustomPetAssets } from '../../../../shared/types';
 
 const IDLE_ACTION_INTERVAL_MIN_MS = 14_000;
@@ -9,13 +10,11 @@ const IDLE_ACTION_DURATION_MS = 3_200;
 
 export function PetCharacter({
   animal,
-  theme,
   reacting,
   doubleClickHint,
   motion = true
 }: {
   animal: PixelAnimal;
-  theme?: string | null;
   reacting: boolean;
   doubleClickHint: string;
   /** Manual override: false freezes idle fidget. prefers-reduced-motion still wins. */
@@ -28,13 +27,17 @@ export function PetCharacter({
   const [actionNonce, setActionNonce] = useState(0);
 
   useEffect(() => {
+    let disposed = false;
     const loadAssets = () => {
-      void window.eyeProtect.getCustomPetAssets(theme).then(setCustomAssets);
+      void window.eyeProtect.getCustomPetAssets().then((assets) => {
+        if (!disposed) setCustomAssets(assets);
+      });
     };
+    setCustomAssets(null);
     loadAssets();
     window.addEventListener('focus', loadAssets);
-    return () => window.removeEventListener('focus', loadAssets);
-  }, [theme, animal]);
+    return () => { disposed = true; window.removeEventListener('focus', loadAssets); };
+  }, []);
 
   useEffect(() => {
     if (reacting && customAssets?.hasCustomPet) {
@@ -70,6 +73,7 @@ export function PetCharacter({
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setIsAnimating(false);
     if (!motion) return;
     let actionTimer: number | null = null;
     let settleTimer: number | null = null;
@@ -105,9 +109,10 @@ export function PetCharacter({
       document.removeEventListener('visibilitychange', sync);
       reducedMotion.removeEventListener('change', sync);
     };
-  }, [animal, motion]);
+  }, [motion]);
 
   const name = PIXEL_ANIMAL_NAMES[animal];
+  const artworkAction = reacting ? 'react' : isAnimating && motion ? 'fidget' : 'idle';
 
   if (customAssets?.hasCustomPet) {
     const defaultIdle =
@@ -132,22 +137,14 @@ export function PetCharacter({
       return (
         <div
           className={`pet-character ${isAnimating ? 'is-animating' : ''} ${reacting ? 'is-reacting' : ''}`.trim()}
-          aria-label="自定义桌宠"
+          aria-label={name}
           title={`单击互动，${doubleClickHint}`}
         >
-          <img
+          <PetImage
             key={imgKey}
             src={currentSrc}
-            alt="自定义桌宠"
-            style={{
-              display: 'block',
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              imageRendering: 'pixelated',
-              userSelect: 'none',
-              pointerEvents: 'none'
-            }}
+            label={name}
+            motion={motion}
           />
         </div>
       );
@@ -160,7 +157,7 @@ export function PetCharacter({
       aria-label={name}
       title={`单击互动，${doubleClickHint}`}
     >
-      <PixelAnimalArtwork animal={animal} action={reacting || isAnimating ? 'react' : 'idle'} label={name} />
+      <PixelAnimalArtwork animal={animal} action={artworkAction} motion={motion} label={name} />
     </div>
   );
 }

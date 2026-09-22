@@ -8,5 +8,5 @@ test('simplified workbench exposes only tasks, completion history and settings',
   assert.deepEqual(Object.keys(WORKBENCH_SECTIONS).sort(), ['review', 'settings', 'today']);
   const source = readFileSync(new URL('../src/renderer/src/views/WorkbenchView.tsx', import.meta.url), 'utf8');
   assert.match(source, /PRIMARY_WORKBENCH_SECTIONS.map/);
-  assert.doesNotMatch(source, /WorkbenchSidebar|SideSheet|FocusSurface|DailyPlanningFlow|PlanWorkspace|_legacy/);
+  assert.doesNotMatch(source, /WorkbenchSidebar|FocusSurface|DailyPlanningFlow|PlanWorkspace|_legacy/);
 });

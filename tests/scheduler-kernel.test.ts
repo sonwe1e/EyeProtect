@@ -46,7 +46,6 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
-  customPetTheme: null,
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -196,8 +195,46 @@ test('elapsed deadlines ignore wall-clock jumps', () => {
   assert.deepEqual(seen, ['eye']);
 });
 
-test('pausing elapsed time freezes only elapsed deadlines', () => {
+test('an elapsed deadline registered during a freeze counts only active time', () => {
+  // A service that registers a deadline while elapsed time is frozen (e.g. a
+  // pomodoro started from the tray during an idle window) must count its
+  // duration as active-use time from the end of the freeze. Anchoring it to
+  // the live monotonic clock instead adds the whole frozen span on resume.
   let wall = 0;
+  let mono = 0;
+  const kernel = new SchedulerKernel({
+    clock: { now: () => wall, monotonic: () => mono },
+    watchdogIntervalMs: Number.MAX_SAFE_INTEGER
+  });
+  const seen: string[] = [];
+  kernel.on('wake', (_owner, events) => seen.push(...events.map((entry: ScheduledEvent) => entry.id)));
+  kernel.start();
+
+  mono = 1_000;
+  wall = 1_000;
+  kernel.pauseElapsed();
+  mono = 61_000;
+  wall = 61_000;
+  kernel.set('svc', [{ ...event('late', 'svc', wall + 60_000), clock: 'elapsed' }]);
+
+  mono = 62_000;
+  wall = 62_000;
+  kernel.reconcile();
+  assert.deepEqual(seen, [], 'frozen deadline never fires while idle');
+
+  kernel.resumeElapsed();
+  mono = 63_000;
+  wall = 63_000;
+  kernel.reconcile();
+  assert.deepEqual(seen, [], 'not due one second after resume');
+
+  mono = 122_000;
+  wall = 122_000;
+  kernel.reconcile();
+  assert.deepEqual(seen, ['late'], 'fires exactly 60 active seconds after resume');
+});
+
+test('pausing elapsed time freezes only elapsed deadlines', () => {  let wall = 0;
   let mono = 0;
   const kernel = new SchedulerKernel({
     clock: { now: () => wall, monotonic: () => mono },

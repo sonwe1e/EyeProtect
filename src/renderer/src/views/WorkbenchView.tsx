@@ -7,18 +7,20 @@ import {
   CheckCircle2,
   Clock,
   Folder,
+  Pause,
   Pin,
   Play,
   RotateCcw,
   Search,
   Settings as SettingsIcon,
   Sparkles,
+  Timer,
   Trash2
 } from 'lucide-react';
 import { localDateKey } from '../../../shared/calendar';
 import { groupSimpleTasks, isCurrentTask, isSimpleList, taskSteps } from '../../../shared/simpleTasks';
 import { PixelAnimal } from '../features/characters/PixelAnimal';
-import type { Project, Task, TaskUpdateInput } from '../../../shared/types';
+import type { Project, Task, TaskUpdateInput, WorkbenchNavPayload } from '../../../shared/types';
 import { useTasks } from '../hooks/useTasks';
 import { useProjects } from '../hooks/useProjects';
 import { useSettings } from '../hooks/useSettings';
@@ -26,6 +28,8 @@ import { useCommand } from '../hooks/useCommand';
 import { useUndo } from '../hooks/useUndo';
 import { useClock } from '../hooks/useClock';
 import { useAppHealth } from '../hooks/useAppHealth';
+import { usePomodoro } from '../hooks/usePomodoro';
+import { useReminderStatus } from '../hooks/useReminderStatus';
 import { AppHealthBanner } from '../components/AppHealthBanner';
 import { CommandButton } from '../components/CommandButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -35,6 +39,30 @@ import { SimpleSettings } from '../features/simple/SimpleSettings';
 import { PRIMARY_WORKBENCH_SECTIONS, WORKBENCH_SECTIONS, type WorkbenchSectionId } from '../features/workbench/workbenchNavigation';
 import type { FailedDeliveryNotice } from '../../../shared/types';
 import '../styles/simple.css';
+
+type TaskDraftMap = Record<string, TaskUpdateInput>;
+
+const emptyDraft = (task: Task): TaskUpdateInput => ({
+  title: task.title,
+  dueDate: task.dueDate,
+  reminderAt: task.reminderAt,
+  notes: task.notes,
+  projectId: task.projectId
+});
+
+const isDraftDirty = (draft: TaskUpdateInput, task: Task): boolean =>
+  draft.title !== task.title ||
+  draft.dueDate !== task.dueDate ||
+  draft.reminderAt !== task.reminderAt ||
+  draft.notes !== task.notes ||
+  draft.projectId !== task.projectId;
+
+const formatMinutes = (ms: number): string => {
+  const total = Math.max(0, Math.ceil(ms / 60_000));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h} 小时 ${m} 分` : `${m} 分`;
+};
 
 export default function WorkbenchView(): JSX.Element {
   const tasks = useTasks();
@@ -49,17 +77,31 @@ export default function WorkbenchView(): JSX.Element {
   const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [taskDrafts, setTaskDrafts] = useState<TaskDraftMap>({});
+  const [pendingFocusTaskId, setPendingFocusTaskId] = useState<string | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   const undo = useUndo();
   const now = useClock(30_000);
   const health = useAppHealth();
+  const pomodoro = usePomodoro();
+  const reminderStatus = useReminderStatus();
+
   useEffect(() => {
-    const navigate = (section: string): void => {
-      const target: WorkbenchSectionId = section === 'settings' ? 'settings' : section === 'review' ? 'review' : 'today';
+    const navigate = (payload: WorkbenchNavPayload | WorkbenchSectionId): void => {
+      const next: WorkbenchNavPayload =
+        typeof payload === 'string'
+          ? { section: payload, focusTaskId: null }
+          : payload;
+      const target: WorkbenchSectionId =
+        next.section === 'settings' ? 'settings' : next.section === 'review' ? 'review' : 'today';
       setTab(target);
       if (target === 'today') {
         setList('all');
         setSearch('');
+        if (next.focusTaskId) {
+          setExpanded(next.focusTaskId);
+          setPendingFocusTaskId(next.focusTaskId);
+        }
       }
     };
     void window.eyeProtect.getFailedDeliveries().then(setFailures);
@@ -71,6 +113,26 @@ export default function WorkbenchView(): JSX.Element {
       unbindNavigate();
     };
   }, []);
+
+  useEffect(() => {
+    if (!pendingFocusTaskId) return;
+    const id = pendingFocusTaskId;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`simple-task-${id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      setPendingFocusTaskId(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingFocusTaskId, expanded, selectedKey(tasks, list, search)]);
+
+  const updateDraft = (taskId: string, draft: TaskUpdateInput | null): void => {
+    setTaskDrafts((current) => {
+      const next = { ...current };
+      if (draft === null) delete next[taskId];
+      else next[taskId] = draft;
+      return next;
+    });
+  };
+
   const lists = projects.filter(isSimpleList);
   const confirmState = useConfirm();
   const todayKey = localDateKey(now);
@@ -80,9 +142,13 @@ export default function WorkbenchView(): JSX.Element {
   const days = [...new Set(history.map((task) => localDateKey(task.completedAt!)))];
   const openTasks = selected.filter((task) => task.status === 'open');
   const todayDone = selected.filter((task) => task.status === 'done' && task.completedAt !== null && localDateKey(task.completedAt) === todayKey);
-  const progressPercent = openTasks.length + todayDone.length > 0 ? Math.round((todayDone.length / (openTasks.length + todayDone.length)) * 100) : 0;
   const searchHasOnlyDoneMatches = Boolean(search) && selected.length > 0 && openTasks.length === 0 && groupSimpleTasks(selected, now).every((group) => group.tasks.length === 0);
   const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'long' }).format(new Date(now));
+  const dirtyCount = Object.keys(taskDrafts).filter((id) => {
+    const task = tasks.find((entry) => entry.id === id);
+    return task ? isDraftDirty(taskDrafts[id], task) : false;
+  }).length;
+
   return <main className="simple-workbench">
     <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
     <header className="simple-header"><span className="simple-brand"><span className="simple-brand-mark" aria-hidden="true"><Sparkles size={15} /></span><strong>EyeProtect</strong></span><nav aria-label="主导航">
@@ -92,6 +158,8 @@ export default function WorkbenchView(): JSX.Element {
       {failures.map((failure) => <div role="alert" className="simple-undo" key={failure.id}><span>{failure.title} · {failure.body}</span><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.retryFailedDelivery(failure.id))}>重试</button><button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.dismissFailedDelivery(failure.id))}>忽略</button></div>)}
       {action.error ? <p role="alert">{action.error.message}</p> : null}
       {undo && tab !== 'settings' ? <div className="simple-undo">{undo.kind === 'complete' ? '已完成：' : '已删除：'}{undo.taskTitle}<button disabled={action.isPending} onClick={() => void action.run(() => window.eyeProtect.undoTaskOperation(undo.operationId))}>撤销</button></div> : null}
+      {dirtyCount > 0 ? <div className="simple-undo simple-dirty-hint" role="status"><span>有 {dirtyCount} 项任务存在未保存修改，收起详情也会保留草稿</span></div> : null}
+      <LiveStatusStrip tasks={tasks} pomodoro={pomodoro} pausedUntil={reminderStatus.pausedUntil} />
       {tab === 'settings' ? <SimpleSettings /> : <>
         {tab === 'today' ? (
           <div className="simple-rhythm-banner">
@@ -109,18 +177,12 @@ export default function WorkbenchView(): JSX.Element {
             <div className="simple-rhythm-stats">
               <span className="simple-stat-pill">
                 <Clock size={13} aria-hidden="true" />
-                <span>待处理 {openTasks.length}</span>
+                <span>当前清单待办 {openTasks.length}</span>
               </span>
               <span className="simple-stat-pill is-done">
                 <CheckCircle2 size={13} aria-hidden="true" />
-                <span>今日已完成 {todayDone.length}</span>
+                <span>今日完成 {todayDone.length} 项</span>
               </span>
-              <div className="simple-progress-container" title={`今日完成率 ${progressPercent}%`}>
-                <div className="simple-progress-bar">
-                  <div className="simple-progress-fill" style={{ width: `${progressPercent}%` }} />
-                </div>
-                <span className="simple-progress-text">{progressPercent}%</span>
-              </div>
             </div>
           </div>
         ) : (
@@ -161,7 +223,23 @@ export default function WorkbenchView(): JSX.Element {
           <form className="simple-add" onSubmit={(e) => { e.preventDefault(); if (!title.trim()) return; void action.run(async () => { await window.eyeProtect.createTask({ title: title.trim(), projectId: list === 'all' || list === 'default' ? null : list }); setTitle(''); }); }}>
             <input aria-label="添加任务" placeholder="添加任务，回车保存…" value={title} onChange={(e) => setTitle(e.currentTarget.value)} maxLength={300} /><button className="primary" disabled={action.isPending || !title.trim()}>添加</button>
           </form>
-          {groupSimpleTasks(selected, now).map((group) => group.tasks.length ? <section className="simple-group" key={group.title}><h2>{group.title}<small>{group.tasks.length}</small></h2>{group.tasks.map((task) => <SimpleTask key={task.id} task={task} tasks={tasks} projects={projects} expanded={expanded === task.id} onExpand={() => setExpanded(expanded === task.id ? null : task.id)} confirm={confirmState.confirm} todayKey={todayKey} />)}</section> : null)}
+          {groupSimpleTasks(selected, now).map((group) => group.tasks.length ? <section className="simple-group" key={group.title}><h2>{group.title}<small>{group.tasks.length}</small></h2>{group.tasks.map((task) => {
+            const draft = taskDrafts[task.id];
+            const dirty = draft ? isDraftDirty(draft, task) : false;
+            return <SimpleTask
+              key={task.id}
+              task={task}
+              tasks={tasks}
+              projects={projects}
+              expanded={expanded === task.id}
+              dirty={dirty}
+              draft={draft}
+              onDraftChange={(next) => updateDraft(task.id, next)}
+              onExpand={() => setExpanded(expanded === task.id ? null : task.id)}
+              confirm={confirmState.confirm}
+              todayKey={todayKey}
+            />;
+          })}</section> : null)}
           {selected.length > 0 && !selected.some((task) => task.status === 'open') && !search ? (
             <div className="simple-empty-state">
               <div className="simple-empty-animal">
@@ -273,7 +351,58 @@ export default function WorkbenchView(): JSX.Element {
   </main>;
 }
 
-function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayKey }: { task: Task; tasks: Task[]; projects: Project[]; expanded: boolean; onExpand: () => void; confirm: (message: string, options?: string | { title?: string; detail?: string; confirmText?: string; danger?: boolean }) => Promise<boolean>; todayKey: string }): JSX.Element {
+function selectedKey(tasks: Task[], list: string, search: string): string {
+  return `${list}|${search}|${tasks.length}|${tasks.map((task) => `${task.id}:${task.revision}:${task.status}`).join(',')}`;
+}
+
+function LiveStatusStrip({
+  tasks,
+  pomodoro,
+  pausedUntil
+}: {
+  tasks: Task[];
+  pomodoro: { phase: string; taskId: string | null; remainingMs: number; running: boolean };
+  pausedUntil: number | null;
+}): JSX.Element | null {
+  const focusedTitle = pomodoro.taskId
+    ? tasks.find((task) => task.id === pomodoro.taskId)?.title ?? null
+    : null;
+  const paused = typeof pausedUntil === 'number' && pausedUntil > Date.now();
+  const focusing = pomodoro.phase !== 'idle' && pomodoro.phase !== 'ready';
+  if (!focusing && !paused) return null;
+  return (
+    <div className="simple-live-strip" role="status" aria-label="实时状态">
+      {focusing ? (
+        <span className="simple-live-item">
+          <Timer size={14} aria-hidden="true" />
+          <strong>{pomodoro.phase === 'break' ? '休息中' : pomodoro.phase === 'focus-finished' ? '专注完成' : '专注中'}</strong>
+          <span>{focusedTitle ? `「${focusedTitle}」` : '未绑定任务'}</span>
+          <span className="simple-live-time">{formatMinutes(pomodoro.remainingMs)}</span>
+        </span>
+      ) : null}
+      {paused ? (
+        <span className="simple-live-item">
+          <Pause size={14} aria-hidden="true" />
+          <strong>提醒已暂停</strong>
+          <span>至 {new Date(pausedUntil).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function SimpleTask({ task, tasks, projects, expanded, dirty, draft, onDraftChange, onExpand, confirm, todayKey }: {
+  task: Task;
+  tasks: Task[];
+  projects: Project[];
+  expanded: boolean;
+  dirty: boolean;
+  draft: TaskUpdateInput | undefined;
+  onDraftChange: (next: TaskUpdateInput | null) => void;
+  onExpand: () => void;
+  confirm: (message: string, options?: string | { title?: string; detail?: string; confirmText?: string; danger?: boolean }) => Promise<boolean>;
+  todayKey: string;
+}): JSX.Element {
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   const { settings } = useSettings();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -297,9 +426,13 @@ function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayK
     })();
   };
   const projectName = projects.find((p) => p.id === task.projectId)?.name;
-  return <article className={`simple-task ${expanded ? 'is-expanded' : ''}`}>
-    <div className="simple-task-row"><input type="checkbox" aria-label={`完成 ${task.title}`} checked={false} disabled={action.isPending} onChange={complete} onClick={(e) => e.stopPropagation()} />
+  return <article id={`simple-task-${task.id}`} className={`simple-task ${expanded ? 'is-expanded' : ''} ${dirty ? 'is-dirty' : ''}`}>
+    <div className="simple-task-row">
+      <label className="simple-check-hit" title="标记完成">
+        <input type="checkbox" aria-label={`完成 ${task.title}`} checked={false} disabled={action.isPending} onChange={complete} onClick={(e) => e.stopPropagation()} />
+      </label>
       <button className="simple-task-name" aria-expanded={expanded} onClick={onExpand}>{task.title}</button>
+      {dirty ? <span className="simple-dirty-tag" title="有未保存修改，收起详情也会保留">未保存</span> : null}
       {task.priority === 'urgent' ? (
         <span className="simple-priority-tag is-urgent" title="优先级：紧急">
           <AlertCircle size={10} aria-hidden="true" />
@@ -332,8 +465,28 @@ function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayK
         </span>
       ) : null}
       {task.reminderAt ? <span className="simple-muted" title={`提醒：${new Date(task.reminderAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`} aria-label={`已设置提醒 ${new Date(task.reminderAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}><Bell size={13} aria-hidden="true" /></span> : null}
-      <div className="simple-row-actions"><button aria-label={pinned ? '移出浮窗' : '放到浮窗'} aria-pressed={pinned} disabled={action.isPending} onClick={(e) => { e.stopPropagation(); void action.run(() => window.eyeProtect.saveSettings({ todoBubbleTaskIds: pinned ? settings.todoBubbleTaskIds.filter((id) => id !== task.id) : [...settings.todoBubbleTaskIds, task.id], todoBubbleEnabled: true })); }}><Pin size={16} /></button>
-        <button aria-label={`专注 ${task.title}`} disabled={action.isPending} onClick={(e) => { e.stopPropagation(); void action.run(async () => { const state = await window.eyeProtect.getPomodoro(); if (['focus', 'break'].includes(state.phase) && !(await confirm('当前计时会被替换。', { title: '用这项任务开始新的专注？', confirmText: '开始专注' }))) return; await window.eyeProtect.preparePomodoro(task.id, true); }); }}><Play size={16} /></button></div>
+      <div className="simple-row-actions">
+        <button
+          className={pinned ? 'is-pinned' : undefined}
+          aria-label={pinned ? '移出浮窗' : '放到浮窗'}
+          aria-pressed={pinned}
+          title={pinned ? '已固定到浮窗，点击移出' : '放到浮窗（固定到桌宠旁待办气泡）'}
+          disabled={action.isPending}
+          onClick={(e) => { e.stopPropagation(); void action.run(() => window.eyeProtect.saveSettings({ todoBubbleTaskIds: pinned ? settings.todoBubbleTaskIds.filter((id) => id !== task.id) : [...settings.todoBubbleTaskIds, task.id], todoBubbleEnabled: true })); }}
+        >
+          <Pin size={16} />
+        </button>
+        <button
+          className="is-focus"
+          aria-label={`专注 ${task.title}`}
+          title="开始专注这项任务"
+          disabled={action.isPending}
+          onClick={(e) => { e.stopPropagation(); void action.run(async () => { const state = await window.eyeProtect.getPomodoro(); if (['focus', 'break'].includes(state.phase) && !(await confirm('当前计时会被替换。', { title: '用这项任务开始新的专注？', confirmText: '开始专注' }))) return; await window.eyeProtect.preparePomodoro(task.id, true); }); }}
+        >
+          <Play size={16} />
+          <span className="simple-row-action-label">专注</span>
+        </button>
+      </div>
       <details
         ref={menuRef}
         className="simple-menu"
@@ -381,34 +534,73 @@ function SimpleTask({ task, tasks, projects, expanded, onExpand, confirm, todayK
       </details>
     </div>
     {action.error ? <p role="alert">{action.error.message}</p> : null}
-    {expanded ? <TaskFields task={task} steps={steps} projects={projects} confirm={confirm} /> : null}
+    {expanded ? (
+      <TaskFields
+        task={task}
+        steps={steps}
+        projects={projects}
+        confirm={confirm}
+        draft={draft}
+        dirty={dirty}
+        onDraftChange={onDraftChange}
+      />
+    ) : null}
   </article>;
 }
 
-function TaskFields({ task, steps, projects, confirm }: { task: Task; steps: Task[]; projects: Project[]; confirm: (message: string, options?: string | { title?: string; detail?: string; confirmText?: string; danger?: boolean }) => Promise<boolean> }): JSX.Element {
-  const [draft, setDraft] = useState<TaskUpdateInput>({ title: task.title, dueDate: task.dueDate, reminderAt: task.reminderAt, notes: task.notes, projectId: task.projectId });
+function TaskFields({
+  task,
+  steps,
+  projects,
+  confirm,
+  draft: savedDraft,
+  dirty,
+  onDraftChange
+}: {
+  task: Task;
+  steps: Task[];
+  projects: Project[];
+  confirm: (message: string, options?: string | { title?: string; detail?: string; confirmText?: string; danger?: boolean }) => Promise<boolean>;
+  draft: TaskUpdateInput | undefined;
+  dirty: boolean;
+  onDraftChange: (next: TaskUpdateInput | null) => void;
+}): JSX.Element {
+  const [localDraft, setLocalDraft] = useState<TaskUpdateInput>(() => savedDraft ?? emptyDraft(task));
   const [revision, setRevision] = useState(task.revision);
   const [stepTitle, setStepTitle] = useState('');
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
   // External updates (bubble completion, undo, another edit) must not leave a
-  // stale draft behind: resync when the task identity or revision changes.
+  // stale draft behind: resync clean forms when identity/revision changes.
+  // Dirty drafts survive so concurrent updates cannot wipe in-progress edits.
   useEffect(() => {
-    setDraft({ title: task.title, dueDate: task.dueDate, reminderAt: task.reminderAt, notes: task.notes, projectId: task.projectId });
     setRevision(task.revision);
+    setLocalDraft((current) => (isDraftDirty(current, task) ? current : emptyDraft(task)));
   }, [task.id, task.revision]);
-  const dirty = draft.title !== task.title || draft.dueDate !== task.dueDate || draft.reminderAt !== task.reminderAt || draft.notes !== task.notes || draft.projectId !== task.projectId;
+
+  const applyLocal = (next: TaskUpdateInput): void => {
+    setLocalDraft(next);
+    onDraftChange(isDraftDirty(next, task) ? next : null);
+  };
+
   const toDateTime = (time: number | null | undefined): string => time ? new Date(time - new Date(time).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : '';
   return <div className="simple-task-fields">
-    <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => { const result = await window.eyeProtect.updateTask(task.id, { ...draft, baseRevision: revision }); const saved = result.find((entry) => entry.id === task.id); if (saved) setRevision(saved.revision); }); }}>
-      <label>名称<input value={draft.title} required onChange={(e) => setDraft({ ...draft, title: e.currentTarget.value })} /></label>
-      <div className="simple-field-grid"><label>截止日期<input type="date" value={draft.dueDate ?? ''} onChange={(e) => setDraft({ ...draft, dueDate: e.currentTarget.value || null })} /></label>
-        <label>提醒我<input type="datetime-local" value={toDateTime(draft.reminderAt)} onChange={(e) => setDraft({ ...draft, reminderAt: e.currentTarget.value ? new Date(e.currentTarget.value).getTime() : null })} /></label>
-        <label>清单<select value={draft.projectId ?? ''} onChange={(e) => setDraft({ ...draft, projectId: e.currentTarget.value || null })}><option value="">默认清单</option>{projects.filter(isSimpleList).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label></div>
-      <label>备注<textarea rows={3} value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.currentTarget.value })} /></label>{/* The form owns the save command, and CommandButton defaults to type="button", so submitting has to be requested explicitly. */}<CommandButton type="submit" state={action.state} errorReason={action.error?.message} variant="primary" disabled={action.isPending || !dirty}>保存修改</CommandButton>
+    <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => { const result = await window.eyeProtect.updateTask(task.id, { ...localDraft, baseRevision: revision }); const saved = result.find((entry) => entry.id === task.id); if (saved) setRevision(saved.revision); onDraftChange(null); }); }}>
+      <div className="simple-fields-head">
+        <span className="simple-fields-label">任务详情</span>
+        {dirty ? <span className="simple-dirty-tag">有未保存修改</span> : <span className="simple-saved-hint">与保存内容一致</span>}
+      </div>
+      <label>名称<input value={localDraft.title} required onChange={(e) => applyLocal({ ...localDraft, title: e.currentTarget.value })} /></label>
+      <div className="simple-field-grid"><label>截止日期<input type="date" value={localDraft.dueDate ?? ''} onChange={(e) => applyLocal({ ...localDraft, dueDate: e.currentTarget.value || null })} /></label>
+        <label>提醒我<input type="datetime-local" value={toDateTime(localDraft.reminderAt)} onChange={(e) => applyLocal({ ...localDraft, reminderAt: e.currentTarget.value ? new Date(e.currentTarget.value).getTime() : null })} /></label>
+        <label>清单<select value={localDraft.projectId ?? ''} onChange={(e) => applyLocal({ ...localDraft, projectId: e.currentTarget.value || null })}><option value="">默认清单</option>{projects.filter(isSimpleList).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label></div>
+      <label>备注<textarea rows={3} value={localDraft.notes ?? ''} onChange={(e) => applyLocal({ ...localDraft, notes: e.currentTarget.value })} /></label>{/* The form owns the save command, and CommandButton defaults to type="button", so submitting has to be requested explicitly. */}<CommandButton type="submit" state={action.state} errorReason={action.error?.message} variant="primary" disabled={action.isPending || !dirty}>保存修改</CommandButton>
     </form>
-    <h3>步骤</h3>{steps.map((step, index) => (
+    <h3>步骤 <small className="simple-step-save-note">步骤名称失焦即自动保存，独立于上方「保存修改」</small></h3>
+    {steps.map((step, index) => (
       <div className="simple-step" key={step.id}>
-        <input type="checkbox" aria-label={`步骤 ${step.title}`} checked={step.status === 'done'} disabled={action.isPending} onChange={() => void action.run(() => window.eyeProtect.setTaskStatus(step.id, step.status === 'done' ? 'open' : 'done'))} />
+        <label className="simple-check-hit" title="标记步骤完成">
+          <input type="checkbox" aria-label={`步骤 ${step.title}`} checked={step.status === 'done'} disabled={action.isPending} onChange={() => void action.run(() => window.eyeProtect.setTaskStatus(step.id, step.status === 'done' ? 'open' : 'done'))} />
+        </label>
         <input aria-label="步骤名称" key={`${step.id}-${step.revision}`} defaultValue={step.title} onBlur={(e) => { if (e.currentTarget.value.trim() !== step.title) void action.run(() => window.eyeProtect.updateTask(step.id, { title: e.currentTarget.value, baseRevision: step.revision })); }} />
         <button type="button" aria-label="上移步骤" disabled={!steps.slice(0, index).some((item) => item.parentId === step.parentId) || action.isPending} onClick={() => void action.run(() => window.eyeProtect.moveStep(step.id, -1))}>↑</button>
         <button type="button" aria-label="下移步骤" disabled={!steps.slice(index + 1).some((item) => item.parentId === step.parentId) || action.isPending} onClick={() => void action.run(() => window.eyeProtect.moveStep(step.id, 1))}>↓</button>

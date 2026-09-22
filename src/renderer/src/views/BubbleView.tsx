@@ -24,6 +24,9 @@ export default function BubbleView(): JSX.Element {
   const { settings } = useSettings();
   const pomodoro = usePomodoro();
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
+  // Hooks must stay unconditional: gentle/prealert surfaces return early, and
+  // a late useConfirm() would break hook order when a reminder replaces todos.
+  const confirmState = useConfirm();
   const focusing = pomodoro.phase !== 'idle';
   const gentle = active && active.mode === 'gentle' ? active : null;
   // Reminders take precedence over the passive todo preview (the main process
@@ -35,7 +38,6 @@ export default function BubbleView(): JSX.Element {
   if (gentle) return <GentleReminderBubble active={gentle} settings={settings} />;
 
   const pending = selectPetTasks(settings.todoBubbleTaskIds, tasks, projects);
-  const confirmState = useConfirm();
   return <div className="bubble-shell bubble-todos">
     <ConfirmDialog pending={confirmState.pending} onResolve={confirmState.resolveConfirm} />
     {focusing ? <PomodoroCard state={pomodoro} taskTitle={tasks.find((task) => task.id === pomodoro.taskId)?.title ?? null} /> : <div className="bubble-card">
@@ -54,5 +56,5 @@ function BubbleTask({ task, tasks, confirm }: { task: Task; tasks: Task[]; confi
     if (pending.length && !(await confirm(`还有 ${pending.length} 个步骤未完成。`, { title: '一起完成这些步骤？', confirmText: '一起完成' }))) return;
     return window.eyeProtect.completeTaskTree(task.id, Object.fromEntries([task, ...pending].map((entry) => [entry.id, entry.revision])));
   }));
-  return <li className="bubble-task-row"><div className="bubble-task-line"><button className="bubble-complete" aria-label={`完成 ${task.title}`} disabled={complete.isPending} onClick={() => void complete.run()}><Check size={14} /></button><button className="bubble-task-title" title={task.title} onClick={() => void window.eyeProtect.openWorkbench('today')}>{task.title}</button></div>{complete.error ? <span className="bubble-task-error" role="alert">{complete.error.message}</span> : null}</li>;
+  return <li className="bubble-task-row"><div className="bubble-task-line"><button className="bubble-complete" aria-label={`完成 ${task.title}`} disabled={complete.isPending} onClick={() => void complete.run()}><Check size={14} /></button><button className="bubble-task-title" title={`在工作台打开并定位「${task.title}」`} onClick={() => void window.eyeProtect.openWorkbench('today', task.id)}>{task.title}</button></div>{complete.error ? <span className="bubble-task-error" role="alert">{complete.error.message}</span> : null}</li>;
 }

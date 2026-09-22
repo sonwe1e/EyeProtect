@@ -21,6 +21,18 @@ const withService = (fn: (service: TaskService, store: TaskStore) => void): void
   }
 };
 
+// The simplified workbench runs with the legacy recurrence policy off.
+const withSimpleService = (fn: (service: TaskService, store: TaskStore) => void): void => {
+  const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-tsvc-'));
+  try {
+    const store = new TaskStore(dir);
+    fn(new TaskService(store, false), store);
+  } finally {
+    TaskStore.closeAllForDirectory(dir);
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 const sampleTodo = (over: Partial<TodoItem> = {}): TodoItem => ({
   id: 'legacy-1',
   text: '喝水',
@@ -36,14 +48,15 @@ const sampleTodo = (over: Partial<TodoItem> = {}): TodoItem => ({
 
 test('createTask via the service returns the full task list and emits once', () => {
   withService((service) => {
-    const events: Task[][] = [];
-    service.on('tasks-changed', (tasks) => events.push(tasks));
+    // Production consumes the delta stream (task-upserted / task-removed /
+    // tasks-replaced); the full-list 'tasks-changed' emit was removed from the
+    // service because nothing listens to it.
+    const upserts: string[] = [];
+    service.on('task-upserted', (task) => upserts.push(task.id));
 
     const tasks = service.createTask({ title: 'via service' }, NOW);
     assert.equal(tasks.length, 1);
-    assert.equal(events.length, 1, 'service re-emits tasks-changed once');
-    assert.equal(events[0].length, 1);
-    assert.equal(events[0][0].title, 'via service');
+    assert.equal(upserts.length, 1, 'one delta event for the new task');
   });
 });
 
@@ -66,38 +79,38 @@ test('setTaskStatus transitions and emits exactly once for a non-recurring task'
     const [task] = service.createTask({ title: 'progress' }, NOW);
 
     // Listen only for the status transition, not the creation above.
-    const events: Task[][] = [];
-    service.on('tasks-changed', (tasks) => events.push(tasks));
+    const upserts: string[] = [];
+    service.on('task-upserted', (updated) => upserts.push(updated.id));
 
     const result = service.setTaskStatus(task.id, 'done', NOW + 1000);
 
     assert.equal(result.find((t) => t.id === task.id)!.status, 'done');
-    assert.equal(events.length, 1, 'no rollover → single emit');
+    assert.equal(upserts.length, 1, 'no rollover → single delta emit');
   });
 });
 
-test('setTaskStatus on an unknown id emits the unchanged list', () => {
+test('setTaskStatus on an unknown id leaves the list untouched', () => {
   withService((service) => {
     service.createTask({ title: 'keep' }, NOW);
-    const events: Task[][] = [];
-    service.on('tasks-changed', (tasks) => events.push(tasks));
+    const upserts: string[] = [];
+    service.on('task-upserted', (updated) => upserts.push(updated.id));
 
     const result = service.setTaskStatus('missing', 'done', NOW);
     assert.equal(result.length, 1);
     assert.equal(result[0].status, 'open');
-    assert.equal(events.length, 1);
+    assert.equal(upserts.length, 0, 'an unknown id is a no-op, not a broadcast');
   });
 });
 
-test('deleteTask emits tasks-changed via the service', () => {
+test('deleteTask emits task-removed via the service', () => {
   withService((service) => {
     const [task] = service.createTask({ title: 'doomed' }, NOW);
-    const events: Task[][] = [];
-    service.on('tasks-changed', (tasks) => events.push(tasks));
+    const removed: string[] = [];
+    service.on('task-removed', (id) => removed.push(id));
 
     const result = service.deleteTask(task.id, NOW);
     assert.equal(result.length, 0);
-    assert.equal(events.length, 1);
+    assert.deepEqual(removed, [task.id]);
   });
 });
 
@@ -264,16 +277,17 @@ test('a weekly rule with no weekdays produces no rollover', () => {
   });
 });
 
-test('setTaskStatus emits tasks-changed exactly once even with rollover', () => {
+test('rollover still reports the full resulting list exactly once', () => {
   withService((service) => {
     const rule: RecurrenceRule = { type: 'daily', interval: 1 };
     const [task] = service.createTask({ title: 'daily', reminderAt: NOW, recurrence: rule }, NOW);
-    const events: Task[][] = [];
-    service.on('tasks-changed', (tasks) => events.push(tasks));
+    const upserts: string[] = [];
+    service.on('task-upserted', (updated) => upserts.push(updated.id));
 
-    service.setTaskStatus(task.id, 'done', NOW + 1000);
-    assert.equal(events.length, 1, 'rollover path still emits exactly once');
-    assert.equal(events[0].length, 2);
+    const result = service.setTaskStatus(task.id, 'done', NOW + 1000);
+    assert.equal(result.length, 2, 'completed instance + next occurrence');
+    // One delta event per affected row: the completed task and the new one.
+    assert.deepEqual(upserts.sort(), [task.id, result.find((entry) => entry.id !== task.id)!.id].sort());
   });
 });
 
@@ -458,14 +472,15 @@ test('migrateFromTodos is idempotent — only migrates when the store is empty',
   });
 });
 
-test('migrateFromTodos emits tasks-changed with the migrated list', () => {
+test('migrateFromTodos reports the migrated list as a bulk replacement', () => {
   withService((service) => {
-    const events: Task[][] = [];
-    service.on('tasks-changed', (tasks) => events.push(tasks));
+    const replaced: Task[][] = [];
+    service.on('tasks-replaced', (tasks) => replaced.push(tasks));
 
     const tasks = service.migrateFromTodos([sampleTodo({ text: 'emit' })], NOW);
-    assert.ok(events.length >= 1);
-    assert.deepEqual(events[events.length - 1].length, tasks.length);
+    assert.ok(replaced.length >= 1, 'bulk migration publishes a full-list replacement');
+    assert.deepEqual(replaced[replaced.length - 1].length, tasks.length);
+    assert.equal(tasks[0].title, 'emit');
   });
 });
 
@@ -483,22 +498,62 @@ test('project create/update/delete emit projects-changed', () => {
   });
 });
 
-test('deleteProject also emits tasks-changed when it detaches tasks', () => {
+test('deleteProject detaches its tasks and reports them through the delta stream', () => {
   withService((service) => {
     const [project] = service.createProject({ name: 'Area' }, NOW);
-    service.createTask({ title: 'attached', projectId: project.id }, NOW);
-    const taskEvents: Task[][] = [];
-    service.on('tasks-changed', (tasks) => taskEvents.push(tasks));
+    const task = service.createTask({ title: 'attached', projectId: project.id }, NOW).find((entry) => entry.title === 'attached')!;
+    const upserts: string[] = [];
+    service.on('task-upserted', (updated) => upserts.push(updated.id));
 
     service.deleteProject(project.id, NOW + 1);
-    assert.ok(taskEvents.length >= 1);
+    assert.deepEqual(upserts, [task.id], 'the detached task is republished');
     assert.equal(service.getTasks()[0].projectId, null);
   });
 });
 
 
-test('task completion rechecks project writability after a renderer snapshot becomes stale', () => {
-  withService((service, store) => {
+// ── F08: step rehoming only on a real list move ──────────────────────────────
+
+test('F08: re-saving the same list leaves the steps untouched', () => {
+  withSimpleService((service, store) => {
+    const area = service.createProject({ name: 'Area' }, NOW).find((project) => project.name === 'Area')!;
+    const root = service.createTask({ title: 'root', projectId: area.id }, NOW).find((task) => task.title === 'root')!;
+    const step = store.createTask({ title: 'step', parentId: root.id, projectId: area.id }, NOW + 1);
+    const before = store.getTask(step.id)!;
+
+    // The renderer always submits the whole form, so projectId arrives equal to
+    // the current list on every plain edit (title, times, notes…).
+    service.updateTask(root.id, { title: 'root edited', projectId: area.id }, NOW + 2);
+
+    const after = store.getTask(step.id)!;
+    assert.equal(after.revision, before.revision, 'the step is not rewritten');
+    assert.equal(after.updatedAt, before.updatedAt, 'the step timestamp is not touched');
+    assert.equal(store.getTask(root.id)?.title, 'root edited', 'the root edit itself still applies');
+  });
+});
+
+test('F08: a real list move rehomes the steps, and only the ones that move', () => {
+  withSimpleService((service, store) => {
+    const area = service.createProject({ name: 'Area' }, NOW).find((project) => project.name === 'Area')!;
+    const someday = service.createProject({ name: 'Someday' }, NOW + 1).find((project) => project.name === 'Someday')!;
+    const root = service.createTask({ title: 'root', projectId: area.id }, NOW + 2).find((task) => task.title === 'root')!;
+    const step = store.createTask({ title: 'step', parentId: root.id, projectId: area.id }, NOW + 3);
+    const elsewhere = store.createTask({ title: 'step elsewhere', parentId: root.id, projectId: someday.id }, NOW + 4);
+    const before = store.getTask(step.id)!;
+    const elsewhereBefore = store.getTask(elsewhere.id)!;
+
+    service.updateTask(root.id, { projectId: someday.id }, NOW + 5);
+
+    const moved = store.getTask(step.id)!;
+    assert.equal(moved.projectId, someday.id, 'the step follows the root');
+    assert.ok(moved.revision > before.revision, 'a real move is a real write');
+    const untouched = store.getTask(elsewhere.id)!;
+    assert.equal(untouched.projectId, someday.id, 'a step already on the target list is left alone');
+    assert.equal(untouched.revision, elsewhereBefore.revision, 'and is not rewritten');
+  });
+});
+
+test('task completion rechecks project writability after a renderer snapshot becomes stale', () => {  withService((service, store) => {
     const project = store.createProject({ name: 'Read-only race' }, NOW);
     const tasks = service.createTask({ title: 'pending', projectId: project.id }, NOW);
     const task = tasks.find((entry) => entry.title === 'pending')!;

@@ -38,8 +38,8 @@
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
-.simple-workbench button:hover { background: var(--surface-hover); border-color: var(--border-strong); }
-.simple-workbench button:active { transform: scale(var(--press-scale)); }
+.simple-workbench button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-strong); }
+.simple-workbench button:active:not(:disabled) { transform: scale(var(--press-scale)); }
 .simple-workbench button:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
 .simple-workbench button.primary {
   color: var(--brand-contrast);
@@ -88,6 +88,18 @@
   outline-offset: 0;
 }
 .simple-workbench input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--brand); flex-shrink: 0; }
+/* Keep the small graphic but give the whole label a ≥40px hit target. */
+.simple-check-hit {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 -4px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: var(--radius-small);
+}
+.simple-check-hit:hover { background: var(--surface-hover); }
 .simple-workbench input[type='number'],
 .simple-workbench input[type='date'],
 .simple-workbench input[type='datetime-local'] { font-variant-numeric: tabular-nums; }
@@ -142,13 +154,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 16px 20px;
-  margin-bottom: 22px;
+  gap: 16px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-large);
-  box-shadow: var(--shadow-soft);
+  border-radius: var(--radius-medium);
+  box-shadow: none;
 }
 .simple-rhythm-info {
   display: flex;
@@ -223,7 +235,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--fg-secondary);
   background: var(--surface-hover);
   border: 1px solid var(--border-subtle);
@@ -235,7 +247,8 @@
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 550;
   color: var(--fg-secondary);
   background: var(--surface-hover);
   border: 1px solid var(--border-subtle);
@@ -321,22 +334,25 @@
 }
 .simple-group h2 small { color: var(--fg-tertiary); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
-/* Task rows keep the editorial separated-list rhythm; hover and the action
-   reveal are instant because rows are the most frequently visited target. */
+/* Task rows keep the editorial separated-list rhythm. Ordinary rows stay flat
+   (hairline only); expanded detail is the one place that gains emphasis. */
 .simple-task {
   margin-bottom: 7px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-medium);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
   transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .simple-task:hover {
   border-color: color-mix(in srgb, var(--brand) 30%, var(--border-subtle));
-  box-shadow: var(--shadow-medium);
 }
 .simple-task.is-expanded {
   border-color: var(--brand);
+  box-shadow: var(--shadow-soft);
+}
+.simple-task.is-dirty {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border-subtle));
 }
 .simple-task-row {
   display: flex;
@@ -348,14 +364,58 @@
   transition: none;
 }
 .simple-task-row:hover { background: var(--surface-hover); }
-.simple-task-row .simple-task-name { display: block; flex: 1; min-width: 0; padding: 6px 0; text-align: left; background: transparent; border: 0; border-radius: var(--radius-small); overflow-wrap: anywhere; cursor: pointer; box-shadow: none; }
+.simple-task-row .simple-task-name {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-small);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  box-shadow: none;
+  font-size: 14.5px;
+  font-weight: 550;
+  color: var(--fg-primary);
+}
 .simple-task-row .simple-task-name:hover { background: var(--surface-hover); }
 .simple-task-row time,
-.simple-muted { color: var(--fg-secondary); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.simple-row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity var(--motion-instant) var(--ease-out); }
-.simple-task-row:hover .simple-row-actions,
-.simple-task-row:focus-within .simple-row-actions { opacity: 1; }
-.simple-row-actions button { min-height: 40px; min-width: 40px; padding: 0 8px; display: grid; place-items: center; }
+.simple-muted { color: var(--fg-secondary); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Core actions stay visible: pin/focus are product entry points, not chrome. */
+.simple-row-actions { display: flex; gap: 4px; align-items: center; }
+.simple-row-actions button { min-height: 40px; min-width: 40px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.simple-row-actions button.is-focus {
+  color: var(--brand-strong);
+  background: var(--brand-subtle);
+  border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+  box-shadow: none;
+}
+.simple-row-actions button.is-pinned,
+.simple-row-actions button[aria-pressed='true'] {
+  color: var(--brand-strong);
+  background: var(--brand-subtle);
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+.simple-row-action-label { font-size: 12.5px; font-weight: 600; }
+.simple-dirty-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--warning);
+  background: var(--warning-subtle);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+  border-radius: var(--radius-small);
+  white-space: nowrap;
+}
+.simple-dirty-hint { border-left-color: var(--warning); }
+.simple-saved-hint {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+}
 
 /* Row menu: summary stays in the flex row; actions live in an absolute
    popover so opening the menu never changes task-row geometry. */
@@ -408,21 +468,115 @@
 .simple-menu-popover button.is-danger { color: var(--danger); }
 .simple-menu-popover button.is-danger:hover { background: var(--danger-subtle); }
 
+/* Expanded detail is flat against the row — one less nested card. */
 .simple-task-fields {
-  padding: 18px 22px;
-  margin: 0 0 16px 26px;
-  background: var(--surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-large);
-  box-shadow: var(--shadow-soft);
+  padding: 8px 14px 18px 18px;
+  margin: 0 0 8px 8px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0 0 var(--radius-medium) var(--radius-medium);
 }
-.simple-task-fields h3 { margin: 18px 0 8px; font-size: 13px; color: var(--fg-secondary); }
+.simple-fields-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 10px;
+}
+.simple-fields-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--fg-secondary);
+}
+.simple-task-fields h3 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 8px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.simple-step-save-note {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--fg-tertiary);
+}
 .simple-task-fields label,
 .simple-settings label { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; color: var(--fg-secondary); font-size: 12.5px; }
 .simple-field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.simple-settings .simple-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.simple-settings .simple-field-grid > label { min-width: 0; }
 .simple-step { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
 .simple-step input:not([type='checkbox']) { min-height: 34px; flex: 1; }
 .simple-step button { min-width: 40px; min-height: 40px; padding: 0 8px; }
+
+.simple-live-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: var(--brand-subtle);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+  border-radius: var(--radius-medium);
+  font-size: 12.5px;
+  color: var(--fg-primary);
+}
+.simple-live-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.simple-live-item strong { font-weight: 650; }
+.simple-live-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-secondary);
+}
+
+.simple-settings-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.simple-settings-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--brand-strong);
+  background: var(--brand-subtle);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+  border-radius: var(--radius-medium);
+  text-decoration: none;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.simple-settings-nav a:hover {
+  background: color-mix(in srgb, var(--brand) 16%, var(--brand-subtle));
+}
+.simple-setting-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.simple-setting-control > .simple-setting-status { position: absolute; right: 0; top: 100%; }
+.simple-settings .simple-button-row { flex-wrap: wrap; }
+.simple-settings button > svg { flex-shrink: 0; }
+.simple-setting-status {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  white-space: nowrap;
+}
+.simple-setting-status.is-ok { color: var(--success); }
+.simple-setting-status.is-error { color: var(--danger); }
+.simple-custom-guide-details { margin-top: 14px; }
+.simple-custom-guide-details > summary { font-size: 12.5px; }
 
 .simple-history-row {
   display: flex;
@@ -433,13 +587,13 @@
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-medium);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
   transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .simple-history-row:hover {
   background: var(--surface-hover);
   border-color: color-mix(in srgb, var(--brand) 30%, var(--border-subtle));
-  transform: translateY(-1px);
+  transform: none;
 }
 .simple-history-badge {
   display: grid;
@@ -604,11 +758,11 @@
 .simple-setting-card {
   padding: 16px 18px;
   margin-top: 12px;
-  background: var(--surface-raised);
+  background: transparent;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-large);
-  box-shadow: var(--shadow-hairline);
-  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+  border-radius: var(--radius-medium);
+  box-shadow: none;
+  transition: border-color var(--motion-fast) var(--ease-out);
 }
 .simple-setting-card:hover {
   border-color: var(--border-strong);
@@ -676,7 +830,7 @@
 
 /* ── Modern Accessible Toggle Switch ──────────────────────────────────────── */
 /* Outer button is the hit target (≥44px); the track is the visual switch. */
-.simple-setting-switch {
+.simple-workbench .simple-setting-switch {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -693,11 +847,19 @@
   box-shadow: none;
   flex-shrink: 0;
 }
+.simple-workbench .simple-setting-switch:hover:not(:disabled),
+.simple-workbench .simple-setting-switch:active:not(:disabled) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
 .simple-setting-switch:disabled { opacity: 0.5; cursor: default; }
 .simple-setting-switch-track {
   position: relative;
   display: block;
   width: 44px;
+  flex-shrink: 0;
   height: 24px;
   padding: 2px;
   background: var(--surface-hover);
@@ -721,7 +883,7 @@
   display: block;
   width: 18px;
   height: 18px;
-  background: var(--surface);
+  background: var(--fg-secondary);
   border-radius: 50%;
   box-shadow: var(--shadow-soft);
   transition: transform var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
@@ -758,7 +920,7 @@
   grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
   gap: 12px;
 }
-.simple-pet-card {
+.simple-workbench .simple-pet-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -774,12 +936,13 @@
   box-shadow: var(--shadow-hairline);
   transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
-.simple-pet-card:hover {
+.simple-workbench .simple-pet-card:hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--border-strong);
   transform: translateY(-2px);
 }
-.simple-pet-card[aria-pressed='true'] {
+.simple-workbench .simple-pet-card[aria-pressed='true'],
+.simple-workbench .simple-pet-card[aria-pressed='true']:hover:not(:disabled) {
   background: var(--brand-subtle);
   border-color: var(--brand);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
@@ -881,6 +1044,7 @@
   .simple-progress-container { width: 100%; }
   .simple-filters { flex-wrap: wrap; }
   .simple-field-grid { grid-template-columns: 1fr; }
+  .simple-settings .simple-field-grid { grid-template-columns: 1fr; }
   .simple-header { padding: 10px 16px; gap: 12px; }
   .simple-task-row time { display: none; }
   .simple-task-fields { margin-left: 0; }
@@ -902,4 +1066,8 @@
   .simple-header nav button,
   .simple-menu summary { background: transparent; }
   .simple-workbench button.primary { background: ButtonText; color: Canvas; }
+  .simple-setting-switch-track { forced-color-adjust: none; background: Canvas; border-color: ButtonText; }
+  .simple-setting-switch-handle { forced-color-adjust: none; background: ButtonText; }
+  .simple-setting-switch.is-checked .simple-setting-switch-track { background: Highlight; border-color: Highlight; }
+  .simple-setting-switch.is-checked .simple-setting-switch-handle { background: HighlightText; }
 }

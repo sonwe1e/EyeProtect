@@ -1,7 +1,6 @@
 import { SIMPLE_SETTING_LIMITS } from '../../../../shared/types';
 import { useEffect, useState } from 'react';
-import type { Settings, LegacyData, CustomPetAssets, CommandResult } from '../../../../shared/types';
-import { PIXEL_ANIMALS, PIXEL_ANIMAL_NAMES } from '../../../../shared/pixelAnimals';
+import type { Settings, LegacyData, CommandResult } from '../../../../shared/types';
 import { useSettings } from '../../hooks/useSettings';
 import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
@@ -41,31 +40,45 @@ const fromTimeStr = (timeStr: string, fallback: number): number => {
   return Math.min(1439, Math.max(0, h * 60 + m));
 };
 
+type SettingStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+function SettingStatusText({ status }: { status: SettingStatus }): JSX.Element | null {
+  if (status === 'saving') return <span className="simple-setting-status">保存中…</span>;
+  if (status === 'saved') return <span className="simple-setting-status is-ok">已保存</span>;
+  if (status === 'error') return <span className="simple-setting-status is-error">保存失败</span>;
+  return null;
+}
+
 function SettingSwitch({
   checked,
   onChange,
   disabled,
-  label
+  label,
+  status = 'idle'
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
   label: string;
+  status?: SettingStatus;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      className={`simple-setting-switch ${checked ? 'is-checked' : ''}`}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="simple-setting-switch-track" aria-hidden="true">
-        <span className="simple-setting-switch-handle" />
-      </span>
-    </button>
+    <div className="simple-setting-control">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        className={`simple-setting-switch ${checked ? 'is-checked' : ''}`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="simple-setting-switch-track" aria-hidden="true">
+          <span className="simple-setting-switch-handle" />
+        </span>
+      </button>
+      <SettingStatusText status={status} />
+    </div>
   );
 }
 
@@ -76,6 +89,7 @@ function SettingNumberField({
   max,
   step = 1,
   disabled,
+  status = 'idle',
   onSave
 }: {
   label: string;
@@ -84,6 +98,7 @@ function SettingNumberField({
   max: number;
   step?: number;
   disabled?: boolean;
+  status?: SettingStatus;
   onSave: (next: number) => Promise<boolean> | void;
 }): JSX.Element {
   const [draft, setDraft] = useState(String(value));
@@ -106,16 +121,19 @@ function SettingNumberField({
   return (
     <label>
       {label}
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onBlur={commit}
-      />
+      <span className="simple-setting-control">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={draft}
+          disabled={disabled}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={commit}
+        />
+        <SettingStatusText status={status} />
+      </span>
     </label>
   );
 }
@@ -125,27 +143,38 @@ export function SimpleSettings(): JSX.Element {
   const projects = useProjects();
   const tasks = useTasks();
   const [legacy, setLegacy] = useState<LegacyData | null>(null);
-  const [customAssets, setCustomAssets] = useState<CustomPetAssets | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
 
   useEffect(() => {
     const loadThemes = () => {
-      void window.eyeProtect.getCustomPetAssets().then(setCustomAssets);
     };
     loadThemes();
     window.addEventListener('focus', loadThemes);
     return () => window.removeEventListener('focus', loadThemes);
   }, []);
 
+  const statusFor = (key: string): SettingStatus => {
+    if (savingKey === key) return 'saving';
+    if (failedKey === key) return 'error';
+    if (savedKey === key) return 'saved';
+    return 'idle';
+  };
+
   const runBusy = (key: string, start: () => Promise<CommandResult<unknown>>): void => {
     setBusyKey(key);
     setSaveError(null);
     void start()
       .then((result) => {
-        if (!result.ok) setSaveError(result.message || '操作失败');
+        if (!result.ok) {
+          setSaveError(result.message || '操作失败');
+          setFailedKey(key);
+          setSavedKey(null);
+        }
       })
       .finally(() => setBusyKey((current) => (current === key ? null : current)));
   };
@@ -153,6 +182,8 @@ export function SimpleSettings(): JSX.Element {
   const save = (key: string, patch: Partial<Settings>): Promise<boolean> => {
     const previous = settings;
     setSavingKey(key);
+    setFailedKey(null);
+    setSavedKey(null);
     setSaveError(null);
     // Optimistic UI: switches flip immediately; broadcast will confirm or we roll back.
     setSettings({ ...settings, ...patch });
@@ -161,8 +192,10 @@ export function SimpleSettings(): JSX.Element {
         if (!result.ok) {
           setSettings(previous);
           setSaveError(result.message || '设置保存失败');
+          setFailedKey(key);
           return false;
         }
+        setSavedKey(key);
         return true;
       })
       .finally(() => {
@@ -184,6 +217,7 @@ export function SimpleSettings(): JSX.Element {
       max={max}
       step={step}
       disabled={savingKey === key}
+      status={statusFor(key)}
       onSave={async (next) => {
         const ok = await save(key, { [key]: next });
         return ok;
@@ -196,10 +230,16 @@ export function SimpleSettings(): JSX.Element {
       <h1>设置</h1>
       <p className="simple-settings-subtitle">定制健康护眼节奏、桌面桌宠伙伴与系统偏好</p>
 
+      <nav className="simple-settings-nav" aria-label="设置分区">
+        <a href="#settings-rest">休息提醒</a>
+        <a href="#settings-appearance">桌面外观</a>
+        <a href="#settings-app">应用</a>
+      </nav>
+
       {/* ── Section 1: 休息提醒 ─────────────────────────────────────────── */}
       {saveError ? <p role="alert" className="simple-settings-error">{saveError}</p> : null}
       {action.error ? <p role="alert" className="simple-settings-error">{action.error.message}</p> : null}
-      <section>
+      <section id="settings-rest">
         <h2>
           <Eye size={18} />
           休息提醒
@@ -224,6 +264,7 @@ export function SimpleSettings(): JSX.Element {
               checked={settings.eyeEnabled}
               onChange={(checked) => save('eyeEnabled', { eyeEnabled: checked })}
               disabled={savingKey === 'eyeEnabled'}
+              status={statusFor('eyeEnabled')}
               label="开启护眼短休息"
             />
           </div>
@@ -258,6 +299,7 @@ export function SimpleSettings(): JSX.Element {
               checked={settings.walkEnabled}
               onChange={(checked) => save('walkEnabled', { walkEnabled: checked })}
               disabled={savingKey === 'walkEnabled'}
+              status={statusFor('walkEnabled')}
               label="开启走动长休息"
             />
           </div>
@@ -330,6 +372,7 @@ export function SimpleSettings(): JSX.Element {
                 checked={settings.soundEnabled}
                 onChange={(checked) => save('soundEnabled', { soundEnabled: checked })}
                 disabled={savingKey === 'soundEnabled'}
+                status={statusFor('soundEnabled')}
                 label="开启休息提示音效"
               />
             </div>
@@ -378,6 +421,7 @@ export function SimpleSettings(): JSX.Element {
                 checked={settings.fullscreenDndEnabled}
                 onChange={(checked) => save('fullscreenDndEnabled', { fullscreenDndEnabled: checked })}
                 disabled={savingKey === 'fullscreenDndEnabled'}
+                status={statusFor('fullscreenDndEnabled')}
                 label="开启全屏应用自动免打扰"
               />
             </div>
@@ -392,6 +436,7 @@ export function SimpleSettings(): JSX.Element {
                 checked={settings.quietHoursEnabled}
                 onChange={(checked) => save('quietHoursEnabled', { quietHoursEnabled: checked })}
                 disabled={savingKey === 'quietHoursEnabled'}
+                status={statusFor('quietHoursEnabled')}
                 label="开启定时免打扰时段"
               />
             </div>
@@ -428,107 +473,39 @@ export function SimpleSettings(): JSX.Element {
       </section>
 
       {/* ── Section 2: 桌面外观 ─────────────────────────────────────────── */}
-      <section>
+      <section id="settings-appearance">
         <h2>
           <Palette size={18} />
           桌面外观
         </h2>
         <p className="simple-section-desc">
-          选择常驻桌面伴随你专注的可爱伙伴，支持自定义动图皮肤与尺寸调节。
+          桌面伙伴是奋斗猫，可替换自定义动图并调节大小与互动细节。
         </p>
 
-        {/* 角色卡片 */}
+        {/* 当前桌宠 */}
         <div className="simple-setting-card">
           <div className="simple-setting-card-header">
             <div>
               <div className="simple-setting-card-title">
                 <Sparkles size={16} />
-                桌宠角色选择
+                桌宠
               </div>
               <p className="simple-setting-card-desc">
-                点击切换桌面伙伴，右键桌宠或系统托盘也可随时切换
+                只保留奋斗猫；可在下方用自定义动图替换它的动画
               </p>
             </div>
           </div>
-
           <div className="simple-setting-card-body">
-            {settings.customPetTheme &&
-            customAssets &&
-            customAssets.availableThemes.length > 0 &&
-            !customAssets.availableThemes.some((theme) => theme.id === settings.customPetTheme) ? (
-              <div className="simple-settings-error" role="status">
-                当前动态角色「{settings.customPetTheme}」的素材已不存在，请重新选择角色。
-                <button
-                  type="button"
-                  style={{ marginLeft: 10 }}
-                  onClick={() => save('petAppearance:cat', { customPetTheme: null, petAppearance: 'cat' })}
-                >
-                  恢复经典橘猫
-                </button>
-              </div>
-            ) : null}
-            {customAssets && customAssets.availableThemes.length > 0 && (
-              <>
-                <div className="simple-pet-group-title">动态角色系列</div>
-                <div className="simple-pet-grid">
-                  {customAssets.availableThemes.map((theme) => {
-                    const isSelected = settings.customPetTheme === theme.id;
-                    return (
-                      <button
-                        key={theme.id}
-                        type="button"
-                        className="simple-pet-card"
-                        aria-pressed={isSelected}
-                        onClick={() => save(`customPetTheme:${theme.id}`, { customPetTheme: theme.id })}
-                        disabled={savingKey === `customPetTheme:${theme.id}`}
-                        title={`选择角色：${theme.name}`}
-                      >
-                        {isSelected && (
-                          <div className="simple-pet-badge" aria-hidden="true">
-                            <Check size={11} strokeWidth={3} />
-                          </div>
-                        )}
-                        <div className="simple-pet-preview">
-                          {theme.preview ? (
-                            <img src={theme.preview} alt={theme.name} />
-                          ) : (
-                            <Sparkles size={36} />
-                          )}
-                        </div>
-                        <span className="simple-pet-name">{theme.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            <div className="simple-pet-group-title">经典像素风格</div>
             <div className="simple-pet-grid">
-              {PIXEL_ANIMALS.map((animal) => {
-                const isSelected = settings.customPetTheme === null && settings.petAppearance === animal;
-                return (
-                  <button
-                    key={animal}
-                    type="button"
-                    className="simple-pet-card"
-                    aria-pressed={isSelected}
-                    onClick={() => save(`petAppearance:${animal}`, { petAppearance: animal, customPetTheme: null })}
-                    disabled={savingKey === `petAppearance:${animal}`}
-                    title={`选择经典角色：${PIXEL_ANIMAL_NAMES[animal]}`}
-                  >
-                    {isSelected && (
-                      <div className="simple-pet-badge" aria-hidden="true">
-                        <Check size={11} strokeWidth={3} />
-                      </div>
-                    )}
-                    <div className="simple-pet-preview">
-                      <PixelAnimal animal={animal} action="idle" label={PIXEL_ANIMAL_NAMES[animal]} />
-                    </div>
-                    <span className="simple-pet-name">{PIXEL_ANIMAL_NAMES[animal]}</span>
-                  </button>
-                );
-              })}
+              <div className="simple-pet-card" aria-pressed="true">
+                <div className="simple-pet-badge" aria-hidden="true">
+                  <Check size={11} strokeWidth={3} />
+                </div>
+                <div className="simple-pet-preview">
+                  <PixelAnimal animal="cat" action="idle" label="奋斗猫" />
+                </div>
+                <span className="simple-pet-name">奋斗猫</span>
+              </div>
             </div>
           </div>
         </div>
@@ -573,6 +550,7 @@ export function SimpleSettings(): JSX.Element {
                 checked={settings.petMotion}
                 onChange={(checked) => save('petMotion', { petMotion: checked })}
                 disabled={savingKey === 'petMotion'}
+                status={statusFor('petMotion')}
                 label="开启桌宠小动作"
               />
             </div>
@@ -581,30 +559,33 @@ export function SimpleSettings(): JSX.Element {
               <button
                 type="button"
                 disabled={busyKey === 'openPetFolder'}
-                onClick={() => runBusy('openPetFolder', () => run(() => window.eyeProtect.openCustomPetFolder(settings.customPetTheme ?? undefined)))}
+                onClick={() => runBusy('openPetFolder', () => run(() => window.eyeProtect.openCustomPetFolder()))}
               >
                 <FolderOpen size={15} style={{ marginRight: '6px' }} />
                 打开自定义动图文件夹
               </button>
             </div>
 
-            <div className="simple-custom-guide">
-              <p>
-                <strong>自定义桌宠动图指南：</strong>
-              </p>
-              <p>
-                1. <strong>多动作随机互动：</strong>在文件夹中放入 <code>click1.gif</code>、<code>click2.gif</code> 等，点击桌宠时将随机触发不同动作；待机与小动作同样支持 <code>fidget1.gif</code>、<code>idle1.gif</code>。
-              </p>
-              <p>
-                2. <strong>多种动物/角色皮肤：</strong>在 <code>custom-pet</code> 文件夹内新建子文件夹（如 <code>dog</code>、<code>rabbit</code> 等），每个子文件夹即为一个独立角色，会自动识别并列在上方供你一键切换；直接放在根目录的文件则为“默认角色”。
-              </p>
-            </div>
+            <details className="simple-custom-guide-details">
+              <summary>自定义桌宠动图说明</summary>
+              <div className="simple-custom-guide">
+                <p>
+                  <strong>自定义桌宠动图指南：</strong>
+                </p>
+                <p>
+                  1. <strong>多动作随机互动：</strong>在文件夹中放入 <code>click1.gif</code>、<code>click2.gif</code> 等，点击桌宠时将随机触发不同动作；待机与小动作同样支持 <code>fidget1.gif</code>、<code>idle1.gif</code>。
+                </p>
+                <p>
+                  2. <strong>只替换奋斗猫：</strong>把动图直接放在 <code>custom-pet</code> 根目录即可；产品不再提供其它可切换角色。
+                </p>
+              </div>
+            </details>
           </div>
         </div>
       </section>
 
       {/* ── Section 3: 应用 ─────────────────────────────────────────────── */}
-      <section>
+      <section id="settings-app">
         <h2>
           <Monitor size={18} />
           应用
@@ -626,6 +607,7 @@ export function SimpleSettings(): JSX.Element {
               checked={settings.startWithWindows}
               onChange={(checked) => save('startWithWindows', { startWithWindows: checked })}
               disabled={savingKey === 'startWithWindows'}
+              status={statusFor('startWithWindows')}
               label="开启开机自启"
             />
           </div>
