@@ -11,8 +11,6 @@ const requireMatch = (value, pattern, message) => {
 const theme = read('src/renderer/src/styles/theme.css');
 const tokens = read('src/renderer/src/styles/tokens.css');
 const primitives = read('src/renderer/src/styles/primitives.css');
-const workbench = read('src/renderer/src/styles/workbench.css');
-const settings = read('src/renderer/src/styles/settings.css');
 const simple = read('src/renderer/src/styles/simple.css');
 const health = read('src/renderer/src/components/AppHealthBanner.module.css');
 const manifest = JSON.parse(read('package.json'));
@@ -27,11 +25,7 @@ const chrome = [
   read('src/renderer/src/components/Button.tsx'),
   read('src/renderer/src/components/Dialog.tsx'),
   read('src/renderer/src/components/SideSheet.tsx'),
-  read('src/renderer/src/components/AppHealthBanner.tsx'),
-  read('src/renderer/src/components/primitives/NavItem.tsx'),
-  read('src/renderer/src/components/primitives/Field.tsx'),
-  read('src/renderer/src/components/primitives/StatusChip.tsx'),
-  read('src/renderer/src/components/primitives/Toast.tsx')
+  read('src/renderer/src/components/AppHealthBanner.tsx')
 ].join('\n');
 
 for (const token of [
@@ -45,8 +39,6 @@ for (const token of [
 const rawColor = /#[0-9a-f]{3,8}\b|\brgba?\s*\(/i;
 for (const [name, source] of [
   ['primitives.css', primitives],
-  ['workbench.css', workbench],
-  ['settings.css', settings],
   ['simple.css', simple],
   ['AppHealthBanner.module.css', health]
 ]) {
@@ -71,8 +63,6 @@ if (/\p{Extended_Pictographic}/u.test(chrome)) {
 
 for (const [source, label] of [
   [primitives, 'primitives.css'],
-  [workbench, 'workbench.css'],
-  [settings, 'settings.css'],
   [simple, 'simple.css'],
   [health, 'AppHealthBanner.module.css']
 ]) {
@@ -97,11 +87,9 @@ if (/\bnavItems\s*:\s*Array<\{[\s\S]*?id:\s*'(today|inbox|plan|focus|projects|re
   failures.push('WorkbenchView must not re-declare a nav array; consume workbenchNavigation.ts');
 }
 
-requireMatch(workbench, /\.app-nav-item\s*\{[^}]*min-height:\s*44px/s, 'Navigation rows must be at least 44px high');
 requireMatch(primitives, /\.ui-icon-button\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px/s, 'Icon buttons must have a 36px hitbox');
 requireMatch(primitives, /\.ui-button\s*\{[^}]*min-height:\s*40px/s, 'Buttons must be at least 40px high');
-requireMatch(workbench, /\.workbench-v2 \.task-row\s*\{[^}]*min-height:\s*(52px|var\(--task-row-height\))/s, 'Task rows must exceed the 44px target');
-requireMatch(workbench, /@media \(forced-colors: active\)/, 'Workbench must provide a forced-colors treatment');
+requireMatch(simple, /@media \(forced-colors: active\)/, 'Simplified workbench must provide a forced-colors treatment');
 requireMatch(simple, /\.simple-workbench\s*\{[^}]*overflow-y:\s*auto/s, 'Simplified workbench must scroll in its own shell');
 requireMatch(primitives, /@media \(prefers-reduced-motion: reduce\)/, 'Motion primitives must honor reduced motion');
 
@@ -129,17 +117,10 @@ if (overlap.length) {
   failures.push(`Foundation tokens must not be redeclared in theme.css: ${overlap.join(', ')}`);
 }
 
-// Workbench must use a workspace container so feature layouts respond to the
-// real content area, not the full window (USERPLAN 1.2 B4).
-if (!/container-type:\s*inline-size/.test(workbench)) {
-  failures.push('Workbench must define a container-type: inline-size workspace');
-}
-if (!/container-name:\s*workspace/.test(workbench)) {
-  failures.push('Workbench must name its container "workspace"');
-}
-if (!/@container\s+workspace/.test(workbench)) {
-  failures.push('Workbench must use at least one @container workspace query');
-}
+// The active simplified workbench (styles/simple.css) is a fluid
+// single-column shell: it owns its own scroll container (asserted above) and
+// sizes from the window, not CSS container queries. The old workbench.css
+// container-query contract was removed with that stylesheet.
 
 const iconPath = resolve(root, 'public/assets/app-icon.ico');
 if (manifest.build?.win?.icon !== 'public/assets/app-icon.ico') failures.push('Windows packaging must use the branded app icon');

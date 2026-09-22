@@ -548,8 +548,6 @@ export class AppWindows {
       this.previousSelectedPending.every((id) => settings.todoBubbleTaskIds.includes(id) && tasks.some((task) => task.id === id && task.status === 'done'));
     this.previousSelectedPending = selected.map((task) => task.id);
     const pending = selected.length;
-    // The always-resident pet window subscribes to the count channel only.
-    this.sendTo([this.petWindow], 'task:pending-count:changed', tasks.filter((task) => task.status !== 'done' && task.status !== 'archived').length);
     const petAlive = Boolean(this.petWindow) && !this.petWindow?.isDestroyed();
 
     // Gentle reminders and soft pre-alerts use the bubble as their surface
@@ -1171,10 +1169,6 @@ export class AppWindows {
   broadcastProjectRemoved(projectId: string): void {
     this.sendTo([this.workbenchWindow, this.bubbleWindow], 'project:removed', projectId);
     this.refreshBubble();
-  }
-
-  broadcastActiveTask(id: string | null): void {
-    this.sendTo([this.workbenchWindow, this.bubbleWindow], 'task:active-changed', id);
   }
 
   broadcastUndo(state: UndoState | null): void {

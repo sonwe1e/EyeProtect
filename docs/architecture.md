@@ -62,6 +62,21 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | 样式 | `styles/simple.css`（工作台）、`styles.css` + `styles/theme.css`（桌宠/气泡/提醒） |
 | CI smoke | `scripts/smoke-simple-experience.mjs`、`scripts/smoke-simple-pet-failure.mjs` |
 
+### 冗余清理轮次（死代码与半死 IPC）
+
+对全仓做过一次引用盘点后，删除了以下**生产 0 引用**的面（删除时三端/契约同步）：
+
+| 删除对象 | 原因 |
+| --- | --- |
+| `src/shared/dailyPlanning.ts`（+ 测试） | 每日规划域纯函数，仅测试存活；保留名单外 |
+| `src/shared/projectSections.ts`（+ 测试） | 仅测试存活；`project_sections` 写 CRUD 生产 0 调用 |
+| `src/renderer/src/features/tasks/taskWorkInterpolation.ts`（+ 测试） | 仅测试存活，不属保留名单 |
+| `src/renderer/src/components/primitives/`（6 文件） | 上代组件框架残留，barrel 无 importers |
+| `src/renderer/src/styles/workbench.css`、`styles/settings.css`、`base.css` 的 `.visually-hidden`、`styles.css` 的 `.workbench-v2 *` | 旧工作台样式；唯二引用来自已删的 NavItem |
+| `getTask` / `getProject` / `getActiveTaskId` / `onActiveTaskChanged` / `getPendingTaskCount` / `onPendingTaskCountChanged`（types + preload + `handleIpc` + `windows` 广播） | renderer 0 调用；待办计数实际由 `useTasks()` 全量订阅派生 |
+
+同步调整：`scripts/verify-ui-contract.mjs` 移除针对上述死 CSS 的断言（`.app-nav-item` 命中区、`.workbench-v2 .task-row`、container-query 契约），forced-colors 断言改指 `simple.css`；`tests/design-system-contract.test.ts` 移除死选择器断言。`taskStore` 的 legacy 写 CRUD 与 `features/tasks/` 其余 6 个纯函数仍按保留名单原地保留（备份 v8 / `data:legacy` 只读兼容）。
+
 ### 处置结论（本轮）
 
 本轮只处理**孤儿 renderer** 与**不在 CI 的 smoke/capture 脚本**；主进程兼容模块与 IPC 暂留。

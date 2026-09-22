@@ -1449,7 +1449,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workbench-v2 *,
   .pet-shell *,
   .alert-shell *,
   .bubble-shell * {

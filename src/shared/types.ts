@@ -885,7 +885,6 @@ export interface EyeProtectApi {
   // ── Tasks / lists ──────────────────────────────────────────────────────
   /** All tasks (any view/filter is applied in the renderer). */
   getTasks: () => Promise<Task[]>;
-  getTask: (id: string) => Promise<Task | null>;
   createTask: (input: TaskInput) => Promise<Task[]>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<Task[]>;
   moveTask: (input: TaskMoveInput) => Promise<Task[]>;
@@ -902,13 +901,8 @@ export interface EyeProtectApi {
    *  onTasksChanged (bulk), single-entity mutations arrive incrementally. */
   onTaskUpserted: (callback: (task: Task) => void) => () => void;
   onTaskRemoved: (callback: (taskId: string) => void) => () => void;
-  /** Lightweight pending-count channel for the always-resident pet window:
-   *  it only needs the badge number, not the full task list (perf pass). */
-  getPendingTaskCount: () => Promise<number>;
-  onPendingTaskCountChanged: (callback: (count: number) => void) => () => void;
 
   getProjects: () => Promise<Project[]>;
-  getProject: (id: string) => Promise<Project | null>;
   createProject: (input: ProjectInput) => Promise<Project[]>;
   updateProject: (id: string, input: ProjectUpdateInput) => Promise<Project[]>;
   deleteProject: (id: string) => Promise<Project[]>;
@@ -916,9 +910,7 @@ export interface EyeProtectApi {
   onProjectUpserted: (callback: (project: Project) => void) => () => void;
   onProjectRemoved: (callback: (projectId: string) => void) => () => void;
 
-  getActiveTaskId: () => Promise<string | null>;
   setActiveTask: (id: string | null) => Promise<Task[]>;
-  onActiveTaskChanged: (callback: (id: string | null) => void) => () => void;
 
   getFailedDeliveries: () => Promise<FailedDeliveryNotice[]>;
   retryFailedDelivery: (id: string) => Promise<FailedDeliveryNotice[]>;

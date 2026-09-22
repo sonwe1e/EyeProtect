@@ -69,7 +69,6 @@ const api: EyeProtectApi = {
   onPomodoroChanged: (callback) => on<PomodoroState>('pomodoro:changed', callback),
 
   getTasks: () => ipcRenderer.invoke('task:list') as Promise<Task[]>,
-  getTask: (id: string) => ipcRenderer.invoke('task:get', id) as Promise<Task | null>,
   createTask: (input: TaskInput) => ipcRenderer.invoke('task:create', input) as Promise<Task[]>,
   updateTask: (id: string, input: TaskUpdateInput) =>
     ipcRenderer.invoke('task:update', id, input) as Promise<Task[]>,
@@ -87,11 +86,8 @@ const api: EyeProtectApi = {
   onTasksChanged: (callback) => on<Task[]>('task:changed', callback),
   onTaskUpserted: (callback) => on<Task>('task:upserted', callback),
   onTaskRemoved: (callback) => on<string>('task:removed', callback),
-  getPendingTaskCount: () => ipcRenderer.invoke('task:pending-count') as Promise<number>,
-  onPendingTaskCountChanged: (callback) => on<number>('task:pending-count:changed', callback),
 
   getProjects: () => ipcRenderer.invoke('project:list') as Promise<Project[]>,
-  getProject: (id: string) => ipcRenderer.invoke('project:get', id) as Promise<Project | null>,
   createProject: (input: ProjectInput) => ipcRenderer.invoke('project:create', input) as Promise<Project[]>,
   updateProject: (id: string, input: ProjectUpdateInput) =>
     ipcRenderer.invoke('project:update', id, input) as Promise<Project[]>,
@@ -100,9 +96,7 @@ const api: EyeProtectApi = {
   onProjectUpserted: (callback) => on<Project>('project:upserted', callback),
   onProjectRemoved: (callback) => on<string>('project:removed', callback),
 
-  getActiveTaskId: () => ipcRenderer.invoke('task:active:get') as Promise<string | null>,
   setActiveTask: (id: string | null) => ipcRenderer.invoke('task:active:set', id) as Promise<Task[]>,
-  onActiveTaskChanged: (callback) => on<string | null>('task:active-changed', callback),
 
   getFailedDeliveries: () => ipcRenderer.invoke('delivery:failed:list') as Promise<FailedDeliveryNotice[]>,
   retryFailedDelivery: (id) =>

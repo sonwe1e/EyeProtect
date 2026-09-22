@@ -119,8 +119,8 @@
 .simple-header strong { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .simple-header nav { display: flex; gap: 4px; flex: 1; }
 /* Navigation is keyboard/pointer-switched at the highest frequency in the
-   window: states land on the next frame (see .app-nav-item). The active item
-   is a neutral raised pill — same grammar as the workbench sidebar. */
+   window: states land on the next frame. The active item is a neutral raised
+   pill, scoped to this simplified header. */
 .simple-header nav button {
   min-height: 36px;
   padding: 0 13px;

@@ -808,7 +808,6 @@ app.whenReady().then(async () => {
     windows.broadcastReminderStatus(scheduler.getStatus());
     windows.broadcastTasks(tasks);
     windows.broadcastProjects(taskService.getProjects());
-    windows.broadcastActiveTask(taskService.getActiveTaskId());
     windows.broadcastHotkeyStatus(hotkeyStatus);
     // Health is derived, not part of any domain push, so seed it explicitly —
     // otherwise a recovery-mode launch would show no banner until the next
@@ -1191,14 +1190,6 @@ app.whenReady().then(async () => {
   // All handlers are sender-verified (handleIpc) and coerce their arguments.
   // Every mutation flows through TaskService, which re-emits domain events that
   // the wiring above broadcasts to the workbench and re-arms the task scheduler.
-  // Pet window badge: a count, not the task list (perf pass). The pet is
-  // the only always-resident renderer, so it must not rebuild a task Map on
-  // every edit elsewhere in the app.
-  handleIpc('task:pending-count', () =>
-    taskService
-      .getTasks()
-      .filter((task) => task.status !== 'done' && task.status !== 'archived').length
-  );
 
   handleIpc('task:complete-tree', (id, revisions) => requireWritableTaskDatabase(() => taskService.completeTaskTree(asString(id), revisions && typeof revisions === 'object' && !Array.isArray(revisions) ? revisions as Record<string, number> : {})));
   handleIpc('task:move-step', (id, direction) => { if (direction !== -1 && direction !== 1) throw new Error('无效移动方向'); return requireWritableTaskDatabase(() => taskService.moveStep(asString(id), direction)); });
@@ -1233,7 +1224,6 @@ app.whenReady().then(async () => {
     return pomodoro.act(action);
   });
   handleIpc('task:list', () => taskService.getTasks());
-  handleIpc('task:get', (id) => taskService.getTask(asString(id)));
   handleIpc('task:create', (input) =>
     requireWritableTaskDatabase(() => taskService.createTask(asSimpleTaskInput(input)))
   );
@@ -1255,12 +1245,10 @@ app.whenReady().then(async () => {
   handleIpc('task:undo', (operationId) =>
     requireWritableTaskDatabase(() => taskService.undo(asString(operationId)))
   );
-  handleIpc('task:active:get', () => taskService.getActiveTaskId());
   handleIpc('task:active:set', (id) =>
     requireWritableTaskDatabase(() => taskService.setActiveTask(typeof id === 'string' ? id : null))
   );
   handleIpc('project:list', () => taskService.getProjects());
-  handleIpc('project:get', (id) => taskService.getProject(asString(id)));
   handleIpc('project:create', (input) =>
     requireWritableTaskDatabase(() => taskService.createProject(asProjectInput(input)))
   );

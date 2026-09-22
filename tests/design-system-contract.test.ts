@@ -19,7 +19,6 @@ const read = (relative: string) => readFileSync(resolve(root, relative), 'utf8')
 
 const tokensCss = read('src/renderer/src/styles/tokens.css');
 const themeCss = read('src/renderer/src/styles/theme.css');
-const workbenchCss = read('src/renderer/src/styles/workbench.css');
 const legacyCss = read('src/renderer/src/styles.css');
 const windowsSource = read('src/main/windows.ts');
 
@@ -91,12 +90,6 @@ test('Workbench dimensions stay on the visual-hardening contract', () => {
   assert.equal(tokens.get('--radius-large'), '12px');
   // Plan timeline grid metrics lived in PlanWorkspace.module.css (legacy).
   // Active workbench layout contracts are tokens + simple/workbench shells.
-});
-
-test('Workbench selection stays neutral while active navigation icons carry the brand', () => {
-  assert.match(workbenchCss, /\.app-nav-item\.is-active[^}]*background:\s*var\(--surface-selected\)/);
-  assert.match(workbenchCss, /\.app-nav-item\.is-active svg[^}]*color:\s*var\(--brand\)/);
-  assert.match(workbenchCss, /\.task-row\.is-selected[^}]*background:\s*var\(--surface-selected\)/);
 });
 
 test('the workbench owns a scroll container', () => {
