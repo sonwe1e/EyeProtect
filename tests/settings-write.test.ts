@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { SettingsStore } from '../src/main/settings';
+import { SettingsStore, syncStartupShortcut, sanitizeSettings } from '../src/main/settings';
+import { PET_OUTFITS } from '../src/shared/pixelAnimals';
+import { DEFAULT_SETTINGS } from '../src/shared/types';
 
 const withTempStore = (fn: (store: SettingsStore, dir: string) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-w-'));
@@ -101,6 +103,23 @@ test('legacy settings invalid appearance selection is cleaned', () => {
   });
 });
 
+test('outfits keep the original cat for legacy or invalid preferences', () => {
+  for (const petOutfit of [undefined, null, '', 'rabbit', 'character-123', 0, {}, ['coffee']]) {
+    assert.equal(sanitizeSettings({ petOutfit }).petOutfit, 'classic');
+  }
+});
+
+test('every built-in outfit survives save and restart without changing the companion', () => {
+  withTempStore((store) => {
+    for (const petOutfit of PET_OUTFITS) {
+      store.save({ petOutfit });
+      const restored = new SettingsStore().get();
+      assert.equal(restored.petOutfit, petOutfit);
+      assert.equal(restored.petAppearance, 'cat');
+    }
+  });
+});
+
 test('a removed collectible-character id falls back to a built-in animal', () => {
   withTempStore((_store, dir) => {
     // The old "组合桌宠" collection stored generated character ids here; the
@@ -142,3 +161,56 @@ test('legacy multi-pet ids fall back to 奋斗猫', () => {
   });
 });
 
+test('startup creates its directory, targets the launcher and only removes its own shortcut', () => {
+  withTempStore((_store, dir) => {
+    const startupDir = join(dir, 'Startup');
+    const launcher = join(dir, 'EyeProtect-portable.exe');
+    const runtime = {
+      isPackaged: true, launchExecutable: launcher, startupDir,
+      writeShortcut: (path: string, target: string) => {
+        assert.equal(target, launcher);
+        assert.ok(existsSync(startupDir));
+        writeFileSync(path, target);
+        return true;
+      }
+    };
+    syncStartupShortcut({ ...DEFAULT_SETTINGS, startWithWindows: true }, runtime);
+    writeFileSync(join(startupDir, 'other.lnk'), 'other');
+    syncStartupShortcut({ ...DEFAULT_SETTINGS, startWithWindows: false }, runtime);
+    assert.equal(existsSync(join(startupDir, 'EyeProtect.lnk')), false);
+    assert.equal(existsSync(join(startupDir, 'other.lnk')), true);
+  });
+});
+
+test('shortcut failure rejects saving before preferences or events claim success', () => {
+  withTempStore((_store, dir) => {
+    const store = new SettingsStore((settings) => syncStartupShortcut(settings, {
+      isPackaged: true, launchExecutable: join(dir, 'EyeProtect.exe'), startupDir: join(dir, 'Startup'),
+      writeShortcut: () => false
+    }));
+    let changes = 0;
+    store.onChanged(() => { changes += 1; });
+    assert.throws(() => store.save({ startWithWindows: true }), /开机启动/);
+    assert.equal(store.get().startWithWindows, false);
+    assert.equal(new SettingsStore().get().startWithWindows, false);
+    assert.equal(changes, 0);
+  });
+});
+
+test('failed settings persistence restores the previous startup choice', () => {
+  withTempStore((_store, dir) => {
+    const choices: boolean[] = [];
+    const store = new SettingsStore((settings) => choices.push(settings.startWithWindows));
+    mkdirSync(join(dir, 'settings.json.tmp'));
+    assert.throws(() => store.save({ startWithWindows: true }));
+    assert.deepEqual(choices, [true, false]);
+    assert.equal(store.get().startWithWindows, false);
+  });
+});
+
+test('development startup synchronization leaves Windows untouched', () => {
+  syncStartupShortcut({ ...DEFAULT_SETTINGS, startWithWindows: true }, {
+    isPackaged: false, launchExecutable: 'unused', startupDir: 'unused',
+    writeShortcut: () => { assert.fail('development must not register startup'); }
+  });
+});

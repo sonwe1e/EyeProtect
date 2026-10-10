@@ -5,6 +5,20 @@
 .simple-workbench { height: 100vh; overflow-y: auto; color: var(--fg-primary); background: var(--bg-app); font-size: 14px; }
 .simple-workbench * { box-sizing: border-box; }
 
+.simple-rest-companion { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; margin-bottom: 20px; padding: 18px; border: 1px solid var(--border-subtle); border-radius: var(--radius-medium); background: var(--surface); }
+.simple-rest-companion-copy { display: flex; align-items: center; flex: 1 1 280px; gap: 12px; min-width: 0; }
+.simple-rest-companion-pet { width: 60px; height: 60px; flex: 0 0 60px; }
+.simple-rest-companion h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; font-size: 16px; }
+.simple-rest-companion h2 small, .simple-rest-companion p { color: var(--fg-secondary); font-size: 13px; font-weight: normal; }
+.simple-rest-companion p { margin: 0; line-height: 1.6; }
+.simple-rest-week { display: flex; flex: 0 1 210px; gap: 12px; }
+.simple-rest-day { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 5px; color: var(--fg-secondary); font-size: 12px; }
+.simple-rest-day-count { height: 16px; }
+.simple-rest-day-track { display: flex; align-items: end; height: 40px; width: 12px; border-bottom: 1px solid var(--border-subtle); }
+.simple-rest-day-track > span { width: 100%; border-radius: 3px 3px 0 0; background: var(--success); }
+.simple-context-note { margin: 0 0 16px; color: var(--fg-secondary); font-size: 13px; }
+@media (forced-colors: active) { .simple-rest-day-track > span { background: Highlight; forced-color-adjust: none; } }
+
 /* Thin token-colored scrollbars. The native Windows scrollbar is a chunky grey
    track with arrows that reads as a legacy control against the quiet surfaces;
    the thumb only appears while the container is hovered or scrollable. */
@@ -917,7 +931,7 @@
 }
 .simple-pet-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
   gap: 12px;
 }
 .simple-workbench .simple-pet-card {
@@ -927,7 +941,7 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 128px;
+  min-height: 176px;
   padding: 14px 8px 12px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
@@ -970,6 +984,35 @@
   font-weight: 600;
   color: var(--fg-primary);
   text-align: center;
+}
+.simple-pet-description {
+  max-width: 160px;
+  min-height: 36px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  text-align: center;
+}
+.simple-pet-try {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 14px;
+}
+.simple-pet-try > span {
+  color: var(--fg-tertiary);
+  font-size: 12px;
+}
+.simple-workbench .simple-pet-try-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 12px;
 }
 .simple-pet-card[aria-pressed='true'] .simple-pet-name {
   color: var(--brand-strong);

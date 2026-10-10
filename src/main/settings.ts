@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
-import { isPixelAnimal } from '../shared/pixelAnimals';
+import { isPixelAnimal, isPetOutfit } from '../shared/pixelAnimals';
 import {
   DEFAULT_SETTINGS,
   SIMPLE_SETTING_LIMITS,
@@ -284,6 +284,7 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       ? [...new Set(input.todoBubbleTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
       : [],
     petAppearance: isPixelAnimal(input.petAppearance) ? input.petAppearance : 'cat',
+    petOutfit: isPetOutfit(input.petOutfit) ? input.petOutfit : DEFAULT_SETTINGS.petOutfit,
     todoBubbleEnabled:
       typeof input.todoBubbleEnabled === 'boolean'
         ? input.todoBubbleEnabled
@@ -399,7 +400,7 @@ export class SettingsStore extends EventEmitter {
   private readonly filePath: string;
   private settings: Settings;
 
-  constructor() {
+  constructor(private readonly syncStartup?: (settings: Settings) => void) {
     super();
     this.dataDir = getDataDir();
     this.filePath = join(this.dataDir, SETTINGS_FILE);
@@ -430,7 +431,17 @@ export class SettingsStore extends EventEmitter {
   save(partial: Partial<Settings>): Settings {
     const previous = this.get();
     const next = sanitizeSettings({ ...previous, ...partial });
-    this.write(next);
+    const startupChanged = next.startWithWindows !== previous.startWithWindows;
+    if (startupChanged) this.syncStartup?.(next);
+    try {
+      this.write(next);
+    } catch (error) {
+      if (startupChanged) {
+        try { this.syncStartup?.(previous); }
+        catch (restoreError) { throw new AggregateError([error, restoreError], '设置保存失败，开机启动状态也未能恢复；请重新检查开机自启'); }
+      }
+      throw error;
+    }
     this.settings = next;
     this.emit('changed', { settings: this.get(), previous } satisfies SettingsChangedPayload);
     return this.get();
@@ -612,25 +623,37 @@ export class SettingsStore extends EventEmitter {
   }
 }
 
-export const syncStartupShortcut = (settings: Settings): void => {
+export interface StartupRuntime {
+  isPackaged: boolean;
+  launchExecutable: string;
+  startupDir: string;
+  writeShortcut: (path: string, target: string) => boolean;
+}
+
+export const syncStartupShortcut = (settings: Settings, runtime?: StartupRuntime): void => {
   // Electron is required lazily (see getDataDir): its CJS entry throws when
   // loaded outside the Electron runtime, as happens under the Node test runner.
-  const require = createRequire(import.meta.url);
-  const { app, shell } = require('electron');
-
-  if (!app.isPackaged) {
-    return;
+  if (!runtime) {
+    if (process.platform !== 'win32') return;
+    const require = createRequire(import.meta.url);
+    const { app, shell } = require('electron');
+    if (!app.isPackaged) return;
+    runtime = {
+      isPackaged: app.isPackaged,
+      launchExecutable: resolveLaunchExecutable({
+        isPackaged: app.isPackaged,
+        execPath: process.execPath,
+        cwd: process.cwd(),
+        portableExecutableFile: env.PORTABLE_EXECUTABLE_FILE
+      }),
+      startupDir: join(env.APPDATA ?? app.getPath('appData'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'),
+      writeShortcut: (path, target) => shell.writeShortcutLink(path, existsSync(path) ? 'replace' : 'create', {
+        target, cwd: dirname(target), description: 'EyeProtect'
+      })
+    };
   }
-
-  const launchExecutable = resolveLaunchExecutable({
-    isPackaged: app.isPackaged,
-    execPath: process.execPath,
-    cwd: process.cwd(),
-    portableExecutableFile: env.PORTABLE_EXECUTABLE_FILE
-  });
-  const startupDir = env.APPDATA
-    ? join(env.APPDATA, 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
-    : join(app.getPath('appData'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup');
+  if (!runtime.isPackaged) return;
+  const { startupDir, launchExecutable } = runtime;
   const shortcutPath = join(startupDir, STARTUP_SHORTCUT);
 
   if (!settings.startWithWindows) {
@@ -640,9 +663,8 @@ export const syncStartupShortcut = (settings: Settings): void => {
     return;
   }
 
-  shell.writeShortcutLink(shortcutPath, 'create', {
-    target: launchExecutable,
-    cwd: dirname(launchExecutable),
-    description: 'EyeProtect'
-  });
+  mkdirSync(startupDir, { recursive: true });
+  if (!runtime.writeShortcut(shortcutPath, launchExecutable)) {
+    throw new Error('无法写入 Windows 开机启动快捷方式，请检查 Startup 目录权限后重试');
+  }
 };

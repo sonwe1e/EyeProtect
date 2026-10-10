@@ -46,6 +46,7 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
+  petOutfit: 'classic',
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -434,5 +435,4 @@ test('ReminderScheduler with a kernel fires a due reminder on reconcile', () => 
 
   assert.equal(scheduler.getStatus().activeReminder?.kind, 'eye', 'eye reminder fired through kernel');
 });
-
 

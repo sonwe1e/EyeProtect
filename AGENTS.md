@@ -67,6 +67,8 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 | 新增/调整设置项 | `src/shared/types.ts`、`src/main/settings.ts`、`src/renderer/src/features/simple/SimpleSettings.tsx` | 类型、清洗、UI 必须一起改；`SimpleSettings.tsx` 是唯一设置界面。 |
 | 设置文件读写与保存目录 | `src/main/settings.ts` | 目录由 `getDataDir()` 决定；不要提交 `data/settings.json`。 |
 | 开机自启 | `src/main/settings.ts` | `syncStartupShortcut()`；仅 packaged 模式写 Windows Startup。 |
+| 智能延后 / 全屏与定时勿扰 | `src/main/reminderContext.ts`、`src/main/reminders.ts` | 场景只提供 gate 决策，计时仍由 SchedulerKernel 拥有；检测失败回退，补 `tests/reminder-context.test.ts` 与 `tests/reminders.test.ts`。 |
+| 本周休息与陪伴反馈 | `src/main/reminderHistory.ts`、`src/renderer/src/features/simple/RestCompanionCard.tsx` | 一句话与七天小图，只鼓励、不评分、不惩罚；桌宠事件不订阅全量任务。 |
 | 托盘、单实例、退出、IPC 注册 | `src/main/index.ts` | 托盘菜单在 `createTray()`；IPC handler 集中在此注册，通道名须与 preload 一致。 |
 | 桌宠/气泡/提醒/工作台窗口 | `src/main/windows.ts` | 设置是工作台内嵌页，无独立设置窗口；改布局时覆盖 bounds 测试。 |
 | 新 IPC / `window.eyeProtect` 能力 | `src/shared/types.ts` → `src/preload/index.ts` → `src/main/index.ts` | 先扩展 `EyeProtectApi`，再 preload invoke，最后 main handle + 入参白名单。活跃路径优先复用现有命令层。 |
@@ -74,7 +76,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 | 工作台待办/完成记录 UI | `src/renderer/src/views/WorkbenchView.tsx`、`src/features/simple/SimpleSettings.tsx`、`src/features/workbench/workbenchNavigation.ts` | 导航权威是 `workbenchNavigation.ts`（仅 `today`/`review`/`settings`）。任务列表 UI 目前内联在 WorkbenchView，**不要**默认挂载 `PlanWorkspace` / `FocusSurface` / `ProjectWorkspace` 等遗留组件。 |
 | 提醒遮罩卡片文案与进度 | `src/renderer/src/views/AlertView.tsx`、`src/renderer/src/features/reminders/restViewModel.ts` | 进度由 `restViewModel` 从主进程状态派生；仓库中**没有** `ActivityGuide.tsx`，活动解析在 AlertView 内完成。 |
 | 视觉令牌与窗口样式 | `src/renderer/src/styles/`、`src/renderer/src/styles.css` | 交互元素必须 `no-drag`；颜色用语义令牌。见 [docs/color-system.md](docs/color-system.md)。 |
-| 像素动物 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx` | 仅内置奋斗猫（像素 `cat`）；`PIXEL_ANIMALS` 是唯一来源。 |
+| 像素动物与装扮 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx`、`CatOutfit.tsx`、`features/simple/PetOutfitPicker.tsx` | 仅内置奋斗猫（像素 `cat`）；`PIXEL_ANIMALS` 与 `PET_OUTFITS` 是角色和装扮的唯一来源。装扮无解锁或养成。 |
 | 打包与产物 | `package.json` `build`、`electron.vite.config.ts` | 默认输出 `release/`；NSIS + portable x64。 |
 | 备份导入/导出与旧资料 | `src/main/backup.ts`、`src/main/taskStore.ts` | 备份格式当前为 **v8**，数据库 schema **v5**；导入前建回滚快照。旧规划/专注/独立提醒域仍参与导出与只读恢复。 |
 | 产品边界 / 命令层 | [docs/architecture.md](docs/architecture.md) §产品边界 lint | 写操作走 `run`/`useCommand`；`npm run verify:product` / `npm run lint` |
@@ -99,6 +101,8 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 ## 代码风格与约定
 
 严格 TypeScript、两空格、单引号、分号；`camelCase` 变量/函数，`PascalCase` 类型与 React 组件。跨进程数据结构放在 `src/shared/types.ts`，不要在三端重复定义。Renderer 不直接访问 Node/Electron，只使用 `window.eyeProtect`。用户可见写操作优先走命令层（`useCommand` + `run`），失败要可见，不要静默吞掉。倒计时权威在主进程 `SchedulerKernel`，不要在 renderer 自建计时权威。
+
+桌宠待机仅允许 1 网格单位的呼吸与低频眨眼；较大动作由一次性事件或低频小动作触发，不抢焦点。`petMotion` 关闭、页面不可见或系统减少动态效果时停止美术帧。
 
 更完整的模式说明见 [docs/coding-guide.md](docs/coding-guide.md)（注意其中规划/专注相关章节描述遗留面）。
 

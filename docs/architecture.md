@@ -12,6 +12,8 @@
 
 `WorkbenchView` 仅展示待办、完成记录和设置；导航权威为 `workbenchNavigation.ts`。顶部筛选清单，任务原地展开，一次展开一项。日程、看板、规划、独立专注、复盘和养成页不再加载。
 
+完成记录顶部的 `RestCompanionCard` 展示本周完成休息次数、周一到周日的小图和一句鼓励。`ReminderHistoryStore.getRestCompanion` → `reminder:companion` / `reminder:companion-changed` 是精简只读接口，不暴露分数、完成率、跳过次数或周际比较。测试提醒不进入个人记录；关闭记录停止新增，已有记录仍参与备份。跨日/跨周通过页面日期变化及重新聚焦刷新。
+
 `SimpleSettings` 只展示休息、外观、应用三组。旧资料入口只读展示旧规则和历史资料，并允许恢复归档项目/任务；完整原数据通过备份保存。恢复走 `task:restore-legacy` → `TaskService.restoreTask`：这是唯一允许把任务迁出 completed/archived 清单的限定权限事务（步骤随根任务一起迁回默认清单），普通编辑的只读保护不受影响。
 
 `BubbleView` 复用同一个窗口显示手选待办、番茄钟设置或计时。优先级为健康提醒 > 番茄钟 > 手选待办。遮罩健康提醒使用独立 Alert 窗口；原主界面故障时，Emergency HTML 和原生通知继续兜底。
@@ -22,7 +24,17 @@ Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动�
 
 桌宠右键菜单开启自由专注；任务行可以关联主任务启动。桌宠固定为奋斗猫（像素 `cat` 兜底）；用户可把动图放在 `custom-pet` 根目录替换动画。内置柴犬/白兔/仓鼠与经典像素小狗/白兔已删除，设置与托盘不再提供角色切换。
 
-`useAnimalFrame` 只推进短时美术帧，不参与业务倒计时。待机保持静止，每隔 14–24 秒执行一次小动作；互动约 1.6 秒，小动作约 2.9 秒，结束回到站姿。奋斗猫保留像素对齐的伸展/抬爪/踏步帧。关闭 `petMotion` 或系统减少动态效果时停止像素帧推进；用户 GIF 默认持续播放，仅在系统“减少动态效果”时由 `PetImage` 截取静态画面。`node scripts/smoke-pet-ui.mjs 1 --packaged` 验证开关几何、键盘操作、奋斗猫与减少动态效果，并输出截图到 `artifacts/pet-ui/`。
+同一只奋斗猫提供四套免费装扮：`classic`（奋斗日常）、`coffee`（咖啡时光）、`explorer`（森林探险）、`stargazer`（星夜魔法）。`pixelAnimals.ts` 定义装扮白名单与文案，`settings.petOutfit` 保存选择，缺失/非法值回退原版 `classic`；无养成、解锁或收藏系统。设置的 `PetOutfitPicker` 经命令层保存，提供短动作预览。`CatOutfit.tsx` 在原来的 64 网格上绘制服装、头饰和道具；点击或低频小动作触发各装扮的招手、捧杯、望远镜、星星棒动作，完成/休息步骤等事件继续使用原有动作。所有内置猫视图同步装扮，自定义动图优先显示。装扮变化重新上报 SVG 轮廓以避让气泡。
+
+`useAnimalFrame` 只推进美术帧，不参与业务倒计时。待机有 1 网格单位的呼吸起伏（约 3.2 秒周期）与约 8 秒一次的眨眼，每隔 14–24 秒执行一次小动作；互动约 1.6 秒，小动作约 2.9 秒，结束回到站姿。`pet:reaction` 只向桌宠推送一次性动作和事件 ID：任务事务提交后小跳、专注开始收拢坐下、休息预告伸展；新事件替换当前反应，撤销与重复完成不重播。休息活动的 `stepActions` 与 `restActivityStates` 把各活动按实际休息窗口依次分配，步骤变化时重播对应动作；完成时小跳一次。关闭 `petMotion`、窗口不可见或系统减少动态效果时停止像素帧推进。用户 GIF 沿用用户提供的动画，仅在系统“减少动态效果”时由 `PetImage` 截取静态画面；无法自动为任意 GIF 生成对应步骤动作。`node scripts/smoke-pet-ui.mjs 1 --packaged` 验证开关几何、键盘操作、奋斗猫与减少动态效果，并输出截图到 `artifacts/pet-ui/`。
+
+## 自启与提醒时机
+
+Windows 自启通过 `syncStartupShortcut` 写入当前用户 Startup 目录的 `EyeProtect.lnk`，安装版指向实际 exe，portable 指向外层启动 exe，不需要 `setLoginItemSettings`。只在 packaged 模式生效，默认关闭。保存自启偏好前先检查快捷方式操作，失败不提交设置；设置写盘失败时恢复此前的自启选择。启动时同步失败会写诊断并提示，休息服务继续工作；smoke 不触碰真实 Startup 目录。
+
+`ReminderContextMonitor` 接入 `ReminderScheduler.beforeReminder`，定时勿扰使用本地时间；全屏勿扰与“智能选择提醒时机”分别控制。智能检测默认关闭，开启后检测前台 Zoom / Teams / 腾讯会议 / Webex、已有本机白名单、摄像头/麦克风使用标记，以及最近 5 秒至少 6 次键入的输入高峰。输入等到约 3 秒停顿（每 2 秒复查），会议/设备/全屏每 10 秒复查，定时勿扰每 30 秒复查；这些保护持续到场景解除，不在三次延后后强弹。手动立即休息和测试提醒绕过自动检测，预告同样尊重保护。
+
+Windows 检测使用一个隐藏 PowerShell/C# 子进程：`GetForegroundWindow`、窗口与显示器边界、`GetAsyncKeyState` 的按下状态和当前用户 ConsentStore。只保留内存中的按键总数/停顿时长、进程名和布尔状态，不收集文字、窗口标题、音视频内容。单独开启全屏勿扰不采集键入或设备状态。ConsentStore 不是稳定公开的设备占用 API，可能漏检浏览器会议、权限受限应用或新 Windows 版本；前台会议应用规则也可能涵盖聊天界面。关闭相关开关、锁屏、休眠与退出时停止检测；故障写日志、丢弃过期采样并回退原提醒节奏，最多每分钟重试。
 
 ## 数据与迁移
 
@@ -145,7 +157,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | 域 | 生产读 | 生产写 | 保留原因 |
 | --- | --- | --- | --- |
 | Task / Project / todo settings | workbench / pet / bubble / backup | 活跃命令层 | 当前产品 |
-| Reminder history（`ReminderHistoryStore`） | scheduler `onEvent` 记录；backup 导出/恢复 | scheduler 写事件；backup `replaceEvents`；retention | **产品行为**仍在用（历史留痕 + 备份）；renderer **不再**读 weekly/care |
+| Reminder history（`ReminderHistoryStore`） | 完成记录的轻量本周小卡；backup 导出/恢复 | scheduler 写事件；backup `replaceEvents`；retention | 活跃留痕与正向反馈；不开放完整 weekly/care 报表或评分 |
 | StandaloneReminder 表 | backup 导出；`data:legacy` | backup 导入 `replaceAll`；`data:reset` 清空 | 只读兼容 + 备份往返 |
 | DailyTaskPlan / TimeBlock / FocusSession / TaskCheckpoint / DailyReflection | backup 导出；`data:legacy`（plans/sessions） | backup 导入 `replaceAll*`；`data:reset` 清空 reflections（并补齐 plans/timeblocks/sessions/checkpoints） | 只读兼容 + 备份往返 |
 | `taskStore` 上的 create/update/delete 单条规划/专注/独立提醒方法 | **无生产调用** | 仅测试构造 schema 不变量 | **方法保留**供 `schema-v4` 等兼容测试；活跃路径禁止再接 IPC 写 |

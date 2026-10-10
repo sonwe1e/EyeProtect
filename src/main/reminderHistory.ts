@@ -7,6 +7,7 @@ import {
   writeFileSync
 } from 'node:fs';
 import { join } from 'node:path';
+import { addLocalDays, localDateKey } from '../shared/calendar';
 import type {
   CareStatus,
   ReminderEvent,
@@ -14,6 +15,7 @@ import type {
   ReminderKind,
   ReminderMode,
   ReminderPeriodStats,
+  RestCompanionSummary,
   Settings,
   WeeklyReport
 } from '../shared/types';
@@ -304,26 +306,22 @@ export const buildCareStatus = (
       100,
       50 +
         completedToday * 10 +
-        naturalBreaksToday * 8 -
-        snoozedToday * 4 -
-        skippedToday * 8
+        naturalBreaksToday * 8
     )
   );
-  const lastComplete = [...today]
-    .reverse()
-    .find((event) => event.action === 'complete');
+  const lastComplete = today
+    .filter((event) => event.action === 'complete')
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
   const recentlyCompleted = Boolean(
     lastComplete && now - lastComplete.timestamp <= 10 * 60 * 1_000
   );
   const hour = new Date(now).getHours();
   const message =
-    today.length === 0
+    completedToday + naturalBreaksToday === 0
       ? '今天从轻松开始'
       : recentlyCompleted
         ? '休息得很好，继续保持舒服的节奏'
-        : snoozedToday >= 2 && snoozedToday > completedToday
-          ? '今天稍后有点多，下一次试着停一小会儿'
-          : hour >= 22 || hour < 7
+        : hour >= 22 || hour < 7
             ? '夜深了，该准备休息了'
             : `今天已认真休息 ${completedToday + naturalBreaksToday} 次`;
   return {
@@ -333,6 +331,35 @@ export const buildCareStatus = (
     skippedToday,
     naturalBreaksToday,
     message
+  };
+};
+
+export const buildRestCompanion = (
+  events: readonly ReminderEvent[],
+  enabled: boolean,
+  now: number = Date.now()
+): RestCompanionSummary => {
+  const weekStart = startOfWeek(now);
+  const days = Array.from({ length: 7 }, (_, index) => ({
+    date: localDateKey(addLocalDays(weekStart, index)),
+    completed: 0
+  }));
+  for (const event of events) {
+    if (event.action !== 'complete' || event.timestamp < weekStart || event.timestamp > now) continue;
+    const day = days.find((entry) => entry.date === localDateKey(event.timestamp));
+    if (day) day.completed += 1;
+  }
+  const completed = days.reduce((sum, day) => sum + day.completed, 0);
+  return {
+    generatedAt: now,
+    enabled,
+    completed,
+    message: !enabled
+      ? '休息记录已关闭，仍然可以按自己的节奏休息。'
+      : completed > 0
+        ? `本周已为自己留出 ${completed} 次休息，每一小次停顿都算数。`
+        : '按自己的节奏来，下一次小小的休息就很好。',
+    days
   };
 };
 
@@ -398,6 +425,10 @@ export class ReminderHistoryStore extends EventEmitter {
 
   getCareStatus(now: number = Date.now()): CareStatus {
     return buildCareStatus(this.events, now);
+  }
+
+  getRestCompanion(settings: Settings, now: number = Date.now()): RestCompanionSummary {
+    return buildRestCompanion(this.events, settings.historyEnabled, now);
   }
 
   export(format: 'json' | 'csv'): string {

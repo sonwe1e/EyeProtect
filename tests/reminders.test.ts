@@ -23,6 +23,7 @@ const baseSettings: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
+  petOutfit: 'classic',
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -838,4 +839,64 @@ test('disabled health reminders register no deadlines and reenable starts a fres
   scheduler.updateSettings({ ...settings, eyeEnabled: true }, settings);
   assert.equal(scheduler.getStatus().nextEyeAt, now + 1200000);
   scheduler.stop(); kernel.stop();
+});
+
+test('protected context keeps waiting beyond three checks and shows once when input pauses', async () => {
+  let now = T0;
+  let busy = true;
+  const scheduler = new ReminderScheduler({ ...baseSettings, walkEnabled: false, reminderMode: 'guided' }, {
+    now: () => now, manualStart: true,
+    beforeReminder: async () => busy
+      ? { action: 'defer', deferSeconds: 2, waitForContext: true, reason: '正在输入' }
+      : { action: 'show' }
+  });
+  try {
+    now += 20 * MINUTE;
+    for (let index = 0; index < 6; index += 1) {
+      scheduler.tick();
+      await Promise.resolve();
+      assert.equal(scheduler.getStatus().activeReminder, null);
+      assert.equal(scheduler.getStatus().contextDeferral?.until, now + 2_000);
+      now += 2_000;
+    }
+    busy = false;
+    scheduler.tick();
+    await Promise.resolve();
+    const active = scheduler.getStatus().activeReminder!;
+    assert.equal(active.kind, 'eye');
+    assert.equal(active.mode, 'guided');
+    assert.equal(scheduler.getStatus().contextDeferral, null);
+    scheduler.tick();
+    assert.equal(scheduler.getStatus().activeReminder?.id, active.id);
+  } finally { scheduler.stop(); }
+});
+
+test('manual and test reminders bypass automatic context protection', () => {
+  let gates = 0;
+  const scheduler = new ReminderScheduler(baseSettings, { now: () => T0, manualStart: true,
+    beforeReminder: async () => { gates += 1; return { action: 'defer', waitForContext: true }; }
+  });
+  try {
+    const testReminder = scheduler.triggerTest('eye').activeReminder!;
+    scheduler.handleAction('skip', testReminder.id);
+    assert.ok(scheduler.triggerNow().activeReminder);
+    assert.equal(gates, 0);
+  } finally { scheduler.stop(); }
+});
+
+test('pre-alerts respect context protection while manual-start rests still support previews', () => {
+  let now = T0;
+  let available = false;
+  const settings = { ...baseSettings, preAlertSeconds: 30, walkEnabled: false };
+  const scheduler = new ReminderScheduler(settings, { now: () => now, manualStart: true, canPreAlert: () => available });
+  try {
+    now += 20 * MINUTE - 30_000;
+    assert.equal(scheduler.tick().preAlert, null);
+    available = true;
+    scheduler.restartCycle();
+    now += 20 * MINUTE - 30_000;
+    assert.equal(scheduler.tick().preAlert?.kind, 'eye');
+    scheduler.handlePreAlertAction('start');
+    assert.equal(scheduler.getStatus().activeReminder?.restStartedAt, null);
+  } finally { scheduler.stop(); }
 });

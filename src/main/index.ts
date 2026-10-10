@@ -25,6 +25,7 @@ import type {
   AppHealth,
   HotkeyAction,
   HotkeyStatus,
+  PetReaction,
   PreAlertAction,
   ReminderAction,
   ReminderKind,
@@ -52,6 +53,7 @@ import { TaskScheduler } from './taskScheduler';
 import { PomodoroService } from './pomodoro';
 import { isCurrentTask } from '../shared/simpleTasks';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
+import { ReminderContextMonitor } from './reminderContext';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
 import { asSimpleTaskInput, asSimpleTaskUpdateInput } from './ipcTaskInput';
@@ -354,7 +356,9 @@ app.whenReady().then(async () => {
   if (!lock) {
     return;
   }
-  const settingsStore = new SettingsStore();
+  const settingsStore = new SettingsStore((settings) => {
+    if (process.env.EYEPROTECT_SMOKE !== '1') syncStartupShortcut(settings);
+  });
   const runtimeStateStore = new RuntimeStateStore(settingsStore.getDataDir());
   // Begin a session BEFORE load() so the new session id owns the restore and
   // every subsequent save()/checkpoint is tagged with it. A crash restore then
@@ -385,6 +389,8 @@ app.whenReady().then(async () => {
     trace: (message, data) =>
       reminderTrace.append({ t: Date.now(), src: 'kernel', event: message, data })
   });
+  const contextMonitor = new ReminderContextMonitor((message) => logger.warn('智能提醒检测不可用，继续使用原休息节奏', message));
+  contextMonitor.configure(settingsStore.get());
   // Schedules survive restarts: restore the persisted snapshot (validated;
   // corrupt files were quarantined by the store) and persist every transition.
   const scheduler = new ReminderScheduler(settingsStore.get(), {
@@ -404,7 +410,8 @@ app.whenReady().then(async () => {
         }).show();
       }
     },
-    beforeReminder: async () => ({ action: 'show' }),
+    beforeReminder: async () => contextMonitor.decision(settingsStore.get()),
+    canPreAlert: () => contextMonitor.decision(settingsStore.get()).action === 'show',
     trace: (event, data) =>
       reminderTrace.append({ t: Date.now(), src: 'scheduler', event, data })
   });
@@ -456,6 +463,9 @@ app.whenReady().then(async () => {
   scheduler.updateTasks([]);
   taskScheduler.arm();
   const windows = new AppWindows(settingsStore, scheduler, () => taskService.getTasks(), () => taskService.getProjects());
+  let reactionSequence = 0;
+  const reactPet = (action: PetReaction): void => windows.broadcastPetReaction({ id: `${Date.now()}-${++reactionSequence}`, action });
+  historyStore.onChanged(() => windows.broadcastRestCompanion(historyStore.getRestCompanion(settingsStore.get())));
   const pomodoro = new PomodoroService(settingsStore.getDataDir(), kernel, {
     taskAvailable: (id) => { const task = taskService.getTask(id); return Boolean(task && task.status === 'open' && isCurrentTask(task, taskService.getProjects())); },
     healthBreakActive: () => Boolean(scheduler.getStatus().activeReminder),
@@ -470,7 +480,13 @@ app.whenReady().then(async () => {
     return scheduler.beginRest(id, minimumMs);
   };
   windows.setPomodoroProvider(() => pomodoro.getState());
-  pomodoro.on('changed', (state) => windows.broadcastPomodoro(state));
+  let focusing = false;
+  pomodoro.on('changed', (state) => {
+    windows.broadcastPomodoro(state);
+    const nextFocusing = state.phase === 'focus' && state.running;
+    if (nextFocusing && !focusing) reactPet('focus');
+    focusing = nextFocusing;
+  });
   activityMonitor.on('inactive', () => pomodoro.act('pause'));
   const refreshTasks = (): void => { taskScheduler.arm(); pomodoro.reconcileTask(); };
   taskService.on('task-upserted', (task) => { windows.broadcastTaskUpserted(task); refreshTasks(); });
@@ -480,6 +496,7 @@ app.whenReady().then(async () => {
   taskService.on('project-removed', (id) => { windows.broadcastProjectRemoved(id); refreshTasks(); });
   taskService.on('projects-replaced', (projects) => { windows.broadcastProjects(projects); refreshTasks(); });
   taskService.on('undo-changed', (state) => windows.broadcastUndo(state));
+  taskService.on('task-completed', () => reactPet('celebrate'));
 
   const refreshSystemTheme = (): void => windows.refreshWorkbenchTheme();
   nativeTheme.on('updated', refreshSystemTheme);
@@ -607,6 +624,7 @@ app.whenReady().then(async () => {
   // previously ran an independent timer outside this loop, now wake alongside
   // the break scheduler (fixes the "alarm ignores suspend/resume" gap).
   powerMonitor.on('suspend', () => {
+    contextMonitor.stop();
     activityMonitor.suspend();
     pomodoro.act('pause');
     kernel.suspend();
@@ -614,12 +632,14 @@ app.whenReady().then(async () => {
     taskScheduler.suspend();
   });
   powerMonitor.on('resume', () => {
+    contextMonitor.configure(settingsStore.get());
     activityMonitor.resume(powerMonitor.getSystemIdleTime());
     kernel.resume(powerMonitor.getSystemIdleTime() * 1000);
     taskScheduler.resume();
   });
-  powerMonitor.on('lock-screen', () => activityMonitor.lock());
+  powerMonitor.on('lock-screen', () => { contextMonitor.stop(); activityMonitor.lock(); });
   powerMonitor.on('unlock-screen', () => {
+    contextMonitor.configure(settingsStore.get());
     activityMonitor.unlock();
     scheduler.handleScreenUnlock();
     kernel.reconcile();
@@ -669,6 +689,7 @@ app.whenReady().then(async () => {
       settings.quietHoursStartMinutes !== previous.quietHoursStartMinutes ||
       settings.quietHoursEndMinutes !== previous.quietHoursEndMinutes ||
       settings.foregroundDetectionEnabled !== previous.foregroundDetectionEnabled ||
+      settings.fullscreenDndEnabled !== previous.fullscreenDndEnabled ||
       settings.quietAppWhitelist.join('\n') !== previous.quietAppWhitelist.join('\n')
     ) {
       // Mode/pre-alert changes do not reschedule deadlines, but the
@@ -676,9 +697,7 @@ app.whenReady().then(async () => {
       // (pre-alert lead times are timer candidates).
       scheduler.updateSettings(settings, previous);
     }
-    if (settings.startWithWindows !== previous.startWithWindows) {
-      syncStartupShortcut(settings);
-    }
+    contextMonitor.configure(settings);
     if (settings.hotkeysEnabled !== previous.hotkeysEnabled) {
       applyGlobalHotkeys(settings.hotkeysEnabled);
     }
@@ -687,10 +706,9 @@ app.whenReady().then(async () => {
     }
     if (
       settings.historyEnabled !== previous.historyEnabled ||
-      settings.historyRetentionDays !== previous.historyRetentionDays ||
-      settings.eyeIntervalMinutes !== previous.eyeIntervalMinutes ||
-      settings.walkIntervalMinutes !== previous.walkIntervalMinutes
+      settings.historyRetentionDays !== previous.historyRetentionDays
     ) {
+      windows.broadcastRestCompanion(historyStore.getRestCompanion(settings));
     }
     if (
       settings.petScale !== previous.petScale ||
@@ -702,7 +720,11 @@ app.whenReady().then(async () => {
   });
 
   let presentedReminderId: string | null = null;
+  let preAlertAt: number | null = null;
   scheduler.onChanged((status) => {
+    const nextPreAlert = status.preAlert?.firesAt ?? null;
+    if (nextPreAlert !== null && nextPreAlert !== preAlertAt) reactPet('stretch');
+    preAlertAt = nextPreAlert;
     windows.broadcastReminderStatus(status);
     const active = status.activeReminder;
     if (active) reminderSurface.update(active);
@@ -759,6 +781,7 @@ app.whenReady().then(async () => {
     app.quit();
   });
   handleIpc('reminder:status', () => scheduler.getStatus());
+  handleIpc('reminder:companion', () => historyStore.getRestCompanion(settingsStore.get()));
   handleIpc('reminder:action', (action, reminderId) => {
     const normalized = asReminderAction(action);
     return normalized ? scheduler.handleAction(normalized, asString(reminderId)) : scheduler.getStatus();
@@ -1257,7 +1280,12 @@ app.whenReady().then(async () => {
   deliveryQueue.start();
   applyGlobalHotkeys(settingsStore.get().hotkeysEnabled);
   createTray(windows, scheduler, settingsStore, () => taskService.getTasks(), beginHealthRest);
-  syncStartupShortcut(settingsStore.get());
+  try {
+    if (process.env.EYEPROTECT_SMOKE !== '1') syncStartupShortcut(settingsStore.get());
+  } catch (error) {
+    logger.error('开机启动同步失败', error);
+    if (Notification.isSupported()) new Notification({ title: 'EyeProtect · 开机启动未生效', body: '请在设置中重新开启开机启动；本次休息提醒仍正常运行。' }).show();
+  }
   startDiagnostics();
   // A break session recovered from a crash (USERPLAN §一.3) is active in the
   // scheduler, but startup never emits 'changed', so the presentation layer
@@ -1277,6 +1305,7 @@ app.whenReady().then(async () => {
   // Persist on the way out so a restart resumes the running countdowns
   // instead of silently resetting (or bypassing) them.
   app.on('before-quit', () => {
+    contextMonitor.stop();
     pomodoro.dispose();
     runtimeStateStore.stopCheckpoint();
     activityMonitor.stop();

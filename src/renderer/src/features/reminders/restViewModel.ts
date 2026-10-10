@@ -73,7 +73,23 @@ export const restPhase = (active: ActiveReminder, now: number): RestPhase => {
 
 /** The pixel animal only animates once the break actually runs. */
 export const restAnimalAction = (kind: ReminderKind, phase: RestPhase): string =>
-  phase === 'ready' ? 'idle' : kind;
+  phase === 'ready' ? 'idle' : phase === 'finished' ? 'celebrate' : kind;
+
+export const activityAnimalAction = (activity: BreakActivity, stepIndex: number): string =>
+  activity.stepActions?.[stepIndex] ?? activity.kind;
+
+/** Fit suggestions sequentially into the actual main-process rest window. */
+export const restActivityStates = (activities: BreakActivity[], startedAt: number, unlockAt: number, now: number): Array<{ activity: BreakActivity; step: ActivityStepProgress }> => {
+  const suggestedMs = activities.reduce((sum, activity) => sum + activity.durationSeconds * 1_000, 0);
+  const scale = Math.max(1, unlockAt - startedAt) / Math.max(1, suggestedMs);
+  let offset = 0;
+  return activities.map((activity) => {
+    const durationMs = Math.max(1, activity.durationSeconds * 1_000 * scale);
+    const step = getActivityProgress({ ...activity, durationSeconds: durationMs / 1_000 }, startedAt + offset, now);
+    offset += durationMs;
+    return { activity, step };
+  });
+};
 
 /**
  * Rest seconds this reminder would take if the user started it now. Combined

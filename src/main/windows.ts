@@ -8,7 +8,9 @@ import type {
   HotkeyStatus,
   Project,
   PomodoroState,
+  PetReactionEvent,
   ReminderStatus,
+  RestCompanionSummary,
   RuntimeInfo,
   Settings,
   FailedDeliveryNotice,
@@ -1134,6 +1136,14 @@ export class AppWindows {
         window.webContents.send(channel, payload);
       }
     }
+  }
+
+  broadcastRestCompanion(summary: RestCompanionSummary): void {
+    this.sendTo([this.workbenchWindow], 'reminder:companion-changed', summary);
+  }
+
+  broadcastPetReaction(event: PetReactionEvent): void {
+    this.sendTo([this.petWindow], 'pet:reaction', event);
   }
 
   // Push the full task list to every live window so hooks subscribed to

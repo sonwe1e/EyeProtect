@@ -14,7 +14,8 @@ import { soundPlayer } from '../lib/audio';
 import { PixelAnimal } from '../features/characters/PixelAnimal';
 import {
   formatRestDuration,
-  getActivityProgress,
+  activityAnimalAction,
+  restActivityStates,
   restAnimalAction,
   restCountdown,
   restKindCopy,
@@ -166,10 +167,7 @@ export default function AlertView(): JSX.Element {
     pomodoro.phase === 'focus-finished' || pomodoro.phase === 'break';
   const restStartedAt = typeof active.restStartedAt === 'number' ? active.restStartedAt : now;
 
-  const activityStates = activities.map((activity) => ({
-    activity,
-    step: getActivityProgress(activity, restStartedAt, now)
-  }));
+  const activityStates = restActivityStates(activities, restStartedAt, active.unlockAt, now);
   const incompleteIndex = activityStates.findIndex((entry) => !entry.step.complete);
   const currentIndex = incompleteIndex === -1 ? Math.max(0, activityStates.length - 1) : incompleteIndex;
   const current = activityStates[currentIndex];
@@ -363,8 +361,10 @@ export default function AlertView(): JSX.Element {
                 ) : (
                   <PixelAnimal
                     animal={animal}
+                    outfit={settings.petOutfit}
                     motion={settings.petMotion}
-                    action={restAnimalAction(active.kind, phase)}
+                    action={phase === 'resting' && current ? activityAnimalAction(current.activity, current.step.stepIndex) : restAnimalAction(active.kind, phase)}
+                    animationKey={`${active.id}-${phase}-${current?.activity.id ?? ''}-${current?.step.stepIndex ?? 0}`}
                     label={`${copy.badge} · ${animalName}`}
                   />
                 )}

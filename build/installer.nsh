@@ -30,7 +30,10 @@ Var pid
 !macroend
 
 !macro customCheckAppRunning
-  !insertmacro IS_POWERSHELL_AVAILABLE
+  ; Newer electron-builder templates require the probe; 25.x uses native process checks.
+  !ifmacrodef IS_POWERSHELL_AVAILABLE
+    !insertmacro IS_POWERSHELL_AVAILABLE
+  !endif
   !insertmacro _CHECK_APP_RUNNING
   !insertmacro preserveEyeProtectData
 !macroend

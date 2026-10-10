@@ -65,6 +65,9 @@ jobs:
           node scripts/smoke-simple-experience.mjs 1.5 artifacts/simple-150
           node scripts/smoke-simple-experience.mjs 1 artifacts/simple-emergency --emergency
           node scripts/smoke-simple-pet-failure.mjs
+          node scripts/smoke-pet-ui.mjs 1 --packaged
+          node scripts/smoke-pet-ui.mjs 1.25 --packaged
+          node scripts/smoke-pet-ui.mjs 1.5 --packaged
 
       - name: Upload interaction evidence
         if: always()
@@ -75,6 +78,8 @@ jobs:
             artifacts/simple-*/*.png
             artifacts/simple-*/metrics.json
             artifacts/simple-*/app.log
+            artifacts/pet-ui/*/*.png
+            artifacts/pet-ui/*/app.log
           if-no-files-found: warn
 
       - name: Upload installer

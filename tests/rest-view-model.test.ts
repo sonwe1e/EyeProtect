@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   formatRestDuration,
+  activityAnimalAction,
+  restActivityStates,
   getActivityProgress,
   restAnimalAction,
   restCountdown,
@@ -10,6 +12,7 @@ import {
   restPhase
 } from '../src/renderer/src/features/reminders/restViewModel';
 import { DEFAULT_SETTINGS, type ActiveReminder, type BreakActivity, type ReminderKind } from '../src/shared/types';
+import { BREAK_ACTIVITIES } from '../src/shared/breakActivities';
 
 const settings = { ...DEFAULT_SETTINGS, eyeRestSeconds: 30, walkRestSeconds: 60 };
 
@@ -102,7 +105,33 @@ test('lede copy is shared between the alert window and the gentle bubble', () =>
 test('animal action stays idle until the break starts', () => {
   assert.equal(restAnimalAction('combined', 'ready'), 'idle');
   assert.equal(restAnimalAction('combined', 'resting'), 'combined');
-  assert.equal(restAnimalAction('walk', 'finished'), 'walk');
+  assert.equal(restAnimalAction('walk', 'finished'), 'celebrate');
+});
+
+test('every built-in rest step carries its matching animal action', () => {
+  for (const activity of BREAK_ACTIVITIES) {
+    assert.equal(activity.stepActions?.length, activity.steps.length);
+    activity.steps.forEach((_text, index) => assert.equal(activityAnimalAction(activity, index), activity.stepActions![index]));
+  }
+  const far = BREAK_ACTIVITIES.find((activity) => activity.id === 'eye-far-gaze')!;
+  assert.equal(activityAnimalAction(far, 0), 'gaze');
+  assert.equal(activityAnimalAction(far, 2), 'blink');
+  assert.equal(activityAnimalAction({ ...far, stepActions: undefined }, 1), 'eye');
+});
+
+test('combined activities run sequentially inside the actual rest duration', () => {
+  const eye = BREAK_ACTIVITIES[0];
+  const walk = BREAK_ACTIVITIES.find((activity) => activity.id === 'walk-in-place')!;
+  const at = 1_000_000;
+  const first = restActivityStates([eye, walk], at, at + 60_000, at + 19_999);
+  assert.equal(first[0].step.complete, false);
+  assert.equal(first[1].step.progress, 0);
+  const second = restActivityStates([eye, walk], at, at + 60_000, at + 20_000);
+  assert.equal(second[0].step.complete, true);
+  assert.equal(second[1].step.stepIndex, 0);
+  const final = restActivityStates([eye, walk], at, at + 60_000, at + 60_000);
+  assert.ok(final.every((entry) => entry.step.complete));
+  assert.deepEqual(restActivityStates([], at, at, at), []);
 });
 
 test('durations format as mm:ss and clamp invalid input', () => {

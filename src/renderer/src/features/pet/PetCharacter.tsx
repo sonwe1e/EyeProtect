@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { PIXEL_ANIMAL_NAMES, type PixelAnimal } from '../../../../shared/pixelAnimals';
+import { PIXEL_ANIMAL_NAMES, PET_OUTFIT_DETAILS, type PixelAnimal, type PetOutfit } from '../../../../shared/pixelAnimals';
 import { PixelAnimal as PixelAnimalArtwork } from '../characters/PixelAnimal';
 import { PetImage } from '../characters/PetImage';
-import type { CustomPetAssets } from '../../../../shared/types';
+import type { CustomPetAssets, PetReactionEvent } from '../../../../shared/types';
 
 const IDLE_ACTION_INTERVAL_MIN_MS = 14_000;
 const IDLE_ACTION_INTERVAL_MAX_MS = 24_000;
@@ -10,13 +10,19 @@ const IDLE_ACTION_DURATION_MS = 3_200;
 
 export function PetCharacter({
   animal,
+  outfit,
   reacting,
   doubleClickHint,
+  reaction = null,
+  clickKey = 0,
   motion = true
 }: {
   animal: PixelAnimal;
+  outfit: PetOutfit;
   reacting: boolean;
   doubleClickHint: string;
+  reaction?: PetReactionEvent | null;
+  clickKey?: number;
   /** Manual override: false freezes idle fidget. prefers-reduced-motion still wins. */
   motion?: boolean;
 }): JSX.Element {
@@ -40,7 +46,7 @@ export function PetCharacter({
   }, []);
 
   useEffect(() => {
-    if (reacting && customAssets?.hasCustomPet) {
+    if ((reacting || reaction) && customAssets?.hasCustomPet) {
       const pool =
         customAssets.clicks.length > 0
           ? customAssets.clicks
@@ -53,7 +59,7 @@ export function PetCharacter({
         setActionNonce((prev) => prev + 1);
       }
     }
-  }, [reacting, customAssets]);
+  }, [reacting, reaction, clickKey, customAssets]);
 
   useEffect(() => {
     if (isAnimating && customAssets?.hasCustomPet) {
@@ -112,7 +118,8 @@ export function PetCharacter({
   }, [motion]);
 
   const name = PIXEL_ANIMAL_NAMES[animal];
-  const artworkAction = reacting ? 'react' : isAnimating && motion ? 'fidget' : 'idle';
+  const artworkAction = reaction?.action ?? (reacting ? 'react' : isAnimating && motion ? 'fidget' : 'idle');
+  const interacting = reacting || Boolean(reaction);
 
   if (customAssets?.hasCustomPet) {
     const defaultIdle =
@@ -123,12 +130,12 @@ export function PetCharacter({
       null;
 
     const currentSrc =
-      (reacting && (activeClickSrc || customAssets.clicks[0])) ||
+      (interacting && (activeClickSrc || customAssets.clicks[0])) ||
       (isAnimating && (activeFidgetSrc || customAssets.fidgets[0])) ||
       defaultIdle;
 
     if (currentSrc) {
-      const imgKey = reacting
+      const imgKey = interacting
         ? `click-${actionNonce}-${currentSrc}`
         : isAnimating
         ? `fidget-${actionNonce}-${currentSrc}`
@@ -155,9 +162,9 @@ export function PetCharacter({
     <div
       className={`pet-character ${isAnimating ? 'is-animating' : ''} ${reacting ? 'is-reacting' : ''}`.trim()}
       aria-label={name}
-      title={`单击互动，${doubleClickHint}`}
+      title={`单击${PET_OUTFIT_DETAILS[outfit].interaction}，${doubleClickHint}`}
     >
-      <PixelAnimalArtwork animal={animal} action={artworkAction} motion={motion} label={name} />
+      <PixelAnimalArtwork animal={animal} outfit={outfit} action={artworkAction} animationKey={reaction?.id ?? clickKey} motion={motion} label={`${name} · ${PET_OUTFIT_DETAILS[outfit].name}`} />
     </div>
   );
 }

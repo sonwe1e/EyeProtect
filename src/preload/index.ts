@@ -9,6 +9,7 @@ import type {
   HotkeyStatus,
   LegacyData,
   PetPosition,
+  PetReactionEvent,
   PomodoroState,
   PreAlertAction,
   Project,
@@ -17,6 +18,7 @@ import type {
   ReminderAction,
   ReminderKind,
   ReminderStatus,
+  RestCompanionSummary,
   RuntimeInfo,
   Settings,
   Task,
@@ -59,6 +61,9 @@ const api: EyeProtectApi = {
   resume: () => ipcRenderer.invoke('reminder:resume') as Promise<ReminderStatus>,
   restartCycle: () => ipcRenderer.invoke('reminder:restart') as Promise<ReminderStatus>,
   onReminderChanged: (callback) => on<ReminderStatus>('reminder:changed', callback),
+  getRestCompanion: () => ipcRenderer.invoke('reminder:companion') as Promise<RestCompanionSummary>,
+  onRestCompanionChanged: (callback) => on<RestCompanionSummary>('reminder:companion-changed', callback),
+  onPetReaction: (callback) => on<PetReactionEvent>('pet:reaction', callback),
   beginHealthRest: (id) => ipcRenderer.invoke('reminder:begin-rest', id) as Promise<ReminderStatus>,
 
   preparePomodoro: (taskId, replace) =>

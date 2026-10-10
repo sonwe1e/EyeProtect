@@ -36,6 +36,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useConfirm } from '../hooks/useConfirm';
 import { run } from '../lib/commands';
 import { SimpleSettings } from '../features/simple/SimpleSettings';
+import { RestCompanionCard } from '../features/simple/RestCompanionCard';
 import { PRIMARY_WORKBENCH_SECTIONS, WORKBENCH_SECTIONS, type WorkbenchSectionId } from '../features/workbench/workbenchNavigation';
 import type { FailedDeliveryNotice } from '../../../shared/types';
 import '../styles/simple.css';
@@ -161,6 +162,8 @@ export default function WorkbenchView(): JSX.Element {
       {dirtyCount > 0 ? <div className="simple-undo simple-dirty-hint" role="status"><span>有 {dirtyCount} 项任务存在未保存修改，收起详情也会保留草稿</span></div> : null}
       <LiveStatusStrip tasks={tasks} pomodoro={pomodoro} pausedUntil={reminderStatus.pausedUntil} />
       {tab === 'settings' ? <SimpleSettings /> : <>
+        {tab === 'review' ? <RestCompanionCard /> : null}
+        {reminderStatus.contextDeferral ? <p className="simple-context-note" role="status">{reminderStatus.contextDeferral.reason}</p> : null}
         {tab === 'today' ? (
           <div className="simple-rhythm-banner">
             <div className="simple-rhythm-info">
@@ -243,7 +246,7 @@ export default function WorkbenchView(): JSX.Element {
           {selected.length > 0 && !selected.some((task) => task.status === 'open') && !search ? (
             <div className="simple-empty-state">
               <div className="simple-empty-animal">
-                <PixelAnimal animal={settings.petAppearance} action="idle" label="桌宠小憩" />
+                <PixelAnimal animal={settings.petAppearance} outfit={settings.petOutfit} action="idle" motion={settings.petMotion} label="桌宠小憩" />
               </div>
               <h3>今日待办全部搞定啦！</h3>
               <p>没有待处理任务。记一件新想法，或者和小动物一起让眼睛离开屏幕、眺望远方休息片刻吧。</p>
@@ -252,7 +255,7 @@ export default function WorkbenchView(): JSX.Element {
           {selected.length === 0 && !search ? (
             <div className="simple-empty-state">
               <div className="simple-empty-animal">
-                <PixelAnimal animal={settings.petAppearance} action="idle" label="桌宠小憩" />
+                <PixelAnimal animal={settings.petAppearance} outfit={settings.petOutfit} action="idle" motion={settings.petMotion} label="桌宠小憩" />
               </div>
               <h3>还没有添加待办任务</h3>
               <p>在上方输入框写下一项要做的事情，按回车即可轻松开始你的每日专注计划。</p>
@@ -340,7 +343,7 @@ export default function WorkbenchView(): JSX.Element {
         )) : (
           <div className="simple-empty-state">
             <div className="simple-empty-animal">
-              <PixelAnimal animal={settings.petAppearance} action="idle" label="桌宠小憩" />
+              <PixelAnimal animal={settings.petAppearance} outfit={settings.petOutfit} action="idle" motion={settings.petMotion} label="桌宠小憩" />
             </div>
             <h3>还没有符合条件的完成记录</h3>
             <p>完成待办清单中的任务后，这里会自动生成你的每日专注成就记录。</p>

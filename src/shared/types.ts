@@ -1,4 +1,4 @@
-import type { PixelAnimal } from './pixelAnimals';
+import type { PixelAnimal, PetOutfit } from './pixelAnimals';
 
 export type ReminderKind = 'eye' | 'walk' | 'combined';
 export type SingleReminderKind = Exclude<ReminderKind, 'combined'>;
@@ -46,6 +46,8 @@ export interface BreakActivity {
   kind: SingleReminderKind;
   title: string;
   steps: string[];
+  /** Optional for imported/older activities; the kind remains the fallback. */
+  stepActions?: Array<'gaze' | 'blink' | 'sleep' | 'breathe' | 'walk' | 'stretch'>;
   /** Roughly how long the activity takes; used to pace the step progress. */
   durationSeconds: number;
   tags: string[];
@@ -534,6 +536,8 @@ export interface Settings {
   todoBubbleEnabled: boolean;
   todoBubbleTaskIds: string[];
   petAppearance: PixelAnimal;
+  /** Built-in 奋斗猫 outfit; custom GIF artwork takes precedence. */
+  petOutfit: PetOutfit;
   petScale: number;
   /**
    * Whether the idle pet animates its small periodic actions (blink/fidget).
@@ -558,8 +562,8 @@ export interface Settings {
   quietHoursStartMinutes: number;
   quietHoursEndMinutes: number;
   /**
-   * Check the foreground application once when a reminder becomes due.
-   * Matching is restricted to the explicit local whitelist below.
+   * Delay real reminders during foreground meetings, media capture and typing.
+   * Local sampling stores no typed text; quietAppWhitelist extends meeting apps.
    */
   foregroundDetectionEnabled: boolean;
   quietAppWhitelist: string[];
@@ -707,6 +711,21 @@ export interface CareStatus {
   skippedToday: number;
   naturalBreaksToday: number;
   message: string;
+}
+
+/** A small encouragement card, without scores, targets or missed-break counts. */
+export interface RestCompanionSummary {
+  generatedAt: number;
+  enabled: boolean;
+  completed: number;
+  message: string;
+  days: Array<{ date: string; completed: number }>;
+}
+
+export type PetReaction = 'celebrate' | 'stretch' | 'focus';
+export interface PetReactionEvent {
+  id: string;
+  action: PetReaction;
 }
 
 export interface ContextDeferral {
@@ -871,6 +890,9 @@ export interface EyeProtectApi {
   restartCycle: () => Promise<ReminderStatus>;
   onReminderChanged: (callback: (status: ReminderStatus) => void) => () => void;
   beginHealthRest: (id: string) => Promise<ReminderStatus>;
+  getRestCompanion: () => Promise<RestCompanionSummary>;
+  onRestCompanionChanged: (callback: (summary: RestCompanionSummary) => void) => () => void;
+  onPetReaction: (callback: (event: PetReactionEvent) => void) => () => void;
 
   // ── Pomodoro ───────────────────────────────────────────────────────────
   preparePomodoro: (taskId: string | null, replace: boolean) => Promise<PomodoroState>;
@@ -971,6 +993,7 @@ export const DEFAULT_SETTINGS: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
+  petOutfit: 'classic',
   petScale: 1,
   petMotion: true,
   petPosition: null,

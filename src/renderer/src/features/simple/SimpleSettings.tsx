@@ -1,11 +1,11 @@
-import { SIMPLE_SETTING_LIMITS } from '../../../../shared/types';
+import { PRE_ALERT_LIMIT, SIMPLE_SETTING_LIMITS } from '../../../../shared/types';
 import { useEffect, useState } from 'react';
 import type { Settings, LegacyData, CommandResult } from '../../../../shared/types';
 import { useSettings } from '../../hooks/useSettings';
 import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
 import { useCommand } from '../../hooks/useCommand';
-import { PixelAnimal } from '../characters/PixelAnimal';
+import { PetOutfitPicker } from './PetOutfitPicker';
 import { soundPlayer } from '../../lib/audio';
 import { run } from '../../lib/commands';
 import {
@@ -21,7 +21,6 @@ import {
   Upload,
   Palette,
   Play,
-  Check,
   Shield
 } from 'lucide-react';
 
@@ -204,7 +203,7 @@ export function SimpleSettings(): JSX.Element {
   };
 
   const number = (
-    key: 'eyeIntervalMinutes' | 'walkIntervalMinutes' | 'eyeRestSeconds' | 'walkRestSeconds' | 'petScale',
+    key: 'eyeIntervalMinutes' | 'walkIntervalMinutes' | 'eyeRestSeconds' | 'walkRestSeconds' | 'petScale' | 'preAlertSeconds',
     label: string,
     min: number,
     max: number,
@@ -410,6 +409,14 @@ export function SimpleSettings(): JSX.Element {
             </div>
           </div>
           <div className="simple-setting-card-body">
+            <div className="simple-field-grid">{number('preAlertSeconds', '休息前预告（秒，0 为关闭）', PRE_ALERT_LIMIT.min, PRE_ALERT_LIMIT.max)}</div>
+            <div className="simple-setting-row">
+              <div className="simple-setting-row-info">
+                <span className="simple-setting-row-title">智能选择提醒时机</span>
+                <span className="simple-setting-row-desc">会议应用在前台、摄像头或麦克风使用中时延后；连续输入时等到约 3 秒停顿。检测仅在本机进行，不记录输入内容。设备占用检测可能受 Windows 版本影响。</span>
+              </div>
+              <SettingSwitch checked={settings.foregroundDetectionEnabled} onChange={(checked) => save('foregroundDetectionEnabled', { foregroundDetectionEnabled: checked })} disabled={savingKey === 'foregroundDetectionEnabled'} status={statusFor('foregroundDetectionEnabled')} label="开启智能选择提醒时机" />
+            </div>
             <div className="simple-setting-row">
               <div className="simple-setting-row-info">
                 <span className="simple-setting-row-title">全屏应用自动免打扰</span>
@@ -479,7 +486,7 @@ export function SimpleSettings(): JSX.Element {
           桌面外观
         </h2>
         <p className="simple-section-desc">
-          桌面伙伴是奋斗猫，可替换自定义动图并调节大小与互动细节。
+          给奋斗猫换一身装扮、试一个小动作，也可以用自己的动图替换它。
         </p>
 
         {/* 当前桌宠 */}
@@ -488,25 +495,17 @@ export function SimpleSettings(): JSX.Element {
             <div>
               <div className="simple-setting-card-title">
                 <Sparkles size={16} />
-                桌宠
+                奋斗猫的衣橱
               </div>
               <p className="simple-setting-card-desc">
-                只保留奋斗猫；可在下方用自定义动图替换它的动画
+                每套装扮都有自己的小动作，随心切换。自定义动图优先显示，装扮用于内置奋斗猫。
               </p>
             </div>
+            <SettingStatusText status={statusFor('petOutfit')} />
           </div>
           <div className="simple-setting-card-body">
-            <div className="simple-pet-grid">
-              <div className="simple-pet-card" aria-pressed="true">
-                <div className="simple-pet-badge" aria-hidden="true">
-                  <Check size={11} strokeWidth={3} />
-                </div>
-                <div className="simple-pet-preview">
-                  <PixelAnimal animal="cat" action="idle" label="奋斗猫" />
-                </div>
-                <span className="simple-pet-name">奋斗猫</span>
-              </div>
-            </div>
+            <PetOutfitPicker outfit={settings.petOutfit} motion={settings.petMotion}
+              disabled={savingKey === 'petOutfit'} onSelect={(petOutfit) => { void save('petOutfit', { petOutfit }); }} />
           </div>
         </div>
 
@@ -614,6 +613,10 @@ export function SimpleSettings(): JSX.Element {
         </div>
 
         {/* 备份与数据管理卡片 */}
+        <div className="simple-setting-card"><div className="simple-setting-row">
+          <div className="simple-setting-row-info"><span className="simple-setting-row-title">记录休息</span><span className="simple-setting-row-desc">只保存在本机，在完成记录中展示本周的小小休息。关闭后停止记录，已有记录仍保留。</span></div>
+          <SettingSwitch checked={settings.historyEnabled} onChange={(checked) => save('historyEnabled', { historyEnabled: checked })} disabled={savingKey === 'historyEnabled'} status={statusFor('historyEnabled')} label="开启休息记录" />
+        </div></div>
         <div className="simple-setting-card">
           <div className="simple-setting-card-header">
             <div>

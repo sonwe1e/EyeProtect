@@ -21,6 +21,7 @@ const baseSettings: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
+  petOutfit: 'classic',
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -140,4 +141,3 @@ test('actions with a stale reminder id are ignored', () => {
   const status = scheduler.handleAction('complete', 'some-old-id');
   assert.equal(status.activeReminder?.id, active!.id, 'wrong id leaves the reminder untouched');
 });
-

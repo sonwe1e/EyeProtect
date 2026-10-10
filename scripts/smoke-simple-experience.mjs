@@ -43,6 +43,7 @@ const metrics = { scale, phase };
 try {
   const pet = await waitForTarget(endpoint, '#pet');
   await waitFor(pet, `Boolean(document.querySelector('.pet-drag-surface'))`);
+  await evaluate(pet, `window.__petReactions = []; window.eyeProtect.onPetReaction(event => window.__petReactions.push(event))`);
   await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light', eyeIntervalMinutes: 240, walkIntervalMinutes: 240, eyeRestSeconds: 12, todoBubbleTaskIds: [] })`);
   await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
   const workbench = await waitForTarget(endpoint, '#workbench');
@@ -75,10 +76,15 @@ try {
   await waitFor(workbench, `document.querySelector('.simple-step input').checked === true`);
   await evaluate(workbench, `document.querySelector('.simple-task-row input[type="checkbox"]').click()`);
   await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 0`);
+  assert.equal(await evaluate(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length`), 2, 'step and root completion each react once');
   await click(workbench, '完成记录');
   await waitFor(workbench, `document.querySelectorAll('.simple-history-row').length === 1`);
+  await waitFor(workbench, `document.querySelector('.simple-rest-week') !== null`);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.simple-rest-day').length`), 7);
+  assert.match(await evaluate(workbench, `document.querySelector('.simple-rest-companion').textContent`), /自己的节奏/);
   await capture(workbench, 'completion-history');
   await click(workbench, '撤销');
+  assert.equal(await evaluate(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length`), 2, 'undo must not replay celebration');
   await click(workbench, '待办');
   await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 1`);
   const restored = await evaluate(pet, 'window.eyeProtect.getTasks()');
@@ -189,6 +195,12 @@ try {
       // before it starts.
       assert.equal(resting.activities.length, 1, 'an eye reminder must show its picked micro-break activity');
       assert.ok(resting.activities[0].includes('步'), `activity guide must show its pacing, got ${resting.activities[0]}`);
+      metrics.restActionKeys = [];
+      for (let step = 0; step < 3; step += 1) {
+        await delay(2_000);
+        metrics.restActionKeys.push(await evaluate(alert, `({ action: document.querySelector('.pixel-animal')?.dataset.action, step: document.querySelector('.rest-step.is-active')?.textContent })`));
+      }
+      assert.ok(new Set(metrics.restActionKeys.map(entry => entry.step)).size >= 2, 'the real rest window must advance activity steps');
     }
     // The rest window is 12s below; waitFor's default budget is shorter.
     // Finished primary copy is 完成休息打卡 (redesigned rest card).
@@ -345,6 +357,28 @@ try {
     await waitFor(bubble, `document.querySelector('[aria-label="专注分钟数"]')?.value === '1'`);
     await capture(bubble, 'pomodoro-ready');
     await click(bubble, '返回待办');
+  }
+  if (phase === 'all') {
+    const currentPet = await waitForTarget(endpoint, '#pet');
+    await evaluate(currentPet, `window.eyeProtect.openWorkbench('review')`);
+    const currentWorkbench = await waitForTarget(endpoint, '#workbench');
+    await waitFor(currentWorkbench, `document.querySelector('.simple-rest-companion') !== null`);
+    const before = await evaluate(currentWorkbench, `window.eyeProtect.getRestCompanion()`);
+    const real = await evaluate(currentPet, `window.eyeProtect.triggerNow()`);
+    const id = real.activeReminder.id;
+    await evaluate(currentPet, `window.eyeProtect.beginHealthRest(${JSON.stringify(id)})`);
+    const deadline = await evaluate(currentPet, `(async () => (await window.eyeProtect.getReminderStatus()).activeReminder.unlockAt)()`);
+    await delay(Math.max(0, deadline - Date.now()) + 150);
+    await evaluate(currentPet, `window.eyeProtect.reminderAction('complete', ${JSON.stringify(id)})`);
+    await waitFor(currentWorkbench, `document.querySelector('.simple-rest-companion h2 small')?.textContent === '${before.completed + 1} 次'`);
+    assert.equal((await evaluate(currentWorkbench, `window.eyeProtect.getRestCompanion()`)).completed, before.completed + 1);
+    await capture(currentWorkbench, 'weekly-rest-completed');
+    const skip = await evaluate(currentPet, `window.eyeProtect.triggerNow()`);
+    await evaluate(currentPet, `window.eyeProtect.reminderAction('skip', ${JSON.stringify(skip.activeReminder.id)})`);
+    const snooze = await evaluate(currentPet, `window.eyeProtect.triggerNow()`);
+    await evaluate(currentPet, `window.eyeProtect.reminderAction('snooze', ${JSON.stringify(snooze.activeReminder.id)})`);
+    assert.equal((await evaluate(currentWorkbench, `window.eyeProtect.getRestCompanion()`)).completed, before.completed + 1, 'skip and snooze must not create completed breaks');
+    console.log('Real rest history and immediate weekly companion updates passed.');
   }
   writeFileSync(resolve(output, 'metrics.json'), JSON.stringify(metrics, null, 2));
   console.log(`Simple experience ${phase} passed at ${scale * 100}%`);

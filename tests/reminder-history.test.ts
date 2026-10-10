@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   buildCareStatus,
+  buildRestCompanion,
   buildWeeklyReport,
   ReminderHistoryStore,
   sanitizeReminderEvent,
@@ -132,6 +133,37 @@ test('care status is low pressure and celebrates recent completion', () => {
   const care = buildCareStatus(completed, NOW);
   assert.equal(care.completedToday, 5);
   assert.equal(care.score, 100);
+});
+
+test('postponing or skipping never lowers care or changes it into a reprimand', () => {
+  const positive = [event('complete', NOW - 60_000)];
+  const baseline = buildCareStatus(positive, NOW);
+  const mixed = buildCareStatus([...positive, ...Array.from({ length: 10 }, () => event('skip')), event('snooze')], NOW);
+  assert.equal(mixed.score, baseline.score);
+  assert.equal(mixed.message, baseline.message);
+  assert.equal(buildCareStatus([event('skip'), event('snooze')], NOW).message, buildCareStatus([], NOW).message);
+});
+
+test('weekly companion uses Monday through Sunday and counts combined completion once', () => {
+  const monday = new Date(2026, 6, 27, 0).getTime();
+  const summary = buildRestCompanion([
+    event('complete', monday, 'combined'), event('complete', NOW),
+    event('skip', NOW), event('snooze', NOW), event('natural-break', NOW),
+    event('complete', monday - 1), event('complete', NOW + 1)
+  ], true, NOW);
+  assert.equal(summary.completed, 2);
+  assert.deepEqual(summary.days.map((day) => day.completed), [1, 0, 1, 0, 0, 0, 0]);
+  assert.equal(summary.days[0].date, '2026-07-27');
+  assert.equal(summary.days[6].date, '2026-08-02');
+  assert.doesNotMatch(summary.message, /跳过|推迟|扣|少|目标|分数/);
+});
+
+test('disabled and empty histories give neutral encouragement', () => {
+  assert.equal(buildRestCompanion([], true, NOW).completed, 0);
+  assert.match(buildRestCompanion([], true, NOW).message, /自己的节奏/);
+  const disabled = buildRestCompanion([event('complete')], false, NOW);
+  assert.equal(disabled.enabled, false);
+  assert.match(disabled.message, /已关闭/);
 });
 
 test('history store persists, prunes, exports and clears local records', () => {

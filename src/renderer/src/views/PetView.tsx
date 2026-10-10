@@ -4,6 +4,7 @@ import { useCommand } from '../hooks/useCommand';
 import { run } from '../lib/commands';
 import { useReminderStatus } from '../hooks/useReminderStatus';
 import { useSettings } from '../hooks/useSettings';
+import type { PetReactionEvent } from '../../../shared/types';
 
 const REACTION_MS = 1_600;
 
@@ -31,7 +32,7 @@ export default function PetView(): JSX.Element {
     if (document.querySelector('.pet-character img')) {
       void window.eyeProtect.reportPetArtworkBounds({ top: 0.04, bottom: 0.96 });
     }
-  }, [animal]);
+  }, [animal, settings.petOutfit]);
 
   const dragRef = useRef<{
     pointerId: number;
@@ -44,10 +45,18 @@ export default function PetView(): JSX.Element {
   const suppressClickUntilRef = useRef(0);
   const reactionTimer = useRef<number | null>(null);
   const [reacting, setReacting] = useState(false);
+  const [eventReaction, setEventReaction] = useState<PetReactionEvent | null>(null);
+  const [clickKey, setClickKey] = useState(0);
   const [dragging, setDragging] = useState(false);
   useEffect(() => () => {
     if (reactionTimer.current !== null) clearTimeout(reactionTimer.current);
   }, []);
+  useEffect(() => window.eyeProtect.onPetReaction((event) => {
+    setReacting(false);
+    setEventReaction(event);
+    if (reactionTimer.current !== null) clearTimeout(reactionTimer.current);
+    reactionTimer.current = window.setTimeout(() => setEventReaction(null), event.action === 'celebrate' ? 600 : 3_000);
+  }), []);
 
   const handlePetDoubleClick = useCallback(() => {
     const active = reminderStatus.activeReminder;
@@ -109,6 +118,8 @@ export default function PetView(): JSX.Element {
   // only fires on a genuine single click (detail === 1), never after a drag.
   const handleReact = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (event.detail !== 1) return;
+    setEventReaction(null);
+    setClickKey((key) => key + 1);
     setReacting(true);
     if (reactionTimer.current) clearTimeout(reactionTimer.current);
     reactionTimer.current = window.setTimeout(() => setReacting(false), REACTION_MS);
@@ -136,7 +147,10 @@ export default function PetView(): JSX.Element {
         >
           <PetCharacter
             animal={animal}
+            outfit={settings.petOutfit}
             reacting={reacting}
+            reaction={eventReaction}
+            clickKey={clickKey}
             motion={settings.petMotion}
             doubleClickHint={
               reminderStatus.activeReminder?.mode === 'gentle'

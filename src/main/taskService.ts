@@ -119,7 +119,10 @@ export class TaskService extends EventEmitter {
         this.emit('active-task-changed', this.store.getActiveTaskId());
       }
     });
-    if (undoOperation) this.emit('undo-changed', undoOperation);
+    if (undoOperation) {
+      this.emit('undo-changed', undoOperation);
+      this.emit('task-completed');
+    }
     return this.store.getTasks();
   }
 
@@ -159,7 +162,10 @@ export class TaskService extends EventEmitter {
       }
     });
 
-    if (undoOperation) this.emit('undo-changed', undoOperation);
+    if (undoOperation) {
+      this.emit('undo-changed', undoOperation);
+      this.emit('task-completed');
+    }
 
     this.emit('active-task-changed', this.store.getActiveTaskId());
     return this.store.getTasks();
@@ -177,6 +183,7 @@ export class TaskService extends EventEmitter {
       return this.store.createUndoOperation('complete', root.title, affected, [], previousActive, now);
     });
     this.emit('undo-changed', operation);
+    this.emit('task-completed');
     return this.store.getTasks();
   }
 

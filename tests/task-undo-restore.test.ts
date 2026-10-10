@@ -21,6 +21,27 @@ const withService = (fn: (service: TaskService, store: TaskStore) => void): void
   }
 };
 
+test('completion reaction fires once after commit and never on failed completion or undo', () => {
+  withService((service, store) => {
+    let reactions = 0;
+    service.on('task-completed', () => { reactions += 1; });
+    service.createTask({ title: 'root' }, NOW);
+    const root = store.getTasks()[0];
+    service.createStep(root.id, 'step');
+    const tasks = store.getTasks();
+    assert.throws(() => service.completeTaskTree(root.id, { [root.id]: -1 }, NOW));
+    assert.equal(reactions, 0, 'a rollback must not celebrate');
+    service.completeTaskTree(root.id, Object.fromEntries(tasks.map((task) => [task.id, task.revision])), NOW);
+    assert.equal(reactions, 1, 'root and steps share one committed reaction');
+    service.setTaskStatus(root.id, 'done', NOW);
+    assert.equal(reactions, 1, 'retrying the same status must not replay');
+    service.undo(service.getUndoState(NOW)!.operationId, NOW);
+    assert.equal(reactions, 1, 'undo is not a new completion');
+    service.updateTask(root.id, { status: 'done' }, NOW);
+    assert.equal(reactions, 2, 'a new completion via update also reacts');
+  });
+});
+
 // ── F01: step reordering must not break delete-undo restore order ────────────
 
 test('F01: undo restores a reordered step tree with parents before children', () => {

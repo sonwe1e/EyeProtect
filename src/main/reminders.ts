@@ -99,6 +99,7 @@ export interface SchedulerOptions {
     kind: ReminderKind,
     scheduledAt: number
   ) => Promise<ReminderGateDecision>;
+  canPreAlert?: () => boolean;
   onContextNotification?: (decision: ReminderGateDecision) => void;
   /**
    * Shared deadline queue. When provided, the scheduler delegates its single
@@ -117,6 +118,9 @@ export interface ReminderGateDecision {
   action: 'show' | 'defer' | 'notify';
   /** Minutes to defer involved kinds; ignored for `show`. */
   deferMinutes?: number;
+  deferSeconds?: number;
+  /** Keep explicit DND/input protections until the context clears. */
+  waitForContext?: boolean;
   reason?: string;
   foregroundApp?: string | null;
 }
@@ -162,6 +166,7 @@ export class ReminderScheduler extends EventEmitter {
     | ((decision: ReminderGateDecision) => void)
     | null;
   private readonly trace: (event: string, data?: Record<string, unknown>) => void;
+  private readonly canPreAlert: () => boolean;
 
   constructor(settings: Settings, options: SchedulerOptions = {}) {
     super();
@@ -173,6 +178,7 @@ export class ReminderScheduler extends EventEmitter {
     this.getEffectiveMode = options.getEffectiveMode ?? null;
     this.onContextNotification = options.onContextNotification ?? null;
     this.beforeReminder = options.beforeReminder ?? null;
+    this.canPreAlert = options.canPreAlert ?? (() => true);
     this.trace = options.trace ?? (() => {});
     this.kernel = options.kernel ?? null;
     this.settings = settings;
@@ -938,14 +944,13 @@ export class ReminderScheduler extends EventEmitter {
         candidate = kind;
       }
     }
-    if (candidate) {
+    if (candidate && !this.status.contextDeferral && this.canPreAlert()) {
       this.activePreAlert = { kind: candidate, forAt: this.nextAtFor(candidate) };
       this.emitChanged();
     }
   }
 
   private preAlertMs(): number {
-    if (this.manualStart) return 0;
     const seconds = this.settings.preAlertSeconds;
     return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : 0;
   }
@@ -988,9 +993,8 @@ export class ReminderScheduler extends EventEmitter {
 
   /**
    * Real due reminders pass through one asynchronous scene check. Manual and
-   * test reminders intentionally bypass this gate. After three consecutive
-   * automatic deferrals we show the reminder gently instead of suppressing it
-   * forever.
+   * test reminders intentionally bypass this gate. Explicit context protection
+   * waits until clear; other gates retain their three-deferral limit.
    */
   private requestReminder(kind: ReminderKind, scheduledAt: number): void {
     this.trace('gate', { kind, scheduledAt, enabled: Boolean(this.beforeReminder) });
@@ -1014,18 +1018,18 @@ export class ReminderScheduler extends EventEmitter {
         const now = this.now();
         if (
           (decision.action === 'defer' || decision.action === 'notify') &&
-          this.consecutiveContextDeferrals < 3
+          (decision.waitForContext || this.consecutiveContextDeferrals < 3)
         ) {
-          const deferMinutes = Math.min(
-            24 * 60,
-            Math.max(1, Math.round(decision.deferMinutes ?? 5))
-          );
+          const rawSeconds = decision.deferSeconds ?? (decision.deferMinutes ?? 5) * 60;
+          const deferSeconds = Number.isFinite(rawSeconds)
+            ? Math.min(24 * 60 * 60, Math.max(1, Math.round(rawSeconds)))
+            : 5 * 60;
           for (const involvedKind of reminderKindsFor(kind)) {
-            this.scheduleKind(involvedKind, deferMinutes, now);
+            this.scheduleKind(involvedKind, deferSeconds / 60, now);
           }
           this.consecutiveContextDeferrals += 1;
           this.status.contextDeferral = {
-            until: now + deferMinutes * MINUTE,
+            until: now + deferSeconds * 1_000,
             reason: decision.reason?.trim() || '当前场景已自动延后提醒',
             foregroundApp: decision.foregroundApp?.trim() || null,
             consecutiveCount: this.consecutiveContextDeferrals
@@ -1033,7 +1037,7 @@ export class ReminderScheduler extends EventEmitter {
           this.trace('deferred', {
             kind,
             scheduledAt,
-            until: now + deferMinutes * MINUTE,
+            until: now + deferSeconds * 1_000,
             action: decision.action,
             reason: decision.reason
           });
