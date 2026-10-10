@@ -68,6 +68,9 @@ try {
   await fill(workbench, '.simple-task-fields textarea', '只记录需要做的事，减少来回切换。');
   await click(workbench, '保存修改');
   await waitFor(pet, `(async () => (await window.eyeProtect.getTasks())[0].dueDate === ${JSON.stringify(date)})()`);
+  // Saving the date moves the task to another group and remounts its editor.
+  // Wait for that renderer commit before filling the new step's local draft.
+  await waitFor(workbench, `document.querySelector('.simple-due-tag')?.title === ${JSON.stringify(`截止日期：${date}`)} && Boolean(document.querySelector('.simple-task-fields .simple-saved-hint'))`);
   await fill(workbench, '[aria-label="添加步骤"]', '整理反馈');
   await click(workbench, '添加步骤');
   await waitFor(workbench, `document.querySelectorAll('.simple-step').length === 1`);
