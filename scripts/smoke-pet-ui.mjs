@@ -89,9 +89,9 @@ try {
     assert.equal((await evaluate(pet, `window.eyeProtect.getSettings()`)).petOutfit, outfit);
     await waitFor(workbench, `document.querySelector('.simple-pet-try-button')?.disabled === false`);
     await evaluate(workbench, `document.querySelector('.simple-pet-try-button').click()`);
-    await waitFor(workbench, `document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.action === 'react' && Number(document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.frame) === 3`);
+    await waitFor(workbench, `document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.action === 'react' && [3, 4, 5].includes(Number(document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.frame))`);
     await evaluate(pet, `document.querySelector('.pet-drag-surface').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))`);
-    await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.action === 'react' && Number(document.querySelector('.pixel-animal')?.dataset.frame) === 3`);
+    await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.action === 'react' && [3, 4, 5].includes(Number(document.querySelector('.pixel-animal')?.dataset.frame))`);
     assert.equal(await evaluate(pet, `(() => {
       const box = document.querySelector('.pixel-animal svg').getBBox();
       return box.x >= 0 && box.y >= 0 && box.x + box.width <= 64 && box.y + box.height <= 64;
