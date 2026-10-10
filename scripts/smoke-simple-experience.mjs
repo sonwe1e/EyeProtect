@@ -38,7 +38,12 @@ const fill = async (target, selector, value) => evaluate(target, `(() => {
   Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, ${JSON.stringify(value)});
   input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
 })()`);
-const click = async (target, text, deferred = false) => evaluate(target, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!button) throw new Error('Missing button ' + ${JSON.stringify(text)}); if (${deferred}) setTimeout(() => button.click(), 50); else button.click(); })()`);
+const click = async (target, text, deferred = false) => {
+  // Main-process data can arrive before the renderer clears command pending.
+  // Match the enabled control a user can click, instead of losing the click.
+  await waitFor(target, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); return Boolean(button && !button.disabled); })()`);
+  return evaluate(target, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!button) throw new Error('Missing button ' + ${JSON.stringify(text)}); if (${deferred}) setTimeout(() => button.click(), 50); else button.click(); })()`);
+};
 const metrics = { scale, phase };
 try {
   const pet = await waitForTarget(endpoint, '#pet');
@@ -369,6 +374,8 @@ try {
     await evaluate(currentPet, `window.eyeProtect.beginHealthRest(${JSON.stringify(id)})`);
     const deadline = await evaluate(currentPet, `(async () => (await window.eyeProtect.getReminderStatus()).activeReminder.unlockAt)()`);
     await delay(Math.max(0, deadline - Date.now()) + 150);
+    const ready = await evaluate(currentPet, `window.eyeProtect.getReminderStatus()`);
+    assert.equal(ready.activeReminder?.id, id, 'the real rest must remain active until completion');
     await evaluate(currentPet, `window.eyeProtect.reminderAction('complete', ${JSON.stringify(id)})`);
     await waitFor(currentWorkbench, `document.querySelector('.simple-rest-companion h2 small')?.textContent === '${before.completed + 1} 次'`);
     assert.equal((await evaluate(currentWorkbench, `window.eyeProtect.getRestCompanion()`)).completed, before.completed + 1);
