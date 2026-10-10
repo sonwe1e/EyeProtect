@@ -83,9 +83,11 @@ try {
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
   await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.outfit === 'coffee'`);
   for (const outfit of ['classic', 'coffee', 'explorer', 'stargazer']) {
+    await waitFor(workbench, `document.querySelector('[data-outfit-option="${outfit}"]')?.disabled === false`);
     await evaluate(workbench, `document.querySelector('[data-outfit-option="${outfit}"]').click()`);
     await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.outfit === '${outfit}'`);
     assert.equal((await evaluate(pet, `window.eyeProtect.getSettings()`)).petOutfit, outfit);
+    await waitFor(workbench, `document.querySelector('.simple-pet-try-button')?.disabled === false`);
     await evaluate(workbench, `document.querySelector('.simple-pet-try-button').click()`);
     await waitFor(workbench, `document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.action === 'react' && Number(document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.frame) === 3`);
     await evaluate(pet, `document.querySelector('.pet-drag-surface').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))`);
