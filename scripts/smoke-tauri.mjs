@@ -36,7 +36,9 @@ const dataDir = resolve(await mkdtemp(join(tempRoot, 'eyeprotect-tauri-smoke-'))
 await writeFile(join(dataDir, 'settings.json'), JSON.stringify({ hotkeysEnabled: false }));
 const outputDir = resolve('artifacts', 'codex-tauri-ui');
 await mkdir(outputDir, { recursive: true });
-const port = await getAvailablePort();
+const port = process.env.EYEPROTECT_TAURI_CDP_PORT
+  ? Number(process.env.EYEPROTECT_TAURI_CDP_PORT)
+  : await getAvailablePort();
 
 console.log(`[smoke:tauri] launching ${exe}`);
 console.log(`[smoke:tauri] data dir ${dataDir}, CDP port ${port}`);

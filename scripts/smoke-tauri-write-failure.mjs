@@ -7,7 +7,9 @@ import { evaluate, getAvailablePort, waitFor, waitForTarget } from './lib/cdp.mj
 
 const root = resolve(tmpdir());
 const dir = resolve(await mkdtemp(join(root, 'eyeprotect-write-probe-')));
-const port = await getAvailablePort();
+const port = process.env.EYEPROTECT_TAURI_CDP_PORT
+  ? Number(process.env.EYEPROTECT_TAURI_CDP_PORT)
+  : await getAvailablePort();
 await writeFile(join(dir, 'settings.json'), JSON.stringify({ hotkeysEnabled: false }));
 const child = spawn(process.env.EYEPROTECT_TAURI_EXE || resolve('src-tauri/target/release/eyeprotect.exe'), [], {
   env: { ...process.env, EYEPROTECT_DATA_DIR: dir, EYEPROTECT_SMOKE: '1', WEBVIEW2_USER_DATA_FOLDER: join(dir, 'webview'), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },

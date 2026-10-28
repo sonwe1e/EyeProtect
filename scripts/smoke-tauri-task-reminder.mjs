@@ -11,10 +11,13 @@ const dir = resolve(await mkdtemp(join(root, 'eyeprotect-reminder-smoke-')));
 const exe = process.env.EYEPROTECT_TAURI_EXE || resolve('src-tauri/target/release/eyeprotect.exe');
 await writeFile(join(dir, 'settings.json'), JSON.stringify({ hotkeysEnabled: false }));
 let child;
+let launchCount = 0;
 
 async function start() {
-  const port = await getAvailablePort();
-  const profile = join(dir, `webview-${port}`);
+  const port = process.env.EYEPROTECT_TAURI_CDP_PORT
+    ? Number(process.env.EYEPROTECT_TAURI_CDP_PORT)
+    : await getAvailablePort();
+  const profile = join(dir, `webview-${++launchCount}`);
   await mkdir(profile);
   child = spawn(exe, [], {
     env: { ...process.env, EYEPROTECT_DATA_DIR: dir, EYEPROTECT_SMOKE: '1', WEBVIEW2_USER_DATA_FOLDER: profile, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
