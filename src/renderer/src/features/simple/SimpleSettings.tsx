@@ -1,13 +1,15 @@
-import { PRE_ALERT_LIMIT, SIMPLE_SETTING_LIMITS } from '../../../../shared/types';
-import { useEffect, useState } from 'react';
+import { PRE_ALERT_LIMIT, SETTINGS_LIMITS, SIMPLE_SETTING_LIMITS } from '../../../../shared/types';
+import { useEffect, useState, type MouseEvent } from 'react';
 import type { Settings, LegacyData, CommandResult } from '../../../../shared/types';
 import { useSettings } from '../../hooks/useSettings';
 import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
 import { useCommand } from '../../hooks/useCommand';
 import { PetOutfitPicker } from './PetOutfitPicker';
+import { PetCompanionPicker } from './PetCompanionPicker';
 import { soundPlayer } from '../../lib/audio';
 import { run } from '../../lib/commands';
+import { isTauriRuntime } from '../../lib/tauriBridge';
 import {
   Eye,
   Footprints,
@@ -21,7 +23,8 @@ import {
   Upload,
   Palette,
   Play,
-  Shield
+  Shield,
+  Droplet
 } from 'lucide-react';
 
 const toTimeStr = (minOfDay: number): string => {
@@ -37,6 +40,14 @@ const fromTimeStr = (timeStr: string, fallback: number): number => {
   const m = Number(parts[1]);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return fallback;
   return Math.min(1439, Math.max(0, h * 60 + m));
+};
+
+const scrollToSettingsSection = (event: MouseEvent<HTMLAnchorElement>): void => {
+  event.preventDefault();
+  const id = event.currentTarget.getAttribute('href')?.slice(1);
+  const section = id ? document.getElementById(id) : null;
+  section?.scrollIntoView({ block: 'start', behavior: 'auto' });
+  section?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
 };
 
 type SettingStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -138,6 +149,7 @@ function SettingNumberField({
 }
 
 export function SimpleSettings(): JSX.Element {
+  const tauriRuntime = isTauriRuntime();
   const { settings, setSettings } = useSettings();
   const projects = useProjects();
   const tasks = useTasks();
@@ -203,7 +215,14 @@ export function SimpleSettings(): JSX.Element {
   };
 
   const number = (
-    key: 'eyeIntervalMinutes' | 'walkIntervalMinutes' | 'eyeRestSeconds' | 'walkRestSeconds' | 'petScale' | 'preAlertSeconds',
+    key:
+      | 'eyeIntervalMinutes'
+      | 'walkIntervalMinutes'
+      | 'eyeRestSeconds'
+      | 'walkRestSeconds'
+      | 'petScale'
+      | 'preAlertSeconds'
+      | 'hydrationGoalCups',
     label: string,
     min: number,
     max: number,
@@ -230,16 +249,17 @@ export function SimpleSettings(): JSX.Element {
       <p className="simple-settings-subtitle">定制健康护眼节奏、桌面桌宠伙伴与系统偏好</p>
 
       <nav className="simple-settings-nav" aria-label="设置分区">
-        <a href="#settings-rest">休息提醒</a>
-        <a href="#settings-appearance">桌面外观</a>
-        <a href="#settings-app">应用</a>
+        <a href="#settings-rest" onClick={scrollToSettingsSection}>休息提醒</a>
+        <a href="#settings-hydration" onClick={scrollToSettingsSection}>喝水提醒</a>
+        <a href="#settings-appearance" onClick={scrollToSettingsSection}>桌面外观</a>
+        <a href="#settings-app" onClick={scrollToSettingsSection}>应用</a>
       </nav>
 
       {/* ── Section 1: 休息提醒 ─────────────────────────────────────────── */}
       {saveError ? <p role="alert" className="simple-settings-error">{saveError}</p> : null}
       {action.error ? <p role="alert" className="simple-settings-error">{action.error.message}</p> : null}
       <section id="settings-rest">
-        <h2>
+        <h2 tabIndex={-1}>
           <Eye size={18} />
           休息提醒
         </h2>
@@ -479,14 +499,63 @@ export function SimpleSettings(): JSX.Element {
         </div>
       </section>
 
-      {/* ── Section 2: 桌面外观 ─────────────────────────────────────────── */}
+      {/* ── Section 2: 喝水提醒 ─────────────────────────────────────────── */}
+      {/* Deliberately two controls and no first-run guide: the switch carries a
+          permanent "随时可关" note instead of asking the user to configure
+          something before they have seen it work (B6 / B7). */}
+      <section id="settings-hydration">
+        <h2 tabIndex={-1}>
+          <Droplet size={18} />
+          喝水提醒
+        </h2>
+        <p className="simple-section-desc">
+          猫隔一段时间喝一口，提醒你也来一口。只在工作时段内出现，安静时段与全屏时自动跳过，每天最多提示到目标杯数。
+        </p>
+        <div className="simple-setting-card">
+          <div className="simple-setting-card-header">
+            <div>
+              <div className="simple-setting-card-title">
+                <Droplet size={16} />
+                喝水提醒
+              </div>
+              <p className="simple-setting-card-desc">
+                猫隔一段时间喝口水，提醒你也来一口。随时可关。
+              </p>
+            </div>
+            <SettingSwitch
+              checked={settings.hydrationEnabled}
+              onChange={(checked) => save('hydrationEnabled', { hydrationEnabled: checked })}
+              disabled={savingKey === 'hydrationEnabled'}
+              status={statusFor('hydrationEnabled')}
+              label="开启喝水提醒"
+            />
+          </div>
+          {settings.hydrationEnabled && (
+            <div className="simple-setting-card-body">
+              <div className="simple-field-grid">
+                {number(
+                  'hydrationGoalCups',
+                  '每日目标（杯，约 2L）',
+                  SETTINGS_LIMITS.hydrationGoalCups.min,
+                  SETTINGS_LIMITS.hydrationGoalCups.max
+                )}
+              </div>
+              <p className="simple-section-desc">
+                提示间隔由工作时长与目标杯数自动算出（30–120 分钟），不需要另外设置。
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Section 3: 桌面外观 ─────────────────────────────────────────── */}
       <section id="settings-appearance">
-        <h2>
+        <h2 tabIndex={-1}>
           <Palette size={18} />
           桌面外观
         </h2>
         <p className="simple-section-desc">
-          给奋斗猫换一身装扮、试一个小动作，也可以用自己的动图替换它。
+          选一位陪你工作的伙伴。每个角色有自己的模样、性格和小动作。
         </p>
 
         {/* 当前桌宠 */}
@@ -495,17 +564,19 @@ export function SimpleSettings(): JSX.Element {
             <div>
               <div className="simple-setting-card-title">
                 <Sparkles size={16} />
-                奋斗猫的衣橱
+                你的桌面伙伴
               </div>
               <p className="simple-setting-card-desc">
-                每套装扮都有自己的小动作，随心切换。自定义动图优先显示，装扮用于内置奋斗猫。
+                火力奋斗猫保留原作动图，水獭和企鹅也换上了像素风。随心切换，不需要解锁。
               </p>
             </div>
-            <SettingStatusText status={statusFor('petOutfit')} />
+            <SettingStatusText status={statusFor('petCompanion')} />
           </div>
           <div className="simple-setting-card-body">
-            <PetOutfitPicker outfit={settings.petOutfit} motion={settings.petMotion}
+            <PetCompanionPicker companion={settings.petCompanion} motion={settings.petMotion} disabled={savingKey === 'petCompanion'} onSelect={(petCompanion) => { void save('petCompanion', { petCompanion }); }} />
+            {settings.petCompanion === 'pixel' ? <PetOutfitPicker outfit={settings.petOutfit} motion={settings.petMotion}
               disabled={savingKey === 'petOutfit'} onSelect={(petOutfit) => { void save('petOutfit', { petOutfit }); }} />
+              : null}
           </div>
         </div>
 
@@ -525,6 +596,11 @@ export function SimpleSettings(): JSX.Element {
           <div className="simple-setting-card-body">
             <div className="simple-field-grid">
               {number('petScale', '桌宠大小缩放', 0.5, 1.8, 0.1)}
+              <label>阅读大小（休息与工作台）
+                <select value={settings.restReadingScale} onChange={(e) => save('restReadingScale', { restReadingScale: Number(e.currentTarget.value) })}>
+                  <option value="0.9">紧凑</option><option value="1">舒适 · 自动适配屏幕</option><option value="1.25">大字</option><option value="1.5">更大 · 远一点也看清</option>
+                </select>
+              </label>
               <label>
                 界面主题
                 <select
@@ -542,7 +618,7 @@ export function SimpleSettings(): JSX.Element {
               <div className="simple-setting-row-info">
                 <span className="simple-setting-row-title">桌宠小动作</span>
                 <span className="simple-setting-row-desc">
-                  待机时偶尔眨眼、伸懒腰（系统开启“减少动态效果”时始终保持静止）
+                  原作动图循环播放，其他伙伴偶尔互动；关闭或系统减少动态效果时显示静止画面。
                 </span>
               </div>
               <SettingSwitch
@@ -575,7 +651,7 @@ export function SimpleSettings(): JSX.Element {
                   1. <strong>多动作随机互动：</strong>在文件夹中放入 <code>click1.gif</code>、<code>click2.gif</code> 等，点击桌宠时将随机触发不同动作；待机与小动作同样支持 <code>fidget1.gif</code>、<code>idle1.gif</code>。
                 </p>
                 <p>
-                  2. <strong>只替换奋斗猫：</strong>把动图直接放在 <code>custom-pet</code> 根目录即可；产品不再提供其它可切换角色。
+                  2. <strong>使用自己的角色：</strong>把动图放在 <code>custom-pet</code> 根目录，选择上方“我的动图”。内置原作始终保留，随时可切换回来。
                 </p>
               </div>
             </details>
@@ -585,7 +661,7 @@ export function SimpleSettings(): JSX.Element {
 
       {/* ── Section 3: 应用 ─────────────────────────────────────────────── */}
       <section id="settings-app">
-        <h2>
+        <h2 tabIndex={-1}>
           <Monitor size={18} />
           应用
         </h2>
@@ -625,7 +701,7 @@ export function SimpleSettings(): JSX.Element {
                 数据备份与恢复
               </div>
               <p className="simple-setting-card-desc">
-                安全导出或导入全部设置、待办清单与提醒历史记录
+                {tauriRuntime ? '备份设置、待办与休息记录；喝水、计时和任务提醒投递状态不包含在内。暂不支持导入 1.x 备份。' : '安全导出或导入全部设置、待办清单与提醒历史记录'}
               </p>
             </div>
           </div>
@@ -637,7 +713,7 @@ export function SimpleSettings(): JSX.Element {
                 onClick={() => runBusy('exportBackup', () => run(() => window.eyeProtect.exportBackup()))}
               >
                 <Download size={14} style={{ marginRight: '6px' }} />
-                导出完整备份
+                {tauriRuntime ? '导出备份' : '导出完整备份'}
               </button>
               <button
                 type="button"
@@ -650,9 +726,9 @@ export function SimpleSettings(): JSX.Element {
             </div>
 
             <details style={{ marginTop: '16px' }}>
-              <summary>旧资料与恢复</summary>
+              <summary>{tauriRuntime ? '已归档清单与任务' : '旧资料与恢复'}</summary>
               <p className="simple-section-desc" style={{ marginTop: '8px' }}>
-                旧规划、自动规则与专注资料仍保留在备份中，自动规则已停用。
+                {tauriRuntime ? '2.0 使用独立数据目录，1.x 数据仍保存在原位置。' : '旧规划、自动规则与专注资料仍保留在备份中，自动规则已停用。'}
               </p>
               {projects
                 .filter((p) => p.status === 'completed' || p.status === 'archived')
@@ -684,7 +760,7 @@ export function SimpleSettings(): JSX.Element {
                     </button>
                   </div>
                 ))}
-              <div style={{ marginTop: '10px' }}>
+              {!tauriRuntime ? <div style={{ marginTop: '10px' }}>
                 <button
                   type="button"
                   disabled={action.isPending}
@@ -696,7 +772,7 @@ export function SimpleSettings(): JSX.Element {
                 >
                   查看保留的旧资料
                 </button>
-              </div>
+              </div> : null}
               {legacy ? (
                 <div className="simple-legacy-data" style={{ marginTop: '12px' }}>
                   {legacy.sections.map((section) => (

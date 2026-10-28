@@ -103,8 +103,24 @@ export const asSimpleTaskUpdateInput = (value: unknown): TaskUpdateInput => {
   if (input.dueDate !== undefined && input.dueDate !== null && !isLocalDateKey(input.dueDate)) throw new Error('截止日期无效');
   if (input.title !== undefined && !input.title.trim()) throw new Error('请输入任务名称');
   const result: TaskUpdateInput = {};
-  for (const key of ['title', 'notes', 'projectId', 'dueDate', 'reminderAt', 'sortOrder', 'baseRevision'] as const) {
+  for (const key of ['title', 'notes', 'projectId', 'dueDate', 'reminderAt', 'priority', 'sortOrder', 'baseRevision'] as const) {
     if (input[key] !== undefined) Object.assign(result, { [key]: input[key] });
   }
   return result;
+};
+
+/** Upper bound for one queue reorder: far above any real "today" queue. */
+const MAX_QUEUE_REORDER_IDS = 500;
+
+/**
+ * Queue reorder payload: root task ids in their new display order. A malformed
+ * list rejects the whole request — a partly accepted order would silently move
+ * tasks the user never dragged.
+ */
+export const asOrderedTaskIds = (value: unknown): string[] => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_QUEUE_REORDER_IDS) throw new Error('顺序参数无效');
+  const ids = value.map((entry) => (typeof entry === 'string' ? entry.trim() : ''));
+  if (ids.some((id) => !id)) throw new Error('顺序参数无效');
+  if (new Set(ids).size !== ids.length) throw new Error('顺序里有重复项');
+  return ids;
 };

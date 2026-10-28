@@ -85,11 +85,11 @@ test('bubble hooks stay unconditional and can locate a task', () => {
   assert.ok(bubble.includes("openWorkbench('today', task.id)"), 'bubble task click must pass focusTaskId');
 });
 
-test('alert keyboard keeps control semantics and remembers rest mode', () => {
+test('alert keeps native controls and does not require mode or start selection', () => {
   const alert = read('src/renderer/src/views/AlertView.tsx');
-  assert.ok(alert.includes("closest('button"), 'Enter/Space on buttons must not hijack rest shortcuts');
-  assert.ok(alert.includes('REST_MODE_STORAGE_KEY'), 'rest mode preference must persist');
-  assert.ok(!alert.includes('setRelaxMode(random)'), 'new reminders must not force a random mode');
+  assert.ok(!alert.includes("event.code === 'Enter'") && !alert.includes("event.code === 'Space'"), 'Enter/Space retains native control semantics');
+  assert.ok(!alert.includes('rest-mode-bar'), 'rest must not ask for a mode');
+  assert.ok(!alert.includes('beginHealthRest('), 'main owns starting the visible rest');
 });
 
 test('core task actions stay discoverable with labels', () => {
@@ -137,8 +137,8 @@ test('pet motion toggle exists end to end', () => {
   assert.ok(read('src/renderer/src/features/simple/SimpleSettings.tsx').includes('petMotion'), 'Settings UI must expose the toggle');
 });
 
-test('alert and bubble share the lede copy source', () => {
-  assert.ok(read('src/renderer/src/views/AlertView.tsx').includes('restLede('));
+test('alert uses shared rest-kind copy and the bubble uses shared lede copy', () => {
+  assert.ok(read('src/renderer/src/views/AlertView.tsx').includes('restKindCopy('));
   assert.ok(read('src/renderer/src/features/reminders/ReminderBubble.tsx').includes('restLede('));
   assert.ok(!read('src/renderer/src/features/reminders/ReminderBubble.tsx').includes('准备好后开始这次休息'), 'bubble must not carry a private lede copy');
 });

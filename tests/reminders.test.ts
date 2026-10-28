@@ -24,6 +24,8 @@ const baseSettings: Settings = {
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
   petOutfit: 'classic',
+  petCompanion: 'fighter',
+  restReadingScale: 1,
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -45,7 +47,9 @@ const baseSettings: Settings = {
   density: 'comfortable',
   alarms: [],
   todos: [],
-  activeTaskId: null
+  activeTaskId: null,
+  hydrationEnabled: true,
+  hydrationGoalCups: 8
 };
 
 const makeSettings = (overrides: Partial<Settings> = {}): Settings => ({
@@ -78,6 +82,57 @@ const makeTask = (id: string, title: string, priority: Task['priority'], context
   tags: [], plannedAt: null, dueAt: null, dueDate: null, reminderAt: null, recurrence: null,
   context, remindOnBreak, estimateMinutes: null, sortOrder, createdAt: sortOrder + 1,
   updatedAt: sortOrder + 1, completedAt: null, sectionId: null, revision: 1
+});
+
+test('visible rest starts once and completes automatically through the kernel deadline', () => {
+  const clock = makeClock();
+  const events: ReminderEvent[] = [];
+  const kernel = new SchedulerKernel({ clock: { now: clock.now, monotonic: clock.now } });
+  const scheduler = new ReminderScheduler(makeSettings({ walkEnabled: false }), { now: clock.now, kernel, manualStart: true, autoCompleteRest: true, onEvent: (event) => events.push(event) });
+  kernel.start();
+  try {
+    const active = scheduler.triggerNow().activeReminder!;
+    clock.advance(10_000);
+    scheduler.tick();
+    assert.equal(scheduler.getStatus().activeReminder?.restStartedAt, null, 'unseen/loading rest does not count');
+    const started = scheduler.beginRest(active.id).activeReminder!;
+    assert.equal(kernel.peek().find((event) => event.owner === 'break')?.fireAt, started.unlockAt + 2500);
+    clock.advance(5000);
+    assert.equal(scheduler.beginRest(active.id).activeReminder?.unlockAt, started.unlockAt, 'repeated starts do not reset the countdown');
+    clock.set(started.unlockAt + 2499);
+    scheduler.tick();
+    assert.equal(events.length, 0);
+    clock.advance(1);
+    kernel.reconcile();
+    assert.equal(scheduler.getStatus().activeReminder, null);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].action, 'complete');
+    scheduler.tick();
+    assert.equal(events.length, 1, 'only one completion is recorded');
+  } finally { scheduler.stop(); kernel.stop(); }
+});
+
+test('automatic rest respects merged duration, skip and test reminders', () => {
+  const clock = makeClock();
+  const events: ReminderEvent[] = [];
+  const scheduler = new ReminderScheduler(makeSettings({ walkEnabled: false }), { now: clock.now, manualStart: true, autoCompleteRest: true, onEvent: (event) => events.push(event) });
+  try {
+    const testRest = scheduler.triggerTest('eye').activeReminder!;
+    scheduler.beginRest(testRest.id, 60_000);
+    clock.advance(32_500);
+    scheduler.tick();
+    assert.ok(scheduler.getStatus().activeReminder, 'merged minimum duration is enforced');
+    clock.advance(30_000);
+    scheduler.tick();
+    assert.equal(scheduler.getStatus().activeReminder, null);
+    assert.equal(events.length, 0, 'test rest is not a completed break');
+    const real = scheduler.triggerNow().activeReminder!;
+    scheduler.beginRest(real.id);
+    scheduler.handleAction('skip', real.id);
+    clock.advance(32_500);
+    scheduler.tick();
+    assert.deepEqual(events.map((event) => event.action), ['skip']);
+  } finally { scheduler.stop(); }
 });
 
 test('test reminders do not reset real schedules when completed', () => {

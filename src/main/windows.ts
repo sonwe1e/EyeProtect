@@ -6,6 +6,7 @@ import type {
   ActiveReminder,
   AppHealth,
   HotkeyStatus,
+  HydrationStatus,
   Project,
   PomodoroState,
   PetReactionEvent,
@@ -21,6 +22,8 @@ import type { ReminderScheduler } from './reminders';
 import type { SettingsStore } from './settings';
 import { getDisplayLayoutKey } from './displayLayout';
 import { selectPetTasks } from '../shared/petTasks';
+import { HYDRATION_BUBBLE_SIZE, resolveBubbleSurface } from '../shared/bubbleSurface';
+import { EMPTY_HYDRATION_STATUS } from '../shared/hydration';
 import { reminderDimsDesktopForMode, reminderSurfaceForMode } from '../shared/reminderModes';
 import { getAlertBounds, getPetMoveBounds, getPetBubbleLayout, resolveTargetDisplay } from './windowBounds';
 import { getWorkbenchBackgroundColor } from './workbenchTheme';
@@ -136,7 +139,8 @@ export class AppWindows {
     private readonly settingsStore: SettingsStore,
     private readonly scheduler: ReminderScheduler,
     private readonly getTasks: () => Task[] = () => [],
-    private readonly getProjects: () => Project[] = () => []
+    private readonly getProjects: () => Project[] = () => [],
+    private readonly getHydration: () => HydrationStatus = () => EMPTY_HYDRATION_STATUS
   ) {
     const onDisplaysChanged = (): void => this.handleDisplaysChangedSoon();
     screen.on('display-added', onDisplaysChanged);
@@ -346,7 +350,7 @@ export class AppWindows {
       }
       this.workbenchWindow.show();
       this.workbenchWindow.focus();
-      this.workbenchWindow.webContents.send('workbench:navigate', section);
+      this.workbenchWindow.webContents.send('workbench:navigate', navPayload());
       return;
     }
 
@@ -577,6 +581,9 @@ export class AppWindows {
     }
 
     if (this.getPomodoro()?.phase && this.getPomodoro()?.phase !== 'idle') { this.showBubble(); return; }
+    // A hydration strip is a moment the user can act on, so it outranks the
+    // passive todo preview — but a real reminder or a running timer still wins.
+    if (this.getHydration().prompt?.phase === 'strip') { this.showBubble(); return; }
     if (!this.settingsStore.get().todoBubbleEnabled) {
       this.hideBubble();
       return;
@@ -667,9 +674,10 @@ export class AppWindows {
     this.sendTo([this.workbenchWindow], 'hotkeys:changed', status);
   }
 
-  /** Pet scale/skin/dim changes: recompute pet bounds, nothing else. */
+  /** Recompute companion, dim and reading bounds after presentation changes. */
   applyPetSettings(settings: Settings): void {
     this.applyReminderStatus(this.scheduler.getStatus(), settings);
+    this.positionAlertWindow();
   }
 
   /**
@@ -819,7 +827,7 @@ export class AppWindows {
   /** Center the alert on the display where the user is actively working. */
   private getAlertBoundsForActiveDisplay(): Electron.Rectangle {
     const targetDisplay = this.getActiveDisplay();
-    return getAlertBounds(targetDisplay.workArea);
+    return getAlertBounds(targetDisplay.workArea, this.settingsStore.get().restReadingScale);
   }
 
   private updateDimWindows(active: boolean, settings: Settings): void {
@@ -893,7 +901,7 @@ export class AppWindows {
   }
 
   private getIdlePetSize(settings: Settings): { width: number; height: number } {
-    const size = Math.round(IDLE_SIZE * settings.petScale);
+    const size = Math.round((settings.petCompanion === 'pixel' ? IDLE_SIZE : 200) * settings.petScale);
     return { width: size, height: size };
   }
 
@@ -950,33 +958,36 @@ export class AppWindows {
   private getBubbleSize(): { width: number; height: number } {
     const status = this.scheduler.getStatus();
     const pomodoro = this.getPomodoro();
-    const focusing = Boolean(pomodoro && pomodoro.phase !== 'idle');
-    const surface = status.preAlert
-      ? 'prealert'
-      : status.activeReminder?.mode === 'gentle'
-        ? `gentle-${status.activeReminder.id}`
-        : focusing
-          ? `pomodoro-${pomodoro!.phase}`
-          : 'todo';
-    if (surface !== this.bubbleSurface) {
-      this.bubbleSurface = surface;
+    const hydration = this.getHydration();
+    // Single source of truth: BubbleView resolves the same surface from the same
+    // raw state, so the card and the window can never disagree.
+    const surface = resolveBubbleSurface({
+      preAlert: Boolean(status.preAlert),
+      gentleReminderId: status.activeReminder?.mode === 'gentle' ? status.activeReminder.id : null,
+      pomodoroPhase: pomodoro?.phase ?? 'idle',
+      hydrationPrompt: hydration.prompt
+    });
+    if (surface.key !== this.bubbleSurface) {
+      this.bubbleSurface = surface.key;
       this.bubbleHeight = null;
     }
-    if (status.preAlert) {
-      return { ...PRE_ALERT_BUBBLE_SIZE, height: this.bubbleHeight ?? PRE_ALERT_BUBBLE_SIZE.height };
+    switch (surface.kind) {
+      case 'prealert':
+        return { ...PRE_ALERT_BUBBLE_SIZE, height: this.bubbleHeight ?? PRE_ALERT_BUBBLE_SIZE.height };
+      case 'gentle': {
+        const active = status.activeReminder;
+        const size = active?.kind === 'combined' || Boolean(active?.breakTask)
+          ? GENTLE_COMBINED_BUBBLE_SIZE
+          : GENTLE_BUBBLE_SIZE;
+        return { ...size, height: this.bubbleHeight ?? size.height };
+      }
+      case 'pomodoro':
+        return { ...POMODORO_BUBBLE_SIZE, height: this.bubbleHeight ?? POMODORO_BUBBLE_SIZE.height };
+      case 'hydration':
+        return { ...HYDRATION_BUBBLE_SIZE, height: this.bubbleHeight ?? HYDRATION_BUBBLE_SIZE.height };
+      default:
+        return { ...TODO_BUBBLE_SIZE, height: this.bubbleHeight ?? TODO_BUBBLE_SIZE.height };
     }
-    const active = status.activeReminder;
-    if (active?.mode === 'gentle') {
-      const size = active.kind === 'combined' || Boolean(active.breakTask)
-        ? GENTLE_COMBINED_BUBBLE_SIZE
-        : GENTLE_BUBBLE_SIZE;
-      return { ...size, height: this.bubbleHeight ?? size.height };
-    }
-    // Match BubbleView priority: health gentle > pomodoro > todo list.
-    if (focusing) {
-      return { ...POMODORO_BUBBLE_SIZE, height: this.bubbleHeight ?? POMODORO_BUBBLE_SIZE.height };
-    }
-    return { ...TODO_BUBBLE_SIZE, height: this.bubbleHeight ?? TODO_BUBBLE_SIZE.height };
   }
 
   private positionBubbleWindow(): void {
@@ -1190,5 +1201,18 @@ export class AppWindows {
 
   broadcastUndo(state: UndoState | null): void {
     this.sendTo([this.workbenchWindow], 'task:undo-changed', state);
+  }
+
+  /**
+   * One event for one moment: the pet animates the sip and shows the cup count,
+   * the bubble renders the strip, the workbench may show the same number. It
+   * carries the whole status so no window has to ask for a second read.
+   */
+  broadcastHydration(status: HydrationStatus): void {
+    // The strip appears, changes phase and retires on the main process's clock,
+    // so the surface has to be re-evaluated here: without this the bubble would
+    // never grow a window for the water card (or would keep a dead one).
+    this.refreshBubble();
+    this.sendTo([this.petWindow, this.bubbleWindow, this.workbenchWindow], 'hydration:changed', status);
   }
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asTaskInput, asTaskUpdateInput } from '../src/main/ipcTaskInput';
+import { asOrderedTaskIds, asSimpleTaskUpdateInput, asTaskInput, asTaskUpdateInput } from '../src/main/ipcTaskInput';
 
 test('task creation transport coerces title and preserves valid fields', () => {
   assert.deepEqual(asTaskInput({ title: '写周报', dueAt: 1000, tags: ['a', 2] }), {
@@ -56,4 +56,29 @@ test('task update transport drops unsupported field shapes', () => {
     dueAt: null, dueDate: null,
     projectId: null
   });
+});
+
+test('queue order transport rejects a malformed id list instead of repairing it', () => {
+  assert.deepEqual(asOrderedTaskIds(['a', ' b ']), ['a', 'b'], 'ids are trimmed');
+  assert.equal(asOrderedTaskIds(Array.from({ length: 500 }, (_, index) => `id-${index}`)).length, 500);
+  assert.throws(() => asOrderedTaskIds('a'), /顺序参数无效/);
+  assert.throws(() => asOrderedTaskIds([]), /顺序参数无效/);
+  assert.throws(() => asOrderedTaskIds(Array.from({ length: 501 }, (_, index) => `id-${index}`)), /顺序参数无效/);
+  assert.throws(() => asOrderedTaskIds(['a', '']), /顺序参数无效/);
+  assert.throws(() => asOrderedTaskIds(['a', '   ']), /顺序参数无效/);
+  assert.throws(() => asOrderedTaskIds(['a', 2]), /顺序参数无效/);
+  assert.throws(() => asOrderedTaskIds(['a', 'a']), /顺序里有重复项/);
+});
+
+test('simple update transport forwards priority so the drawer can cycle it', () => {
+  // Without this, changing priority in the drawer would be silently dropped by
+  // the whitelist and AC-09 could never pass.
+  assert.deepEqual(asSimpleTaskUpdateInput({ priority: 'urgent' }), { priority: 'urgent' });
+  assert.deepEqual(asSimpleTaskUpdateInput({ priority: 'normal' }), { priority: 'normal' });
+  assert.deepEqual(asSimpleTaskUpdateInput({ priority: 'important', baseRevision: 3 }), {
+    priority: 'important',
+    baseRevision: 3
+  });
+  assert.deepEqual(asSimpleTaskUpdateInput({ priority: 'bogus' }), {});
+  assert.deepEqual(asSimpleTaskUpdateInput({ priority: 'urgent', parentId: 'p' }), { priority: 'urgent' });
 });

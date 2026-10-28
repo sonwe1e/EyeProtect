@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { localDateKey } from '../../../../shared/calendar';
 import type { RestCompanionSummary } from '../../../../shared/types';
-import { PixelAnimal } from '../characters/PixelAnimal';
+import { CompanionArtwork } from '../characters/CompanionArtwork';
 import { useClock } from '../../hooks/useClock';
 import { useSettings } from '../../hooks/useSettings';
 
@@ -31,7 +31,7 @@ export function RestCompanionCard(): JSX.Element {
   const max = Math.max(1, ...(summary?.days.map((entry) => entry.completed) ?? []));
   return <section className="simple-rest-companion" aria-labelledby="weekly-rest-title">
     <div className="simple-rest-companion-copy">
-      <div className="simple-rest-companion-pet"><PixelAnimal animal={settings.petAppearance} outfit={settings.petOutfit} action="idle" motion={settings.petMotion} label="奋斗猫陪你休息" /></div>
+      <div className="simple-rest-companion-pet"><CompanionArtwork companion={settings.petCompanion} outfit={settings.petOutfit} action="sleep" motion={false} /></div>
       <div><h2 id="weekly-rest-title">本周休息{summary?.enabled ? <small>{summary.completed} 次</small> : null}</h2>
         <p>{error ?? summary?.message ?? '正在读取本周的小小休息…'}</p>
       </div>

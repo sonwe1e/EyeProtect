@@ -133,6 +133,52 @@
   display: none;
 }
 
+/* Cup counter under the pet. Sized in vw because the idle window is exactly
+   160 × petScale px, so the chip scales with the pet instead of ever asking for
+   a bigger window. pointer-events:none keeps the click that records a cup on
+   the drag surface, where every other pet interaction already lives. */
+.pet-hydration-chip {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  z-index: 3;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5vw;
+  margin: 0;
+  padding: 0.4vw 1.8vw;
+  color: var(--fg-secondary);
+  font-size: 6.2vw;
+  line-height: 1.25;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.pet-hydration-chip strong {
+  color: var(--fg-primary);
+  font-weight: 700;
+}
+
+.pet-hydration-chip.is-achieved strong { color: var(--success); }
+
+/* One small acknowledgement on the goal, then nothing (S1-1). The global
+   reduced-motion block removes the animation and leaves the static chip. */
+.pet-hydration-chip.is-popped { animation: pet-cup-pop 320ms var(--ease-out); }
+
+@keyframes pet-cup-pop {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  40% { transform: translateX(-50%) scale(1.12); }
+}
+
+.pet-compact .pet-hydration-chip {
+  font-size: 6.4vw;
+}
+
 /* Articulated artwork owns its frames; never animate the whole pet wrapper. */
 .pet-character .pixel-animal,
 .companion-animal {
@@ -949,6 +995,118 @@
 .bubble-reminder.kind-combined,
 .bubble-prealert.kind-combined { --rest-accent: var(--rest-accent-combined); }
 
+/* Hydration strip: one sentence, one count, one action — the same material as
+   the gentle bubble. The water accent only tints the label and the count wash;
+   body text stays on --fg-primary so it never depends on a decorative colour. */
+.bubble-hydration-shell { cursor: default; }
+
+.bubble-hydration { gap: 6px; }
+
+.bubble-hydration .bubble-title { color: var(--hydration-accent); }
+
+.bubble-hydration-line {
+  margin: 0;
+  color: var(--fg-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.bubble-hydration-count {
+  align-self: flex-start;
+  margin: 0;
+  padding: 2px 8px;
+  color: var(--fg-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--hydration-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hydration-accent) 32%, transparent);
+  border-radius: 999px;
+}
+
+/* The strip retires itself in 8s; this bar only shows that time passing. Its
+   base state is empty, so a user with reduced motion (animation disabled) sees
+   no bar at all instead of a bar frozen at full. */
+.bubble-hydration-bar {
+  position: absolute;
+  right: 10px;
+  bottom: 3px;
+  left: 10px;
+  height: 2px;
+  background: var(--hydration-accent);
+  border-radius: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
+  animation-name: bubble-hydration-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes bubble-hydration-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* ── quirk-ui: 气泡喝水条 · 纯 CSS 小杯子 ─────────────────────────────────
+   杯子是图形不是文字：hydration-accent 保持装饰位。窗口宽 300 固定，
+   8 杯 + 折叠胶囊 ≤ 155px，余量留给 glass 卡 9/11 内边距。弹层无、布局行高
+   由渲染端测量上报（reportBubbleHeight 既有机制），不改窗口几何。 */
+.bubble-hydration-cups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 5px;
+  margin: 2px 0 0;
+}
+.hydration-cup {
+  flex: none;
+  width: 12px;
+  height: 15px;
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--hydration-accent) 55%, transparent);
+  border-radius: 2px 2px 4px 4px;
+  transform-origin: 50% 100%;
+}
+.hydration-cup.is-full {
+  background: color-mix(in srgb, var(--hydration-accent) 78%, transparent);
+  border-color: color-mix(in srgb, var(--hydration-accent) 62%, transparent);
+}
+/* 记一杯的一瞬：只 pop 最新填上的那只（瞬时类，防重载齐 pop）。 */
+.hydration-cup.did-fill { animation: hydration-cup-fill var(--motion-standard) var(--ease-out); }
+@keyframes hydration-cup-fill {
+  0% { transform: scale(0.7); }
+  55% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+/* 目标 >8 折叠：前 8 杯 + xN。 */
+.bubble-hydration-overflow {
+  align-self: center;
+  padding: 1px 7px;
+  color: var(--fg-secondary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  border: 1px dashed color-mix(in srgb, var(--hydration-accent) 40%, transparent);
+  border-radius: 999px;
+}
+.bubble-hydration-overflow.is-goal-folded {
+  color: var(--fg-secondary);
+  background: color-mix(in srgb, var(--hydration-accent) 14%, transparent);
+  border-style: solid;
+}
+/* 达成里程碑：计数 chip 转 success。wash 8% 是 light 最坏壁纸合成后的
+   安全值（12% 合成后 4.39:1<4.5；CI 无法检查 color-mix 合成，
+   由 Phase 3 vision 评审裁定）。 */
+.bubble-hydration-count.is-achieved {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  border-color: color-mix(in srgb, var(--success) 32%, transparent);
+}
+
+@media (forced-colors: active) {
+  .hydration-cup { forced-color-adjust: none; border-color: ButtonText; }
+  .hydration-cup.is-full { background: Highlight; }
+}
+
 .bubble-head {
   display: flex;
   align-items: center;
@@ -1264,669 +1422,154 @@
    Both rules are checked by `npm run verify:ui-contract` against
    --glass-panel-floor, the resolved worst-case wallpaper. */
 
-.simple-rest {
-  display: block;
-  box-sizing: border-box;
-  /* Definite height so .rest-card can fill the alert window (see base.css). */
-  height: 100%;
-  padding: clamp(10px, 2.2vmin, 22px);
-  color: var(--fg-primary);
-}
-
+.simple-rest { width: 100%; height: 100%; padding: clamp(10px, 2vmin, 24px); color: var(--fg-primary); }
 .simple-rest.kind-eye { --rest-accent: var(--rest-accent-eye); }
 .simple-rest.kind-walk { --rest-accent: var(--rest-accent-walk); }
 .simple-rest.kind-combined { --rest-accent: var(--rest-accent-combined); }
-
-/* ── The glass card ─────────────────────────────────────────────────────── */
-.rest-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 24px 30px 22px;
-  overflow: hidden;
-  background: var(--glass-panel);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 28px;
-  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
-  backdrop-filter: blur(24px) saturate(1.4);
-  isolation: isolate;
-  animation: rest-card-in var(--motion-standard) var(--ease-out) 1;
+.rest-card { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 28px; box-shadow: var(--glass-shadow); }
+.rest-topbar { display: flex; align-items: center; justify-content: space-between; }
+.rest-badge { display: inline-flex; align-items: center; color: var(--fg-primary); background: color-mix(in srgb, var(--rest-accent) 14%, var(--surface)); border-radius: 999px; font-weight: 600; }
+/* One-glance rest surface: readable from the normal working distance. */
+.rest-away-card { padding: clamp(20px, 4vmin, 60px); background: color-mix(in srgb, var(--rest-accent) 6%, var(--surface)); backdrop-filter: none; animation: rest-surface-in var(--motion-standard) var(--ease-out); }
+@keyframes rest-surface-in { from { opacity: .85; transform: translateY(6px); } }
+.rest-away-card .rest-topbar { margin: 0; }
+.rest-away-card .rest-badge { font-size: clamp(14px, 1.6vw, 20px); padding: 8px 16px; }
+.rest-away-card .rest-sound-toggle { width: 44px; height: 44px; display: grid; place-items: center; color: var(--fg-secondary); background: transparent; border: 1px solid var(--border-subtle); border-radius: 50%; -webkit-app-region: no-drag; }
+.rest-away-body { position: relative; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 4vw; align-items: center; flex: 1; min-height: 0; }
+.rest-away-card .rest-reading-panel { text-align: left; min-width: 0; }
+.rest-eyebrow { margin: 0 0 18px; font-size: calc(clamp(16px, 1.8vw, 23px) * var(--rest-reading-scale)); color: var(--fg-secondary); }
+.rest-away-card .rest-title { margin: 0; font-size: calc(clamp(30px, 4.4vw, 68px) * var(--rest-reading-scale)); line-height: 1.25; font-weight: 650; letter-spacing: -.025em; text-wrap: balance; }
+.rest-instruction { margin: 24px 0 0; font-size: calc(clamp(20px, 2.3vw, 32px) * var(--rest-reading-scale)); line-height: 1.65; color: var(--fg-primary); text-wrap: pretty; }
+.rest-offscreen-note { margin: 24px 0 0; color: var(--fg-secondary); font-size: calc(clamp(15px, 1.6vw, 22px) * var(--rest-reading-scale)); line-height: 1.65; }
+.rest-companion-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.rest-away-card .rest-stage-art { position: static; width: 100%; max-width: 380px; aspect-ratio: 1; transform: none; }
+.rest-companion-caption { color: var(--fg-secondary); font-size: clamp(15px, 1.6vw, 22px); }
+.rest-away-footer { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding-top: 20px; }
+.rest-duration { display: flex; align-items: center; gap: 12px; color: var(--fg-secondary); }
+.rest-duration strong { font-size: clamp(22px, 2.2vw, 32px); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rest-duration span { font-size: clamp(14px, 1.5vw, 20px); }
+.rest-away-card .rest-actions-row { display: flex; gap: 12px; margin: 0; }
+.rest-away-card .rest-actions-row button { min-height: 44px; padding: 10px 20px; font-size: clamp(15px, 1.5vw, 20px); border-radius: var(--radius-medium); border: 1px solid var(--border-subtle); color: var(--fg-secondary); background: var(--surface); cursor: pointer; -webkit-app-region: no-drag; }
+.rest-away-card .rest-actions-row button:hover { color: var(--fg-primary); background: var(--surface-hover); }
+.rest-away-card .rest-progress { position: absolute; bottom: 0; left: 0; right: 0; height: 5px; margin: 0; background: var(--border-subtle); border-radius: 0; }
+.rest-away-card .rest-progress i { display: block; height: 100%; background: var(--rest-accent); transition: width var(--motion-slow) linear; }
+.rest-error { color: var(--danger); font-size: 16px; }
+.illustrated-pet, .illustrated-pet svg { display: block; width: 100%; height: 100%; }
+.illustrated-pet svg { image-rendering: pixelated; overflow: hidden; }
+.pet-character .illustrated-pet { width: 100%; height: 100%; }
+@media (max-width: 720px), (max-height: 560px) {
+  .rest-away-card { padding: 22px; }
+  .rest-away-body { gap: 20px; grid-template-columns: minmax(0, 1fr) 130px; }
+  .rest-away-card .rest-title { font-size: calc(28px * var(--rest-reading-scale)); }
+  .rest-instruction { margin-top: 14px; font-size: calc(18px * var(--rest-reading-scale)); }
+  .rest-eyebrow { margin-bottom: 12px; font-size: 15px; }
+  .rest-offscreen-note { margin-top: 14px; font-size: 15px; }
+  .rest-companion-caption { display: none; }
+  .rest-companion-stage .rest-prop-slot { display: none; }
+  .rest-away-footer { flex-wrap: wrap; gap: 12px; padding-top: 12px; }
+  .rest-duration span { display: none; }
+}
+@media (max-width: 480px), (max-height: 390px) {
+  .rest-away-body { display: block; align-content: center; }
+  .rest-companion-stage { display: none; }
+  .rest-away-card .rest-badge { font-size: 13px; }
+  .rest-offscreen-note { margin-top: 10px; }
 }
 
-@keyframes rest-card-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.99); }
-  to { opacity: 1; transform: none; }
-}
-
-/* Colour wash */
-.rest-ambient {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.rest-orb {
-  position: absolute;
-  background: var(--rest-accent);
-  border-radius: 50%;
-  filter: blur(52px);
-}
-
-.rest-orb.is-1 { top: -100px; left: -60px; width: 340px; height: 340px; opacity: .24; }
-.rest-orb.is-2 { bottom: -120px; right: -70px; width: 300px; height: 300px; opacity: .18; }
-
-/* ── Top Bar ────────────────────────────────────────────────────────────── */
-.rest-topbar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-shrink: 0;
-}
-
-.rest-topbar-left {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.rest-topbar-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.rest-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  color: var(--fg-primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  background: color-mix(in srgb, var(--rest-accent) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--rest-accent) 34%, transparent);
-  border-radius: 999px;
-}
-
-.rest-badge::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  background: var(--rest-accent);
-  border-radius: 50%;
-}
-
-.rest-pomo-tag,
-.rest-snooze-count-badge {
-  padding: 4px 10px;
-  font-size: 11.5px;
-  color: var(--fg-secondary);
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 999px;
-}
-
-/* ── Relax mode segmented bar ───────────────────────────────────────────── */
-.rest-mode-bar {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px;
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 999px;
-  backdrop-filter: blur(12px);
-}
-
-.rest-mode-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 5px 14px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fg-secondary);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  cursor: pointer;
-  box-shadow: none;
-  transition: all var(--motion-fast) var(--ease-out);
-}
-
-.rest-mode-btn:hover {
-  color: var(--fg-primary);
-  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
-}
-
-.rest-mode-btn.is-active {
-  color: var(--fg-primary);
-  background: var(--surface);
-  border-color: color-mix(in srgb, var(--rest-accent) 45%, transparent);
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--fg-primary) 10%, transparent);
-}
-
-/* ── Spacious 2-Column Body Layout ──────────────────────────────────────── */
-.rest-body-layout {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 36px;
-  align-items: center;
-  flex: 1;
-  min-height: 0;
-}
-
-/* ── Left Column: Visual Stage ─────────────────────────────────────────── */
-.rest-stage-column {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
-.rest-stage {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 290px;
-  aspect-ratio: 1 / 1;
-  place-items: center;
-}
-
-.rest-stage-glow {
-  position: absolute;
-  inset: 10%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--rest-accent) 36%, transparent) 0%, transparent 70%);
-  border-radius: 50%;
-  filter: blur(20px);
-}
-
-.rest-ring {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.rest-ring-track {
-  fill: none;
-  stroke: color-mix(in srgb, var(--fg-primary) 9%, transparent);
-  stroke-width: 6;
-}
-
-.rest-ring-value {
-  fill: none;
-  stroke: var(--rest-accent);
-  stroke-width: 6;
-  stroke-linecap: round;
-  transition: stroke-dashoffset var(--motion-slow) linear;
-}
-
-.rest-stage-art {
-  position: absolute;
-  top: 42%;
-  left: 50%;
-  width: 54%;
-  aspect-ratio: 1 / 1;
-  transform: translate(-50%, -50%);
-}
-
-.rest-stage-art .pixel-animal {
-  width: 100%;
-  height: 100%;
-}
-
-/* Follow Orb Orbit & Track */
-.rest-follow-track {
-  position: absolute;
-  inset: -14px;
-  z-index: 4;
-  pointer-events: none;
-}
-
-.rest-follow-svg-guide {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.rest-follow-svg-guide path {
-  stroke: color-mix(in srgb, var(--rest-accent) 26%, transparent);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 6;
-}
-
-.rest-follow-orb {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin: -16px 0 0 -16px;
-  border-radius: 50%;
-  color: var(--brand-contrast);
-  background: var(--brand);
-  box-shadow: 0 0 16px var(--brand), 0 0 32px var(--brand);
-  animation: rest-follow-figure8 9s ease-in-out infinite;
-}
-
-@keyframes rest-follow-figure8 {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  12.5%{ transform: translate(84px, -46px) scale(1.1); }
-  25%  { transform: translate(128px, 0px) scale(1); }
-  37.5%{ transform: translate(84px, 46px) scale(0.92); }
-  50%  { transform: translate(0px, 0px) scale(1); }
-  62.5%{ transform: translate(-84px, -46px) scale(1.1); }
-  75%  { transform: translate(-128px, 0px) scale(1); }
-  87.5%{ transform: translate(-84px, 46px) scale(0.92); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-
-/* Breathing Halos */
-.rest-breathe-outer-halo {
-  position: absolute;
-  inset: -16px;
-  z-index: 2;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--rest-accent) 20%, transparent) 0%, transparent 70%);
-  pointer-events: none;
-  transition: transform 1s ease-in-out;
-}
-
-.rest-breathe-halo {
-  position: absolute;
-  inset: -6px;
-  z-index: 2;
-  border-radius: 50%;
-  border: 2px dashed color-mix(in srgb, var(--rest-accent) 60%, transparent);
-  pointer-events: none;
-  transition: transform 1s ease-in-out;
-}
-
-/* Pet Sleep Decor */
-.rest-pet-sleep-decor {
-  position: absolute;
-  top: 15%;
-  right: 18%;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  pointer-events: none;
-}
-
-.rest-zzz {
-  font-weight: 700;
-  color: var(--rest-accent);
-  animation: rest-zzz-anim 3s ease-in-out infinite;
-}
-
-.rest-zzz.is-1 { font-size: 14px; animation-delay: 0s; }
-.rest-zzz.is-2 { font-size: 18px; margin-left: 10px; animation-delay: 0.9s; }
-.rest-zzz.is-3 { font-size: 22px; margin-left: 20px; animation-delay: 1.8s; }
-
-@keyframes rest-zzz-anim {
-  0%   { opacity: 0; transform: translateY(6px) scale(0.8); }
-  45%  { opacity: 0.95; transform: translateY(-8px) scale(1.1); }
-  100% { opacity: 0; transform: translateY(-24px) scale(1.3); }
-}
-
-/* Stage Countdown Readout */
-.rest-stage-count {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  z-index: 3;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  width: max-content;
-  margin: 0;
-  padding: 6px 18px;
-  color: var(--fg-primary);
-  background: var(--glass-wash);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 999px;
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--fg-primary) 8%, transparent);
-  transform: translateX(-50%);
-  backdrop-filter: blur(10px);
-}
-
-.rest-stage-count strong {
-  font-size: 24px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.01em;
-}
-
-.rest-stage-count small {
-  color: var(--fg-secondary);
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-/* ── Right Column: Info & Actions ───────────────────────────────────────── */
-.rest-info-column {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 14px;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.rest-info-header {
-  display: grid;
-  gap: 6px;
-}
-
-.rest-title {
-  margin: 0;
-  font-size: clamp(24px, 2.6vw, 30px);
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -.02em;
-  text-wrap: balance;
-}
-
-.rest-lede {
-  margin: 0;
-  color: var(--fg-secondary);
-  font-size: 14.5px;
-  line-height: 1.55;
-  text-wrap: pretty;
-}
-
-/* Guidance Card */
-.rest-guide-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 14px;
-  backdrop-filter: blur(8px);
-}
-
-.rest-guide-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  color: var(--rest-accent);
-  background: color-mix(in srgb, var(--rest-accent) 14%, transparent);
-}
-
-.rest-guide-content {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.rest-guide-title {
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--fg-primary);
-}
-
-.rest-guide-desc {
-  font-size: 12px;
-  color: var(--fg-secondary);
-  line-height: 1.45;
-}
-
-/* Celebration Badge */
-.rest-celebration-stamp {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: color-mix(in srgb, var(--success) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
-  border-radius: 12px;
+/* ── quirk-ui: 遮罩 finished 态（克制庆祝）──────────────────────────────────
+   绿 wash 4% 是对比安全上限（--fg-secondary 对 wash 后 floor 仍 ≥4.5:1），
+   不加 transition：遮罩每秒重渲染，避免持续重绘。Check 图标一次性 pop，
+   由 .alert-shell 通配 reduce 块覆盖。 */
+.rest-card.is-finished { background: color-mix(in srgb, var(--success) 4%, var(--surface)); }
+.rest-card.is-finished .rest-duration > svg {
   color: var(--success);
-  font-size: 13px;
-  font-weight: 650;
-  animation: rest-stamp-in 0.35s var(--ease-out);
+  animation: rest-finish-pop var(--motion-slow) var(--ease-out);
+}
+@keyframes rest-finish-pop {
+  0% { opacity: 0; transform: scale(0.5); }
+  55% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* 本规则特异性高于上方 forced-colors 的 `.rest-card { background: Canvas }`，
+   必须显式退回，否则强色模式下 finished 卡底不是 Canvas。 */
+@media (forced-colors: active) {
+  .rest-card.is-finished { background: Canvas; }
 }
 
-@keyframes rest-stamp-in {
-  from { transform: scale(0.9); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+/* ── Round 2: 遮罩小道具（窗景+月亮 / 毛巾）────────────────────────────────
+   装饰位：slot aria-hidden、pointer-events none；放 companion stage 内，
+   窄窗口优先为正文留空间。动画仅 transform，由 .alert-shell 通配 reduce 覆盖，
+   petMotion 关闭或页面隐藏时 React 不挂动画类。 */
+.rest-prop-slot { position: absolute; top: 0; left: 0; display: flex; justify-content: center; }
+.rest-prop { position: relative; pointer-events: none; }
+
+.rest-prop-window {
+  width: 64px;
+  height: 54px;
+  background: color-mix(in srgb, var(--hydration-accent) 14%, var(--surface));
+  border: 2px solid color-mix(in srgb, var(--fg-secondary) 55%, transparent);
+  border-bottom-width: 4px;
+  border-radius: 6px 6px 2px 2px;
 }
-
-/* Micro-break Activity Steps */
-.rest-activity {
-  display: grid;
-  gap: 8px;
-  text-align: left;
+.rest-prop-window::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: color-mix(in srgb, var(--fg-secondary) 45%, transparent);
 }
-
-.rest-activity-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0;
+.rest-prop-window::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 6px;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: color-mix(in srgb, var(--fg-secondary) 45%, transparent);
 }
-
-.rest-activity-head strong { color: var(--fg-primary); font-size: 13px; font-weight: 650; }
-.rest-activity-head span { color: var(--fg-secondary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-.rest-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-
-.rest-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 6px 12px;
-  color: var(--fg-secondary);
-  font-size: 12.5px;
-  background: color-mix(in srgb, var(--fg-primary) 4%, transparent);
-  border: 1px solid transparent;
-  border-radius: 10px;
-  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
-}
-
-.rest-step b {
-  display: grid;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  place-items: center;
-  color: var(--fg-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
+.rest-prop-moon {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-}
-
-.rest-step.is-active {
-  color: var(--fg-primary);
-  background: color-mix(in srgb, var(--rest-accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--rest-accent) 38%, transparent);
-}
-
-.rest-step.is-active b {
-  color: var(--fg-primary);
   background: transparent;
-  box-shadow: inset 0 0 0 2px var(--rest-accent);
+  box-shadow: inset 4px -3px 0 0 color-mix(in srgb, var(--warning) 55%, transparent);
+}
+.rest-prop-animated .rest-prop-moon { animation: rest-prop-bob 5.5s ease-in-out infinite alternate; }
+@keyframes rest-prop-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(3px); }
 }
 
-.rest-step.is-done b {
-  color: var(--fg-inverse);
-  background: var(--rest-accent);
-}
-
-.rest-next { margin: 0; color: var(--fg-secondary); font-size: 12px; }
-
-.rest-progress {
+.rest-prop-towel { width: 44px; height: 30px; }
+.rest-prop-towel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 4px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--fg-primary) 10%, transparent);
-  border-radius: 999px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg-secondary) 45%, transparent);
 }
-
-.rest-progress i {
-  display: block;
-  height: 100%;
-  background: var(--rest-accent);
-  border-radius: inherit;
-  transition: width var(--motion-slow) linear;
+.rest-prop-towel::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  width: 28px;
+  height: 24px;
+  border-radius: 3px 3px 6px 6px;
+  background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--success) 22%, transparent) 0 4px, color-mix(in srgb, var(--success) 10%, transparent) 4px 8px);
 }
-
-.rest-break-task {
-  margin: 0;
-  padding: 8px 12px;
-  color: var(--fg-primary);
-  font-size: 12px;
-  text-align: left;
-  background: var(--warning-subtle);
-  border: 1px solid color-mix(in srgb, var(--warning) 26%, transparent);
-  border-radius: 10px;
-}
-
-.rest-sound-toggle {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-small);
-  color: var(--fg-secondary);
-  background: var(--surface);
-  cursor: pointer;
-  transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
-}
-
-.rest-sound-toggle:hover {
-  color: var(--fg-primary);
-  background: var(--surface-hover);
-}
-
-/* ── Actions ────────────────────────────────────────────────────────────── */
-.rest-actions {
-  display: grid;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.rest-actions button, .rest-actions select { font: inherit; cursor: pointer; }
-
-.rest-primary {
-  min-height: 46px;
-  color: var(--brand-contrast);
-  font-size: 15px;
-  font-weight: 650;
-  background: var(--brand);
-  border: 1px solid var(--brand);
-  border-radius: 14px;
-  box-shadow:
-    inset 0 1px 0 var(--inset-highlight),
-    0 1px 2px color-mix(in srgb, var(--brand-strong) 26%, transparent);
-  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-instant) var(--ease-out), transform var(--motion-instant) var(--ease-out);
-}
-
-.rest-primary:hover:not(:disabled) { background: var(--brand-strong); border-color: var(--brand-strong); }
-.rest-primary:active:not(:disabled) { transform: scale(var(--press-scale)); box-shadow: inset 0 1px 0 var(--inset-press); }
-
-.rest-primary.is-celebrate {
-  background: var(--success);
-  border-color: color-mix(in srgb, var(--success) 80%, black);
-}
-
-.rest-actions-row { display: flex; gap: 8px; }
-.rest-snooze-group { display: inline-flex; flex: 1; }
-
-.rest-snooze-group button {
-  flex: 1;
-  min-height: 40px;
-  padding: 0 14px;
-  color: var(--fg-primary);
-  font-size: 13px;
-  background: color-mix(in srgb, var(--fg-primary) 5%, transparent);
-  border: 1px solid var(--glass-hairline);
-  border-radius: 12px;
-  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
-}
-
-.rest-snooze-group button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg-primary) 9%, transparent); }
-
-.rest-skip {
-  min-height: 40px;
-  padding: 0 18px;
-  color: var(--fg-secondary);
-  font-size: 13px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
-}
-
-.rest-skip:hover:not(:disabled) { color: var(--fg-primary); background: color-mix(in srgb, var(--fg-primary) 6%, transparent); }
-.rest-actions button:disabled { cursor: not-allowed; }
-.rest-skip:disabled,
-.rest-snooze-group button:disabled { opacity: .5; }
-
-.rest-primary:disabled {
-  color: var(--fg-secondary);
-  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
-  border-color: var(--glass-hairline);
-  box-shadow: none;
-}
-
-.rest-hint {
-  margin: 0;
-  color: var(--fg-secondary);
-  font-size: 11.5px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.rest-error { margin: 0; color: var(--danger); font-size: 12px; text-align: center; }
-
-.rest-primary:focus-visible,
-.rest-snooze-group button:focus-visible,
-.rest-skip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-
-/* Responsive adjustments for narrow/small viewports */
-@media (max-width: 720px) {
-  .rest-card { padding: 18px 20px 16px; border-radius: 20px; }
-  .rest-body-layout { grid-template-columns: 1fr; gap: 16px; }
-  .rest-stage { width: 220px; }
-  .rest-title { font-size: 22px; }
-  .rest-stage-count strong { font-size: 20px; }
-  .rest-actions-row { flex-wrap: wrap; }
-}
-
-@media (max-height: 560px) {
-  .rest-card { padding: 16px 22px 14px; }
-  .rest-topbar { margin-bottom: 8px; }
-  .rest-stage { width: 210px; }
-  .rest-title { font-size: 20px; }
-  .rest-lede { font-size: 13px; }
-  .rest-actions { gap: 6px; }
+.rest-prop-animated .rest-prop-towel { transform-origin: 50% 0; animation: rest-prop-sway 6s ease-in-out infinite alternate; }
+@keyframes rest-prop-sway {
+  from { transform: rotate(-1.2deg); }
+  to { transform: rotate(1.2deg); }
 }

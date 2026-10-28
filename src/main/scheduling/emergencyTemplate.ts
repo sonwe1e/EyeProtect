@@ -8,6 +8,7 @@
 
 export interface EmergencyTemplateInput {
   title: string;
+  readingScale?: number;
 }
 
 /** Escape a value for safe interpolation into HTML text/attributes. */
@@ -29,9 +30,10 @@ export const escapeHtml = (value: string): string =>
 /** Render the emergency card HTML. No external resources — fully self-contained. */
 export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
   const escapedTitle = escapeHtml(input.title);
+  const readingScale = Number.isFinite(input.readingScale) ? Math.min(1.5, Math.max(0.9, input.readingScale!)) : 1;
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"/>
 <style>
-  :root { color-scheme: light; }
+  :root { color-scheme: light; --reading-scale: ${readingScale}; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -43,18 +45,18 @@ export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 22px 24px 18px;
+    padding: clamp(24px, 6vw, 72px);
     border: 1px solid rgba(40, 70, 80, 0.12);
   }
-  h1 { margin: 0; font-size: 19px; font-weight: 600; color: #1f2a2e; }
-  p { margin: 6px 0 0; font-size: 13px; color: #4a5a5e; }
+  h1 { margin: 0; font-size: calc(clamp(28px, 4.5vw, 60px) * var(--reading-scale)); font-weight: 600; color: #1f2a2e; }
+  p { margin: 20px 0 0; font-size: calc(clamp(18px, 2.5vw, 28px) * var(--reading-scale)); line-height: 1.65; color: #4a5a5e; }
   .actions { display: flex; gap: 10px; margin-top: 16px; }
   button {
     flex: 1;
     border: none;
     border-radius: 10px;
     padding: 11px 0;
-    font-size: 14px;
+    font-size: 20px;
     font-weight: 600;
     cursor: pointer;
     color: #fff;
@@ -64,12 +66,17 @@ export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
   button:hover { filter: brightness(1.07); }
   button.secondary { background: #6b7a7e; }
   button.ghost { background: transparent; color: #2f8f6f; border: 1px solid #2f8f6f; }
-  .hint { margin-top: 10px; font-size: 11px; color: #8a979a; text-align: center; }
+  .hint { margin-top: 18px; font-size: 16px; color: #4a5a5e; text-align: center; }
+  @media (max-width: 720px), (max-height: 560px) {
+    body { padding: 24px; }
+    h1 { font-size: calc(28px * var(--reading-scale)); }
+    p { font-size: min(24px, calc(18px * var(--reading-scale))); line-height: 1.5; }
+  }
 </style></head>
 <body>
   <div>
     <h1>EyeProtect · ${escapedTitle}</h1>
-    <p>休息提醒未能以完整界面显示，已启用简化提醒。</p>
+    <p>现在可以把视线移开屏幕，放松片刻。休息已自动开始，到时会自动收起。</p>
   </div>
   <div>
     <div class="actions">
@@ -78,7 +85,7 @@ export const renderEmergencyHtml = (input: EmergencyTemplateInput): string => {
       <button id="snooze" class="secondary">稍后</button>
       <button id="skip" class="ghost">跳过</button>
     </div>
-    <div class="hint">完成 / 稍后 / 跳过均会恢复自动提醒节奏</div>
+    <div class="hint">无需点击开始或完成；有事可以稍后再休息。</div>
   </div>
 <script>
   function act(action) {

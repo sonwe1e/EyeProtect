@@ -13,6 +13,7 @@ import {
 import { dirname, isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 import { isPixelAnimal, isPetOutfit } from '../shared/pixelAnimals';
+import { isPetCompanion } from '../shared/petCompanions';
 import {
   DEFAULT_SETTINGS,
   SIMPLE_SETTING_LIMITS,
@@ -284,6 +285,8 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
       ? [...new Set(input.todoBubbleTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
       : [],
     petAppearance: isPixelAnimal(input.petAppearance) ? input.petAppearance : 'cat',
+    petCompanion: isPetCompanion(input.petCompanion) ? input.petCompanion : DEFAULT_SETTINGS.petCompanion,
+    restReadingScale: clampNumber(input.restReadingScale, DEFAULT_SETTINGS.restReadingScale, SETTINGS_LIMITS.restReadingScale.min, SETTINGS_LIMITS.restReadingScale.max),
     petOutfit: isPetOutfit(input.petOutfit) ? input.petOutfit : DEFAULT_SETTINGS.petOutfit,
     todoBubbleEnabled:
       typeof input.todoBubbleEnabled === 'boolean'
@@ -359,7 +362,19 @@ export const sanitizeSettings = (value: Partial<Settings> | unknown): Settings =
     activeTaskId:
       typeof input.activeTaskId === 'string' && input.activeTaskId
         ? input.activeTaskId
-        : null
+        : null,
+    hydrationEnabled:
+      typeof input.hydrationEnabled === 'boolean'
+        ? input.hydrationEnabled
+        : DEFAULT_SETTINGS.hydrationEnabled,
+    hydrationGoalCups: Math.round(
+      clampNumber(
+        input.hydrationGoalCups,
+        DEFAULT_SETTINGS.hydrationGoalCups,
+        SETTINGS_LIMITS.hydrationGoalCups.min,
+        SETTINGS_LIMITS.hydrationGoalCups.max
+      )
+    )
   };
 };
 

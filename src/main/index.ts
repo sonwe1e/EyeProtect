@@ -10,6 +10,7 @@ import {
   Notification,
   powerMonitor,
   shell,
+  systemPreferences,
   Tray
 } from 'electron';
 import {
@@ -51,12 +52,15 @@ import { TaskStore } from './taskStore';
 import { TaskService } from './taskService';
 import { TaskScheduler } from './taskScheduler';
 import { PomodoroService } from './pomodoro';
+import { HydrationService } from './hydration';
+import { HydrationStore } from './hydrationStore';
+import { SIP_SUPPRESS_MS, createPetReactionGate } from './petReactionThrottle';
 import { isCurrentTask } from '../shared/simpleTasks';
 import { ActivityMonitor, type ActivityResume } from './activityMonitor';
 import { ReminderContextMonitor } from './reminderContext';
 import { NotificationDeliveryQueue } from './notificationDelivery';
 import { asProjectInput, asProjectUpdateInput } from './ipcProjectInput';
-import { asSimpleTaskInput, asSimpleTaskUpdateInput } from './ipcTaskInput';
+import { asOrderedTaskIds, asSimpleTaskInput, asSimpleTaskUpdateInput } from './ipcTaskInput';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const rendererIndexPath = join(moduleDir, '../renderer/index.html');
@@ -399,6 +403,7 @@ app.whenReady().then(async () => {
     onPersist: (snapshot) => runtimeStateStore.save(snapshot),
     onEvent: (event) => historyStore.record(event, settingsStore.get()),
     manualStart: true,
+    autoCompleteRest: true,
     getEffectiveIntervals: (settings) => ({ eyeMinutes: settings.eyeIntervalMinutes, walkMinutes: settings.walkIntervalMinutes }),
     getEffectiveMode: () => 'focused',
     onContextNotification: (decision) => {
@@ -462,9 +467,22 @@ app.whenReady().then(async () => {
   }
   scheduler.updateTasks([]);
   taskScheduler.arm();
-  const windows = new AppWindows(settingsStore, scheduler, () => taskService.getTasks(), () => taskService.getProjects());
+  // `hydration` is created a few lines below (it needs `windows` to broadcast),
+  // so the window manager reads it through this closure.
+  const windows = new AppWindows(
+    settingsStore,
+    scheduler,
+    () => taskService.getTasks(),
+    () => taskService.getProjects(),
+    () => hydration.getStatus()
+  );
   let reactionSequence = 0;
   const reactPet = (action: PetReaction): void => windows.broadcastPetReaction({ id: `${Date.now()}-${++reactionSequence}`, action });
+  // Round 2 suppression (ux §11): celebrations and sips each rate-limit once
+  // per their own window — bursts stay silent and never queue; the in-row
+  // feedback is unaffected.
+  const celebrateGate = createPetReactionGate();
+  const sipGate = createPetReactionGate(SIP_SUPPRESS_MS);
   historyStore.onChanged(() => windows.broadcastRestCompanion(historyStore.getRestCompanion(settingsStore.get())));
   const pomodoro = new PomodoroService(settingsStore.getDataDir(), kernel, {
     taskAvailable: (id) => { const task = taskService.getTask(id); return Boolean(task && task.status === 'open' && isCurrentTask(task, taskService.getProjects())); },
@@ -488,6 +506,39 @@ app.whenReady().then(async () => {
     focusing = nextFocusing;
   });
   activityMonitor.on('inactive', () => pomodoro.act('pause'));
+  // Hydration: a once-only "moment" that is NOT a fourth reminder kind. It only
+  // READS the context decision, so a drink can never re-arm, reset or merge with
+  // the eye/walk schedule (B5 / AC-10).
+  //
+  // The packaged smoke asserts the exact contents of the bubble window and never
+  // covers hydration, so a strip appearing mid-run (it is wall-clock driven)
+  // would replace those contents at random. Smoke runs therefore defer every
+  // slot, exactly like a quiet hour.
+  const hydrationGate = (now: number): 'show' | 'defer' => {
+    if (process.env.EYEPROTECT_SMOKE === '1') return 'defer';
+    return contextMonitor.decision(settingsStore.get(), now).action === 'show' ? 'show' : 'defer';
+  };
+  const hydration = new HydrationService({
+    store: new HydrationStore(settingsStore.getDataDir()),
+    settingsStore,
+    gate: hydrationGate,
+    // The OS "reduce motion" switch is honoured here too, not only in the
+    // renderer: otherwise the strip would still wait out a sip nobody can see.
+    reducedMotion: () => {
+      try {
+        return systemPreferences.getAnimationSettings().prefersReducedMotion === true;
+      } catch {
+        return false;
+      }
+    },
+    surfaceBusy: () => {
+      const status = scheduler.getStatus();
+      // 'ready' also owns the bubble (refreshBubble keeps it up), so it counts.
+      return Boolean(status.preAlert) || Boolean(status.activeReminder) || pomodoro.getState().phase !== 'idle';
+    },
+    onChange: (status) => windows.broadcastHydration(status),
+    sendSip: () => { if (sipGate.shouldReact(Date.now())) reactPet('sip'); }
+  });
   const refreshTasks = (): void => { taskScheduler.arm(); pomodoro.reconcileTask(); };
   taskService.on('task-upserted', (task) => { windows.broadcastTaskUpserted(task); refreshTasks(); });
   taskService.on('task-removed', (id) => { windows.broadcastTaskRemoved(id); refreshTasks(); });
@@ -496,7 +547,7 @@ app.whenReady().then(async () => {
   taskService.on('project-removed', (id) => { windows.broadcastProjectRemoved(id); refreshTasks(); });
   taskService.on('projects-replaced', (projects) => { windows.broadcastProjects(projects); refreshTasks(); });
   taskService.on('undo-changed', (state) => windows.broadcastUndo(state));
-  taskService.on('task-completed', () => reactPet('celebrate'));
+  taskService.on('task-completed', () => { if (celebrateGate.shouldReact(Date.now())) reactPet('celebrate'); });
 
   const refreshSystemTheme = (): void => windows.refreshWorkbenchTheme();
   nativeTheme.on('updated', refreshSystemTheme);
@@ -550,7 +601,8 @@ app.whenReady().then(async () => {
       // "actionable surface available OR dim masks destroyed".
       console.warn('[surface] all reminder surfaces failed; tearing down dim masks (fail-open)');
       windows.destroyDimMasks();
-    }
+    },
+    () => settingsStore.get().restReadingScale
   );
   const deliveryQueue = new NotificationDeliveryQueue(taskStore, {
     onDelivered: (delivery) => {
@@ -630,12 +682,16 @@ app.whenReady().then(async () => {
     kernel.suspend();
     scheduler.suspend();
     taskScheduler.suspend();
+    hydration.suspend();
   });
   powerMonitor.on('resume', () => {
     contextMonitor.configure(settingsStore.get());
     activityMonitor.resume(powerMonitor.getSystemIdleTime());
     kernel.resume(powerMonitor.getSystemIdleTime() * 1000);
     taskScheduler.resume();
+    // Re-arm only: a machine that was asleep for three hours owes the user no
+    // water reminder, it owes them silence (B4).
+    hydration.resume();
   });
   powerMonitor.on('lock-screen', () => { contextMonitor.stop(); activityMonitor.lock(); });
   powerMonitor.on('unlock-screen', () => {
@@ -644,6 +700,7 @@ app.whenReady().then(async () => {
     scheduler.handleScreenUnlock();
     kernel.reconcile();
     taskScheduler.arm();
+    hydration.resume();
   });
 
   handleSecondInstance = () => {
@@ -712,9 +769,22 @@ app.whenReady().then(async () => {
     }
     if (
       settings.petScale !== previous.petScale ||
+      settings.petCompanion !== previous.petCompanion ||
+      settings.restReadingScale !== previous.restReadingScale ||
       settings.dimDesktop !== previous.dimDesktop
     ) {
       windows.applyPetSettings(settings);
+    }
+    // Hydration re-derives its own schedule: the interval comes from the working
+    // window and the goal, and petMotion decides whether the pet drinks first.
+    if (
+      settings.hydrationEnabled !== previous.hydrationEnabled ||
+      settings.hydrationGoalCups !== previous.hydrationGoalCups ||
+      settings.workStartMinutes !== previous.workStartMinutes ||
+      settings.workEndMinutes !== previous.workEndMinutes ||
+      settings.petMotion !== previous.petMotion
+    ) {
+      hydration.onSettingsChanged();
     }
     windows.broadcastSettings(settings);
   });
@@ -736,7 +806,11 @@ app.whenReady().then(async () => {
     }
     if (presentedReminderId !== active.id) {
       presentedReminderId = active.id;
-      void reminderSurface.present(active);
+      void reminderSurface.present(active).then((surface) => {
+        // The main process starts timing only once an actionable rest is visible.
+        // Notification/fail-open paths never record an unseen rest as completed.
+        if (surface === 'primary' || surface === 'emergency') beginHealthRest(active.id);
+      });
     }
   });
 
@@ -994,9 +1068,9 @@ app.whenReady().then(async () => {
       const readmePath = join(customDir, '使用说明.txt');
       if (!existsSync(readmePath)) {
         const readme =
-          'EyeProtect 奋斗猫自定义动图说明\r\n\r\n' +
-          '把动图直接放在本文件夹（custom-pet）根目录，即可替换奋斗猫的动画。\r\n' +
-          '不需要子文件夹，也没有其它可切换角色。\r\n\r\n' +
+          'EyeProtect 自定义桌面伙伴动图说明\r\n\r\n' +
+          '把动图直接放在本文件夹（custom-pet）根目录，在设置中选择“我的动图”。\r\n' +
+          '不需要子文件夹；内置火力奋斗猫、水獭、企鹅与像素猫始终保留。\r\n\r\n' +
           '动作文件命名规范：\r\n' +
           '- idle*.gif / idle*.png：待机/呼吸循环\r\n' +
           '- click*.gif / interact*.gif：单击桌宠时随机互动\r\n' +
@@ -1104,6 +1178,9 @@ app.whenReady().then(async () => {
     { title: '旧每日规划', items: taskStore.getAllDailyTaskPlans().map((p) => ({ title: taskService.getTask(p.taskId)?.title ?? '旧任务', detail: p.localDate })) },
     { title: '历史专注', items: taskStore.getFocusSessions().map((s) => ({ title: taskService.getTask(s.taskId)?.title ?? '旧任务', detail: new Date(s.startedAt).toLocaleString() })) }
   ] }));
+  handleIpc('hydration:get', () => hydration.getStatus());
+  handleIpc('hydration:record', () => hydration.recordCup());
+  handleIpc('hydration:dismiss', () => hydration.dismissPrompt());
   handleIpc('pomodoro:prepare', (id, replace) => pomodoro.prepare(typeof id === 'string' ? id : null, replace === true));
   handleIpc('pomodoro:get', () => pomodoro.getState());
   handleIpc('pomodoro:start', (id, minutes, replace) => {
@@ -1133,6 +1210,9 @@ app.whenReady().then(async () => {
   handleIpc('task:delete', (id) => {
     return requireWritableTaskDatabase(() => taskService.deleteTask(asString(id)));
   });
+  handleIpc('task:reorder-queue', (ids) =>
+    requireWritableTaskDatabase(() => taskService.reorderQueue(asOrderedTaskIds(ids)))
+  );
   handleIpc('task:undo:get', () => taskService.getUndoState());
   handleIpc('task:undo', (operationId) =>
     requireWritableTaskDatabase(() => taskService.undo(asString(operationId)))
@@ -1268,6 +1348,9 @@ app.whenReady().then(async () => {
   // load: the pet is best-effort eye-candy, not a scheduling dependency.
   kernel.start();
   scheduler.start();
+  // Hydration starts armed, never ticked: a cold start at 20:00 must not replay
+  // the moments that passed while the app was closed (B4 / no backfill).
+  hydration.start();
   runtimeStateStore.startCheckpoint(() => scheduler.serialize());
   activityMonitor.start();
   // Dead-letter recovery: any delivery that reached terminal `failed` in a
@@ -1307,6 +1390,7 @@ app.whenReady().then(async () => {
   app.on('before-quit', () => {
     contextMonitor.stop();
     pomodoro.dispose();
+    hydration.stop();
     runtimeStateStore.stopCheckpoint();
     activityMonitor.stop();
     deliveryQueue.stop();

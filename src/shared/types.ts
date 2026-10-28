@@ -1,4 +1,10 @@
 import type { PixelAnimal, PetOutfit } from './pixelAnimals';
+import type { PetCompanion } from './petCompanions';
+// Type-only: hydration.ts needs Settings, and the IPC surface needs the status.
+// Both directions are erased at compile time, so there is no runtime cycle.
+import type { HydrationStatus } from './hydration';
+
+export type { HydrationStatus };
 
 export type ReminderKind = 'eye' | 'walk' | 'combined';
 export type SingleReminderKind = Exclude<ReminderKind, 'combined'>;
@@ -536,6 +542,9 @@ export interface Settings {
   todoBubbleEnabled: boolean;
   todoBubbleTaskIds: string[];
   petAppearance: PixelAnimal;
+  petCompanion: PetCompanion;
+  /** Independent of desktop-pet size and Windows display scaling. */
+  restReadingScale: number;
   /** Built-in 奋斗猫 outfit; custom GIF artwork takes precedence. */
   petOutfit: PetOutfit;
   petScale: number;
@@ -581,6 +590,16 @@ export interface Settings {
    * task is active. Persisted so it survives restarts.
    */
   activeTaskId: string | null;
+  /**
+   * Hydration (drinking water) hints. ON by default: it is the only moment the
+   * pet starts on its own, and a feature that ships switched off is invisible.
+   * The two safety valves are deliberate — the first hint never comes sooner
+   * than one derived interval after the working day starts, and the switch
+   * carries a permanent "随时可关" note instead of a first-run guide.
+   */
+  hydrationEnabled: boolean;
+  /** Daily goal in cups (~250 ml each); the hint interval is derived from it. */
+  hydrationGoalCups: number;
 }
 
 export interface ActiveReminder {
@@ -722,7 +741,7 @@ export interface RestCompanionSummary {
   days: Array<{ date: string; completed: number }>;
 }
 
-export type PetReaction = 'celebrate' | 'stretch' | 'focus';
+export type PetReaction = 'celebrate' | 'stretch' | 'focus' | 'sip';
 export interface PetReactionEvent {
   id: string;
   action: PetReaction;
@@ -894,6 +913,14 @@ export interface EyeProtectApi {
   onRestCompanionChanged: (callback: (summary: RestCompanionSummary) => void) => () => void;
   onPetReaction: (callback: (event: PetReactionEvent) => void) => () => void;
 
+  // ── Hydration ──────────────────────────────────────────────────────────
+  /** Today's cup count plus the current prompt, if any (main owns the clock). */
+  getHydration: () => Promise<HydrationStatus>;
+  recordHydrationCup: () => Promise<HydrationStatus>;
+  /** Retire the strip without recording a cup (the "×" of one skipped moment). */
+  dismissHydrationPrompt: () => Promise<HydrationStatus>;
+  onHydrationChanged: (callback: (status: HydrationStatus) => void) => () => void;
+
   // ── Pomodoro ───────────────────────────────────────────────────────────
   preparePomodoro: (taskId: string | null, replace: boolean) => Promise<PomodoroState>;
   getPomodoro: () => Promise<PomodoroState>;
@@ -907,6 +934,11 @@ export interface EyeProtectApi {
   createTask: (input: TaskInput) => Promise<Task[]>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<Task[]>;
   moveTask: (input: TaskMoveInput) => Promise<Task[]>;
+  /**
+   * Rewrite today's single queue order from an ordered list of root task ids
+   * (position is the priority). Persists `sortOrder` only — never `revision`.
+   */
+  reorderTaskQueue: (orderedIds: string[]) => Promise<Task[]>;
   setTaskStatus: (id: string, status: TaskStatus) => Promise<Task[]>;
   deleteTask: (id: string) => Promise<Task[]>;
   completeTaskTree: (id: string, revisions: Record<string, number>) => Promise<Task[]>;
@@ -993,6 +1025,8 @@ export const DEFAULT_SETTINGS: Settings = {
   todoBubbleEnabled: true,
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
+  petCompanion: 'fighter',
+  restReadingScale: 1,
   petOutfit: 'classic',
   petScale: 1,
   petMotion: true,
@@ -1015,7 +1049,9 @@ export const DEFAULT_SETTINGS: Settings = {
   density: 'comfortable',
   alarms: [],
   todos: [],
-  activeTaskId: null
+  activeTaskId: null,
+  hydrationEnabled: true,
+  hydrationGoalCups: 8
 };
 
 export const SETTINGS_LIMITS = {
@@ -1028,6 +1064,8 @@ export const SETTINGS_LIMITS = {
   workEndMinutes: { min: 1, max: 24 * 60 },
   preAlertSeconds: PRE_ALERT_LIMIT,
   petScale: { min: 0.5, max: 1.8 },
+  restReadingScale: { min: 0.9, max: 1.5 },
+  hydrationGoalCups: { min: 1, max: 20 },
   minuteOfDay: { min: 0, max: 24 * 60 - 1 }
 } as const;
 

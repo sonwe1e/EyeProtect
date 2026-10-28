@@ -1,8 +1,24 @@
 # Changelog
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与
-[Semantic Versioning](https://semver.org/lang/zh-CN/)。本机运行数据不会随版本升级迁移
-到云端；安装版使用稳定的用户数据目录，portable 继续使用 EXE 同目录数据，见 README。
+[Semantic Versioning](https://semver.org/lang/zh-CN/)。本机运行数据不会迁移到云端；
+2.0 与 Electron 1.x 使用不同数据目录，见 README。
+
+## [2.0.0] - 2026-10-28
+
+### Changed
+- 主程序迁移到 Tauri 2 + Rust，复用 React 工作台；后续停止维护 Electron 1.x。
+- 2.0 使用独立的本地数据目录和备份格式，不自动读取 1.x 数据，也不支持导入 1.x 备份。
+- Windows 提供安装包和免安装 EXE；两者均在用户数据目录存储数据。
+- 补充桌面伙伴、喝水提示和休息引导；保留待办、番茄钟与护眼/走动提醒。
+
+### Fixed
+- Tauri 任务与设置写入失败时返回错误，任务写入成功后才发布变更；备份导入失败时尝试回滚已写文件。
+- 待办单次提醒接入 Windows 通知，记录投递状态以避免重启后重复发送，并支持失败重试。
+
+### Known differences
+- 2.0 尚无休息窗口异常时的应急窗口/通知兜底；锁屏没有独立检测，系统长时间中断由看门狗处理。
+- 2.0 备份不包含喝水、番茄钟和任务提醒投递状态；混合 DPI 多显示器尚未完成实机验收。
 
 ## [1.8.0] - 2026-10-10
 

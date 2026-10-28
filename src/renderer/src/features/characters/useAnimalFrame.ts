@@ -18,7 +18,14 @@ export function useAnimalFrame(action: string, identity: string, motion = true, 
           setFrame(step < 12 ? step : 0);
           if (step >= 12) clearInterval(timer);
         }
-      }, action === 'idle' || action === 'breathe' ? 160 : action === 'celebrate' ? 40 : action === 'react' ? 130 : 240);
+      }, action === 'idle' || action === 'breathe' ? 160
+        : action === 'celebrate' ? 40
+          : action === 'react' ? 130
+            // 12 frames × 216ms ≈ 2.6s, the same window the main process uses
+            // for the sip (HYDRATION_SIP_MS), so the cup empties exactly as the
+            // strip appears instead of drifting a frame or two behind it.
+            : action === 'sip' ? 216
+              : 240);
     };
     document.addEventListener('visibilitychange', sync);
     reduced.addEventListener('change', sync);

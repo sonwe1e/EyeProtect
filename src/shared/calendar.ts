@@ -73,3 +73,17 @@ export const localDateKey = (timestamp: number): string => {
   const pad = (value: number): string => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
+
+/**
+ * Civil days from `fromKey` to `toKey` (both `YYYY-MM-DD` keys); negative when
+ * `toKey` is earlier. The day number is built with `Date.UTC`, which has no DST,
+ * so a 23- or 25-hour local day still counts as exactly one day — this is what
+ * "逾期 3 天" needs and why subtracting local midnights would be wrong.
+ */
+export const daysBetweenLocalDateKeys = (fromKey: string, toKey: string): number => {
+  const indexOf = (key: string): number => {
+    const [year, month, day] = key.split('-').map(Number);
+    return Date.UTC(year, month - 1, day) / 86_400_000;
+  };
+  return indexOf(toKey) - indexOf(fromKey);
+};

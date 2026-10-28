@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { SettingsStore, syncStartupShortcut, sanitizeSettings } from '../src/main/settings';
 import { PET_OUTFITS } from '../src/shared/pixelAnimals';
-import { DEFAULT_SETTINGS } from '../src/shared/types';
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from '../src/shared/types';
 
 const withTempStore = (fn: (store: SettingsStore, dir: string) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'eyeprotect-w-'));
@@ -212,5 +212,37 @@ test('development startup synchronization leaves Windows untouched', () => {
   syncStartupShortcut({ ...DEFAULT_SETTINGS, startWithWindows: true }, {
     isPackaged: false, launchExecutable: 'unused', startupDir: 'unused',
     writeShortcut: () => { assert.fail('development must not register startup'); }
+  });
+});
+
+test('hydration defaults are on with an 8-cup goal, and survive a restart', () => {
+  withTempStore((store, _dir) => {
+    assert.equal(store.get().hydrationEnabled, true, 'a brand-new install must already be hinting');
+    assert.equal(store.get().hydrationGoalCups, 8);
+    assert.equal(new SettingsStore().get().hydrationEnabled, true, 'the default is written, not re-invented');
+  });
+});
+
+test('hydration goal is clamped to 1–20 cups and rejects non-numbers', () => {
+  withTempStore((store) => {
+    store.save({ hydrationGoalCups: 0 });
+    assert.equal(store.get().hydrationGoalCups, SETTINGS_LIMITS.hydrationGoalCups.min);
+    store.save({ hydrationGoalCups: 99 });
+    assert.equal(store.get().hydrationGoalCups, SETTINGS_LIMITS.hydrationGoalCups.max);
+    store.save({ hydrationGoalCups: Number.NaN });
+    assert.equal(store.get().hydrationGoalCups, DEFAULT_SETTINGS.hydrationGoalCups);
+    store.save({ hydrationGoalCups: '8' as unknown as number });
+    assert.equal(store.get().hydrationGoalCups, DEFAULT_SETTINGS.hydrationGoalCups);
+    store.save({ hydrationGoalCups: 12 });
+    assert.equal(new SettingsStore().get().hydrationGoalCups, 12);
+  });
+});
+
+test('hydration switch is persisted and coerced to a boolean', () => {
+  withTempStore((store) => {
+    store.save({ hydrationEnabled: false });
+    assert.equal(new SettingsStore().get().hydrationEnabled, false, 'switching it off must survive a restart');
+    store.save({ hydrationEnabled: 'yes' as unknown as boolean });
+    assert.equal(store.get().hydrationEnabled, DEFAULT_SETTINGS.hydrationEnabled);
   });
 });

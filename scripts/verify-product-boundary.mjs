@@ -17,7 +17,7 @@ for (const banned of ['src/renderer/src/_legacy', 'scripts/legacy']) {
 }
 
 const MUTATIONS = new Set([
-  'createTask', 'updateTask', 'setTaskStatus', 'deleteTask', 'moveTask',
+  'createTask', 'updateTask', 'setTaskStatus', 'deleteTask', 'moveTask', 'reorderTaskQueue',
   'undoTaskOperation', 'setActiveTask', 'completeTaskTree', 'moveStep', 'createStep',
   'createProject', 'updateProject', 'deleteProject',
   'retryFailedDelivery', 'dismissFailedDelivery',

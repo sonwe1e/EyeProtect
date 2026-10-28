@@ -12,7 +12,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
       - name: Scan new commits for secrets
         uses: gitleaks/gitleaks-action@v3
         env:
@@ -21,73 +20,66 @@ jobs:
   verify-and-package:
     needs: secret-scan
     runs-on: windows-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
       - name: Install dependencies
         run: npm ci
-
       - name: Typecheck
         run: npm run typecheck
-
-      - name: Test
+      - name: Test renderer contracts
         run: npm test
-
-      - name: Verify product boundary
-        run: npm run verify:product
-
-      - name: Verify UI contract
-        run: npm run verify:ui-contract
-
-      # npm run package starts with npm run build (incl. verify:build),
-      # so a separate Build step would build twice.
+      - name: Verify product and UI contracts
+        run: npm run lint
+      - name: Test Rust backend
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Build Windows distributions
         run: npm run package
-
-      - name: Verify simplified UI and desktop focus
+      - name: Test Tauri windows
+        run: npm run smoke:tauri
+      - name: Test write failures
+        run: npm run smoke:tauri-write-failure
+      - name: Test task notifications
+        run: npm run smoke:tauri-task-reminder
+      - name: Test startup with damaged data
+        run: npm run smoke:tauri-startup-recovery
+      - name: Install and test the packaged application
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          node scripts/smoke-simple-experience.mjs 1 artifacts/simple-100
-          node scripts/smoke-simple-experience.mjs 1.25 artifacts/simple-125
-          node scripts/smoke-simple-experience.mjs 1.5 artifacts/simple-150
-          node scripts/smoke-simple-experience.mjs 1 artifacts/simple-emergency --emergency
-          node scripts/smoke-simple-pet-failure.mjs
-          node scripts/smoke-pet-ui.mjs 1 --packaged
-          node scripts/smoke-pet-ui.mjs 1.25 --packaged
-          node scripts/smoke-pet-ui.mjs 1.5 --packaged
-
+          $installer = Get-Item release/EyeProtect-Setup-*-win-x64.exe
+          $installDir = Join-Path $env:RUNNER_TEMP 'EyeProtect-2.0'
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
+          $exe = Get-ChildItem -Path $installDir -Filter eyeprotect.exe -File -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'Installed application was not found' }
+          $env:EYEPROTECT_TAURI_EXE = $exe.FullName
+          npm run smoke:tauri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload interaction evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: EyeProtect-simple-experience
-          path: |
-            artifacts/simple-*/*.png
-            artifacts/simple-*/metrics.json
-            artifacts/simple-*/app.log
-            artifacts/pet-ui/*/*.png
-            artifacts/pet-ui/*/app.log
+          name: EyeProtect-Tauri-interaction
+          path: artifacts/codex-tauri-ui/*.png
           if-no-files-found: warn
-
-      - name: Upload installer
-        if: always()
+      - name: Upload Windows distributions
         uses: actions/upload-artifact@v7
         with:
           name: EyeProtect-Windows-x64
           path: |
             release/EyeProtect-Setup-*-win-x64.exe
-            release/EyeProtect-*-win-x64-portable.exe
-          if-no-files-found: warn
+            release/EyeProtect-*-win-x64.exe
+            release/SHA256SUMS.txt
+          if-no-files-found: error

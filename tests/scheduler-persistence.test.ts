@@ -26,6 +26,8 @@ const baseSettings: Settings = {
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
   petOutfit: 'classic',
+  petCompanion: 'fighter',
+  restReadingScale: 1,
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -47,7 +49,9 @@ const baseSettings: Settings = {
   density: 'comfortable',
   alarms: [],
   todos: [],
-  activeTaskId: null
+  activeTaskId: null,
+  hydrationEnabled: true,
+  hydrationGoalCups: 8
 };
 
 const withTempDir = (fn: (dir: string) => void): void => {

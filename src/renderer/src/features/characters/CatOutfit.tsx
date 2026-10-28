@@ -1,7 +1,7 @@
 import type { PetOutfit } from '../../../../shared/pixelAnimals';
 
 // Artwork colors belong to the character, independently of the app theme.
-const ink = '#34303d';
+const ink = '#38313e';
 const mint = '#6eb7a5';
 const mintDark = '#3a796b';
 const gold = '#f6ce75';
@@ -72,7 +72,7 @@ export function CatOutfitProp({ outfit, gesture }: { outfit: PetOutfit; gesture:
     <path fill="#b3ddd0" d="M40 50H46V52H40ZM54 50H60V52H54Z" />
   </g>;
   if (outfit === 'stargazer') return <g>
-    <g transform={`rotate(${-gesture * 8} 46 49)`}>
+    <g transform={`translate(${-gesture} ${-gesture})`}>
       <path fill={ink} d="M46 38H49V53H46Z" />
       <path fill="#aa7751" d="M47 39H48V52H47Z" />
       <path fill={ink} d="M46 29H50V32H53V36H50V39H46V36H43V32H46Z" />

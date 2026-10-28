@@ -1,39 +1,30 @@
 # CLAUDE.md
 
-EyeProtect 是本地优先的 Windows 休息提醒与待办助手，使用 Electron、electron-vite、React、严格 TypeScript。所有工作遵循 [RULES.md](RULES.md)；项目当前架构以 [docs/architecture.md](docs/architecture.md) 为准。
+EyeProtect 是本地优先的 Windows 休息提醒与待办助手。2.0 使用 Tauri 2、Rust、React 和严格 TypeScript；Electron 1.x 已停止维护。工程准则见 [RULES.md](RULES.md)，当前架构与数据边界见 [docs/tauri-migration.md](docs/tauri-migration.md) 和 [docs/architecture.md](docs/architecture.md)。
 
-## 当前产品边界
+## 当前产品
 
-主界面只有待办、完成记录、设置。任务按截止日期分组，使用简单清单；点击任务原地展开备注、日期、单次提醒与一层步骤。桌宠旁气泡展示手选任务或番茄钟。休息统一用遮罩，点击开始休息暂停专注，手动继续恢复。
+主界面为待办、完成记录、设置。任务可以添加截止日期、单次提醒、备注和一层步骤；桌宠气泡显示手选任务或番茄钟。护眼与走动提醒显示休息窗口，真正显示后自动开始并暂停专注，专注仍需手动继续。喝水提示独立于健康休息调度。
 
-旧项目/规划/工时/独立提醒界面不在当前主流程；旧组合收藏角色系统已随像素动物方案删除。旧数据保留供备份、只读查看与恢复，不重新启用旧自动规则。
+2.0 使用独立的 `%APPDATA%\local.eyeprotect.pet\` 数据目录，不自动迁移 Electron 1.x 数据，也不能导入其备份。当前备份包含设置、任务、清单、活动任务与休息历史；喝水、番茄钟和任务通知投递状态不包含在内。
 
 ## 查找位置
 
 | 领域 | 入口 |
 | --- | --- |
-| 主任务、清单、步骤 | src/main/taskService.ts、src/main/taskStore.ts、src/shared/simpleTasks.ts |
-| 日期与 IPC | src/shared/types.ts、src/main/ipcTaskInput.ts、src/preload/index.ts、src/main/index.ts |
-| 休息节奏与生命周期 | src/main/reminders.ts、src/main/scheduling/kernel.ts、src/main/activityMonitor.ts |
-| 提醒界面（遮罩卡片） | src/renderer/src/views/AlertView.tsx、src/renderer/src/features/reminders/restViewModel.ts |
-| 番茄钟 | src/main/pomodoro.ts、src/renderer/src/features/simple/PomodoroCard.tsx |
-| 主界面与设置 | src/renderer/src/views/WorkbenchView.tsx、src/renderer/src/features/simple/SimpleSettings.tsx |
-| 桌宠与像素动物 | src/renderer/src/views/PetView.tsx、src/shared/pixelAnimals.ts、src/renderer/src/features/characters/PixelAnimal.tsx |
-| 窗口与兜底 | src/main/windows.ts、src/main/windowBounds.ts、src/main/reminderSurface.ts |
-| 数据兼容 | src/main/backup.ts；数据库 v5、备份 v8 |
+| 程序装配、状态与持久化 | `src-tauri/src/lib.rs`、`state.rs`、`fsutil.rs` |
+| 任务、清单、步骤与单次提醒 | `src-tauri/src/tasks.rs`、`task_reminders.rs`、`src/shared/simpleTasks.ts` |
+| 休息与番茄钟 | `src-tauri/src/scheduler.rs`、`pomodoro.rs`、`reminder_context.rs`、`wincontext.rs` |
+| 喝水与休息记录 | `src-tauri/src/hydration.rs`、`history.rs` |
+| 窗口、托盘和设置 | `src-tauri/src/windows.rs`、`winarea.rs`、`tray.rs`、`types.rs` |
+| 命令与 renderer 桥 | `src-tauri/src/commands.rs`、`src/renderer/src/lib/tauriBridge.ts`、`src/shared/types.ts` |
+| 工作台和视觉 | `src/renderer/src/views/WorkbenchView.tsx`、`features/simple/SimpleSettings.tsx`、`views/PetView.tsx`、`views/AlertView.tsx` |
+| 备份 | `src-tauri/src/backup.rs`；Tauri 备份 v1，不兼容 Electron v8 |
 
-## 开发约定
+## 开发与验证
 
-- 严格 TypeScript、两空格、单引号、分号；共享接口定义在 src/shared/types.ts。
-- Renderer 不访问 Node/Electron，仅使用 window.eyeProtect。变更 IPC 同步更新类型、preload、主进程清洗与发送方限制。
-- 变更通过命令层呈现错误；任务并发修改保留 baseRevision；批量完成/撤销先提交事务再推送。
-- 颜色使用语义令牌；simple.css 拥有精简工作台样式，styles.css 拥有桌宠、气泡和休息窗口。
-- 桌宠不订阅全量任务；拖动每次重申固定窗口尺寸，防止 Windows 分数 DPI 尺寸漂移。
-- 所有倒计时由主进程拥有，复用 SchedulerKernel；不要在 renderer 创建计时权威或恢复旧工时追踪。
-- data/、out/、release/、artifacts/、node_modules/ 为本地数据、生成物或依赖，不提交。
-
-## 验证
-
-交付前运行 npm run typecheck、npm test、npm run verify:ui-contract。资源/窗口变化运行 npm run package，并运行 npm run smoke:simple 的 1、1.25、1.5 缩放验收；--emergency 覆盖应急窗口。npm run smoke:pet-failure 验证桌宠失效仍能记任务和休息。
-
-修改休息调度必须补 tests/reminders.test.ts 或 tests/pomodoro.test.ts 的对应行为测试；迁移、步骤和数据完整性测试放 tests/simple-experience.test.ts。记录实际通过的验证与未完成的硬件验证。
+- 写操作经命令层处理，持久化成功后才发布任务变更；失败要向用户显示。修改 Rust 命令时同步检查共享接口和 Tauri bridge。
+- 计时由 Rust 后端持有；renderer 不创建计时权威。休息调度与番茄钟变更补 Rust 测试，任务、步骤与数据完整性变更覆盖失败路径。
+- `npm run dev` 启动 Tauri；`npm run package` 构建安装包、免安装 EXE 和校验值。
+- 交付前运行 `npm run typecheck`、`npm test`、`cargo test --locked --manifest-path src-tauri/Cargo.toml` 和 `npm run lint`；打包后运行 `npm run smoke:tauri`、`npm run smoke:tauri-write-failure`、`npm run smoke:tauri-task-reminder`。记录实际验证和未完成的硬件验证。
+- `src/main/`、`src/preload/` 及 `legacy:*` 脚本是保留的 Electron 历史实现，不作为新功能默认落点。`data/`、`out/`、`release/`、`artifacts/`、`src-tauri/target/` 和 `node_modules/` 不提交。

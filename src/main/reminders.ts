@@ -80,6 +80,8 @@ export interface ReminderSnapshot {
 
 export interface SchedulerOptions {
   manualStart?: boolean;
+  /** Close a visibly started rest after its finish acknowledgement, without a check-in. */
+  autoCompleteRest?: boolean;
   /** Injectable clock for deterministic tests. */
   now?: () => number;
   /** Snapshot restored from disk; used when it passes sanity checks. */
@@ -128,6 +130,7 @@ export interface ReminderGateDecision {
 export class ReminderScheduler extends EventEmitter {
   private settings: Settings;
   private readonly manualStart: boolean;
+  private readonly autoCompleteRest: boolean;
   private status: ReminderStatus;
   private timer: NodeJS.Timeout | null = null;
   private sequence = 0;
@@ -171,6 +174,7 @@ export class ReminderScheduler extends EventEmitter {
   constructor(settings: Settings, options: SchedulerOptions = {}) {
     super();
     this.manualStart = options.manualStart === true;
+    this.autoCompleteRest = options.autoCompleteRest === true;
     this.now = options.now ?? Date.now;
     this.onPersist = options.onPersist ?? null;
     this.onEvent = options.onEvent ?? null;
@@ -593,6 +597,8 @@ export class ReminderScheduler extends EventEmitter {
     active.unlockAt = active.restStartedAt + Math.max(seconds * 1000, Number.isFinite(minimumMs) ? Math.max(0, minimumMs) : 0);
     active.snoozeAllowedAt = active.restStartedAt;
     this.emitChanged();
+    this.persist();
+    this.armTimer();
     return this.getStatus();
   }
 
@@ -836,6 +842,7 @@ export class ReminderScheduler extends EventEmitter {
     }
     const active = this.status.activeReminder;
     if (active) {
+      if (this.autoCompleteRest && typeof active.restStartedAt === 'number') candidates.push(active.unlockAt + 2500);
       // Earliest moment a not-yet-included kind can be absorbed into the alert.
       if (!this.activeIsTest) {
         for (const kind of ['eye', 'walk'] as SingleReminderKind[]) {
@@ -878,6 +885,10 @@ export class ReminderScheduler extends EventEmitter {
   private checkDue(now: number = this.now()): void {
     if (this.status.activeReminder) {
       this.absorbDueKinds(this.status.activeReminder, now);
+      const active = this.status.activeReminder;
+      if (this.autoCompleteRest && active && typeof active.restStartedAt === 'number' && now >= active.unlockAt + 2500) {
+        this.handleAction('complete', active.id);
+      }
       return;
     }
 

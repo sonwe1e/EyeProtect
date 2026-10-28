@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PIXEL_ANIMAL_NAMES, PET_OUTFIT_DETAILS, type PixelAnimal, type PetOutfit } from '../../../../shared/pixelAnimals';
-import { PixelAnimal as PixelAnimalArtwork } from '../characters/PixelAnimal';
+import { PET_COMPANION_DETAILS, type PetCompanion } from '../../../../shared/petCompanions';
+import { CompanionArtwork } from '../characters/CompanionArtwork';
 import { PetImage } from '../characters/PetImage';
 import type { CustomPetAssets, PetReactionEvent } from '../../../../shared/types';
 
@@ -10,6 +11,7 @@ const IDLE_ACTION_DURATION_MS = 3_200;
 
 export function PetCharacter({
   animal,
+  companion,
   outfit,
   reacting,
   doubleClickHint,
@@ -18,6 +20,7 @@ export function PetCharacter({
   motion = true
 }: {
   animal: PixelAnimal;
+  companion: PetCompanion;
   outfit: PetOutfit;
   reacting: boolean;
   doubleClickHint: string;
@@ -40,10 +43,11 @@ export function PetCharacter({
       });
     };
     setCustomAssets(null);
+    if (companion !== 'custom') return () => { disposed = true; };
     loadAssets();
     window.addEventListener('focus', loadAssets);
     return () => { disposed = true; window.removeEventListener('focus', loadAssets); };
-  }, []);
+  }, [companion]);
 
   useEffect(() => {
     if ((reacting || reaction) && customAssets?.hasCustomPet) {
@@ -117,11 +121,11 @@ export function PetCharacter({
     };
   }, [motion]);
 
-  const name = PIXEL_ANIMAL_NAMES[animal];
+  const name = companion === 'pixel' ? PIXEL_ANIMAL_NAMES[animal] : PET_COMPANION_DETAILS[companion].name;
   const artworkAction = reaction?.action ?? (reacting ? 'react' : isAnimating && motion ? 'fidget' : 'idle');
   const interacting = reacting || Boolean(reaction);
 
-  if (customAssets?.hasCustomPet) {
+  if (companion === 'custom' && customAssets?.hasCustomPet) {
     const defaultIdle =
       customAssets.idles[0] ??
       customAssets.fidgets[0] ??
@@ -162,9 +166,9 @@ export function PetCharacter({
     <div
       className={`pet-character ${isAnimating ? 'is-animating' : ''} ${reacting ? 'is-reacting' : ''}`.trim()}
       aria-label={name}
-      title={`单击${PET_OUTFIT_DETAILS[outfit].interaction}，${doubleClickHint}`}
+      title={`单击${companion === 'pixel' ? PET_OUTFIT_DETAILS[outfit].interaction : PET_COMPANION_DETAILS[companion].interaction}，${doubleClickHint}`}
     >
-      <PixelAnimalArtwork animal={animal} outfit={outfit} action={artworkAction} animationKey={reaction?.id ?? clickKey} motion={motion} label={`${name} · ${PET_OUTFIT_DETAILS[outfit].name}`} />
+      <CompanionArtwork companion={companion} outfit={outfit} action={artworkAction} animationKey={reaction?.id ?? clickKey} motion={motion} />
     </div>
   );
 }

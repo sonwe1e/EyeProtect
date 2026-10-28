@@ -1,9 +1,19 @@
-import { addLocalDays, localDateKey } from './calendar';
+import { localDateKey } from './calendar';
 import type { Task, Project } from './types';
 
 export const isSimpleList = (project: Project): boolean => project.status === 'active' || project.status === 'onHold';
+
+/**
+ * One rule for "this task lives in a live list": an inbox task (no list) always
+ * qualifies, a task in a completed/archived list never does. `isCurrentTask`
+ * and `openQueueTasks` both read it so the two views can never disagree about
+ * which tasks the user may still move.
+ */
+const isQueueList = (projectId: string | null, projects: Project[]): boolean =>
+  !projectId || projects.some((project) => project.id === projectId && isSimpleList(project));
+
 export const isCurrentTask = (task: Task, projects: Project[]): boolean =>
-  !task.parentId && task.status !== 'archived' && (!task.projectId || projects.some((p) => p.id === task.projectId && isSimpleList(p)));
+  !task.parentId && task.status !== 'archived' && isQueueList(task.projectId, projects);
 
 /**
  * Completion-record restore: keep the original list only when it is still a
@@ -34,16 +44,61 @@ export const taskSteps = (rootId: string, tasks: Task[]): Task[] => {
   return result;
 };
 
-export const TASK_GROUPS = ['逾期', '今天', '未来 7 天', '更晚', '无日期'] as const;
-export const groupSimpleTasks = (tasks: Task[], now: number): Array<{ title: string; tasks: Task[] }> => {
-  const today = localDateKey(now);
-  const end = localDateKey(addLocalDays(now, 7));
-  const groups = TASK_GROUPS.map((title) => ({ title, tasks: [] as Task[] }));
-  for (const task of tasks.filter((task) => !task.parentId && task.status === 'open')) {
-    const date = task.dueDate;
-    const index = !date ? 4 : date < today ? 0 : date === today ? 1 : date <= end ? 2 : 3;
-    groups[index].tasks.push(task);
-  }
-  for (const group of groups) group.tasks.sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '') || a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
-  return groups;
+/**
+ * The tasks that belong to today's queue: root tasks of a writable list (an
+ * inbox task with no list counts as writable). Completed tasks stay in the
+ * queue because the queue sinks them to its tail instead of hiding them —
+ * hiding them would make undo look like a resurrection (AC-06).
+ */
+export const openQueueTasks = (tasks: Task[], projects: Project[]): Task[] =>
+  tasks.filter((task) => isCurrentTask(task, projects));
+
+/**
+ * Manual order, with two deterministic fallbacks. Legacy rows all carry
+ * `sortOrder === 0`, so without `createdAt`/`id` a re-render could shuffle
+ * them arbitrarily. The comparison is also the "existing order" the main
+ * process uses when it appends unlisted tasks to the queue tail.
+ */
+const byQueueOrder = (left: Task, right: Task): number =>
+  left.sortOrder - right.sortOrder || left.createdAt - right.createdAt || left.id.localeCompare(right.id);
+
+/**
+ * Position is the priority: open tasks first, completed ones sunk to the tail.
+ * Both groups keep their manual order. The input array is never reordered in
+ * place — callers pass state they do not own.
+ */
+export const orderSimpleQueue = (tasks: Task[]): Task[] => [
+  ...tasks.filter((task) => task.status === 'open').sort(byQueueOrder),
+  ...tasks.filter((task) => task.status !== 'open').sort(byQueueOrder)
+];
+
+/**
+ * What today's page actually renders: the queue above, narrowed to tasks that
+ * are still open plus the ones completed TODAY. Without the second half the
+ * tail would grow with every task ever completed, and "today" would stop
+ * meaning today.
+ */
+export const queueTasksForToday = (tasks: Task[], projects: Project[], todayKey: string): Task[] =>
+  orderSimpleQueue(
+    openQueueTasks(tasks, projects).filter(
+      (task) => task.status === 'open' || (task.completedAt !== null && localDateKey(task.completedAt) === todayKey)
+    )
+  );
+
+/**
+ * Return a new id list with `movingId` placed before or after `targetId`.
+ * Unknown ids — and dropping a row onto itself — return the list unchanged, so
+ * a stale drag can never invent an order out of ids the queue does not have.
+ */
+export const moveQueueItem = (
+  ids: string[],
+  movingId: string,
+  targetId: string,
+  position: 'before' | 'after'
+): string[] => {
+  if (movingId === targetId || !ids.includes(movingId) || !ids.includes(targetId)) return [...ids];
+  const rest = ids.filter((id) => id !== movingId);
+  const anchor = rest.indexOf(targetId);
+  rest.splice(position === 'after' ? anchor + 1 : anchor, 0, movingId);
+  return rest;
 };

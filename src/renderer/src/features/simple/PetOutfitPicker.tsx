@@ -18,7 +18,8 @@ export function PetOutfitPicker({ outfit, motion, disabled, onSelect }: {
   }, [preview]);
 
   return <div className="simple-pet-outfits">
-    <div className="simple-pet-grid" role="group" aria-label="奋斗猫装扮">
+    <p className="simple-pet-group-title">像素橘猫装扮</p>
+    <div className="simple-pet-grid" role="group" aria-label="像素橘猫装扮">
       {PET_OUTFITS.map((id) => {
         const detail = PET_OUTFIT_DETAILS[id];
         const selected = id === outfit;
@@ -34,7 +35,7 @@ export function PetOutfitPicker({ outfit, motion, disabled, onSelect }: {
           {selected ? <span className="simple-pet-badge" aria-hidden="true"><Check size={11} strokeWidth={3} /></span> : null}
           <span className="simple-pet-preview">
             <PixelAnimal animal="cat" outfit={id} action={selected && preview !== null ? 'react' : 'idle'}
-              animationKey={preview ?? undefined} motion={motion} label={`奋斗猫 · ${detail.name}`} />
+              animationKey={preview ?? undefined} motion={motion} label={`像素橘猫 · ${detail.name}`} />
           </span>
           <span className="simple-pet-name">{detail.name}</span>
           <span className="simple-pet-description">{detail.description}</span>

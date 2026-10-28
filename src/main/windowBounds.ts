@@ -98,8 +98,8 @@ export const ALERT_LAYOUT = {
   edgeGapRatio: 0.05,
   edgeGapMin: 16,
   edgeGapMax: 64,
-  targetWidth: 880,
-  targetHeight: 640,
+  targetWidth: 1440,
+  targetHeight: 960,
   minimumWidth: 480,
   minimumHeight: 440,
   panelReservedSpace: 320
@@ -128,12 +128,14 @@ const getAdaptiveMargin = (workArea: WindowRectangle): number => {
   return Math.min(clamp(byScreen, ALERT_LAYOUT.edgeGapMin, ALERT_LAYOUT.edgeGapMax), maxForWorkArea);
 };
 
-export const getAlertBounds = (workArea: WindowRectangle): WindowRectangle => {
+export const getAlertBounds = (workArea: WindowRectangle, readingScale = 1): WindowRectangle => {
   const margin = getAdaptiveMargin(workArea);
   const availableWidth = Math.max(1, workArea.width - margin * 2);
   const availableHeight = Math.max(1, workArea.height - margin * 2);
-  const width = Math.min(availableWidth, Math.max(ALERT_LAYOUT.minimumWidth, ALERT_LAYOUT.targetWidth));
-  const height = Math.min(availableHeight, Math.max(ALERT_LAYOUT.minimumHeight, ALERT_LAYOUT.targetHeight));
+  // Electron work areas are already DIP. Scaling again by display.scaleFactor
+  // makes fractional-DPI screens overflow; use their available logical area.
+  const width = Math.round(Math.min(availableWidth, clamp(workArea.width * 0.66, 900, ALERT_LAYOUT.targetWidth) * readingScale));
+  const height = Math.round(Math.min(availableHeight, clamp(workArea.height * 0.76, 620, ALERT_LAYOUT.targetHeight) * readingScale));
 
   return {
     x: workArea.x + Math.round((workArea.width - width) / 2),

@@ -62,8 +62,8 @@ try {
     return h.left >= t.left && h.right <= t.right && h.top >= t.top && h.bottom <= t.bottom;
   })()`), true);
 
-  // 奋斗猫 is the only pet: pixel fallback, motion toggles, custom GIF at root.
-  await evaluate(pet, `window.eyeProtect.saveSettings({ petMotion: true })`);
+  // The optional pixel companion retains its wardrobe and movement controls.
+  await evaluate(pet, `window.eyeProtect.saveSettings({ petMotion: true, petCompanion: 'pixel' })`);
   await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.animal === 'cat'`);
   await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.action === 'idle' && Number(document.querySelector('.pixel-animal')?.dataset.frame) >= 10`);
   await capture(pet, 'fendou-cat-idle');
@@ -89,7 +89,7 @@ try {
     assert.equal((await evaluate(pet, `window.eyeProtect.getSettings()`)).petOutfit, outfit);
     await waitFor(workbench, `document.querySelector('.simple-pet-try-button')?.disabled === false`);
     await evaluate(workbench, `document.querySelector('.simple-pet-try-button').click()`);
-    await waitFor(workbench, `document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.action === 'react' && [3, 4, 5].includes(Number(document.querySelector('[aria-pressed="true"] .pixel-animal')?.dataset.frame))`);
+    await waitFor(workbench, `document.querySelector('[data-outfit-option][aria-pressed="true"] .pixel-animal')?.dataset.action === 'react' && [3, 4, 5].includes(Number(document.querySelector('[data-outfit-option][aria-pressed="true"] .pixel-animal')?.dataset.frame))`);
     await evaluate(pet, `document.querySelector('.pet-drag-surface').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))`);
     await waitFor(pet, `document.querySelector('.pixel-animal')?.dataset.action === 'react' && [3, 4, 5].includes(Number(document.querySelector('.pixel-animal')?.dataset.frame))`);
     assert.equal(await evaluate(pet, `(() => {
@@ -124,8 +124,6 @@ try {
   const alert = await waitForTarget(endpoint, '#alert');
   await waitFor(alert, `Boolean(document.querySelector('.pixel-animal'))`);
   assert.equal(await evaluate(alert, `document.querySelector('.pixel-animal').dataset.outfit`), 'stargazer');
-  await evaluate(alert, `[...document.querySelectorAll('.rest-mode-btn')].find(button => button.textContent.includes('萌宠小憩')).click()`);
-  await evaluate(alert, `window.eyeProtect.beginHealthRest('${reminder.activeReminder.id}')`);
   await waitFor(alert, `['gaze', 'blink', 'sleep', 'breathe', 'walk', 'stretch'].includes(document.querySelector('.pixel-animal').dataset.action)`);
   await capture(alert, 'rest-step-action');
   await evaluate(pet, `window.eyeProtect.reminderAction('skip', '${reminder.activeReminder.id}')`);
@@ -136,7 +134,7 @@ try {
   mkdirSync(customDir, { recursive: true });
   writeFileSync(resolve(customDir, 'idle.gif'), Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
   await evaluate(pet, `window.dispatchEvent(new Event('focus'))`);
-  await evaluate(pet, `window.eyeProtect.saveSettings({ petMotion: false })`);
+  await evaluate(pet, `window.eyeProtect.saveSettings({ petMotion: false, petCompanion: 'custom' })`);
   await waitFor(pet, `Boolean(document.querySelector('img.pet-image') || document.querySelector('canvas.pet-image'))`);
   const custom = await evaluate(pet, `window.eyeProtect.getCustomPetAssets()`);
   assert.equal(custom.hasCustomPet, true);

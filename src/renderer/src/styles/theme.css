@@ -52,6 +52,19 @@
   --rest-accent-eye: #2f7f72;
   --rest-accent-walk: #a86b1f;
   --rest-accent-combined: #a8505c;
+  /* Hydration accent: decorative only (badge dot, count wash). Body text never
+     relies on it for contrast, so it can stay a calm water blue. */
+  --hydration-accent: #2f6f8f;
+  /* ── List accents (quirk-ui Round 2): decorative stripes/dots only, never
+     text contrast. Slots 1-4 reuse the existing accent family, 5-6 are new
+     (purple / indigo) to balance the warm-cool spread. The hash mapping lives
+     in features/simple/listAccent.ts. */
+  --list-accent-1: #2f6f8f;
+  --list-accent-2: #2f7f72;
+  --list-accent-3: #a86b1f;
+  --list-accent-4: #a8505c;
+  --list-accent-5: #6e5f94;
+  --list-accent-6: #4a5f94;
   /* ── Reminder glass material ──────────────────────────────────────────
      The reminder windows float over the user's desktop, so the card base is
      deliberately almost opaque. At 94% the wallpaper can move the local
@@ -112,6 +125,13 @@
   --rest-accent-eye: #7fd0bd;
   --rest-accent-walk: #e2b96b;
   --rest-accent-combined: #f0a09a;
+  --hydration-accent: #86c2d9;
+  --list-accent-1: #86c2d9;
+  --list-accent-2: #7fd0bd;
+  --list-accent-3: #e2b96b;
+  --list-accent-4: #f0a09a;
+  --list-accent-5: #b3a5dd;
+  --list-accent-6: #9aa9dd;
   /* See the light block: 94% is the point where a dark card stays legible over
      a pure-white wallpaper. */
   --glass-panel: rgb(23 30 35 / 94%);
@@ -167,6 +187,13 @@
     --rest-accent-eye: #7fd0bd;
     --rest-accent-walk: #e2b96b;
     --rest-accent-combined: #f0a09a;
+  --hydration-accent: #86c2d9;
+  --list-accent-1: #86c2d9;
+  --list-accent-2: #7fd0bd;
+  --list-accent-3: #e2b96b;
+  --list-accent-4: #f0a09a;
+  --list-accent-5: #b3a5dd;
+  --list-accent-6: #9aa9dd;
     /* See the [data-theme='dark'] block. This block is a hand-maintained copy of
        it, so every token added there must be added here too — tests/theme-authority
        asserts the two declare exactly the same set. */

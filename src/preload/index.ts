@@ -7,6 +7,7 @@ import type {
   EyeProtectApi,
   FailedDeliveryNotice,
   HotkeyStatus,
+  HydrationStatus,
   LegacyData,
   PetPosition,
   PetReactionEvent,
@@ -66,6 +67,11 @@ const api: EyeProtectApi = {
   onPetReaction: (callback) => on<PetReactionEvent>('pet:reaction', callback),
   beginHealthRest: (id) => ipcRenderer.invoke('reminder:begin-rest', id) as Promise<ReminderStatus>,
 
+  getHydration: () => ipcRenderer.invoke('hydration:get') as Promise<HydrationStatus>,
+  recordHydrationCup: () => ipcRenderer.invoke('hydration:record') as Promise<HydrationStatus>,
+  dismissHydrationPrompt: () => ipcRenderer.invoke('hydration:dismiss') as Promise<HydrationStatus>,
+  onHydrationChanged: (callback) => on<HydrationStatus>('hydration:changed', callback),
+
   preparePomodoro: (taskId, replace) =>
     ipcRenderer.invoke('pomodoro:prepare', taskId, replace) as Promise<PomodoroState>,
   getPomodoro: () => ipcRenderer.invoke('pomodoro:get') as Promise<PomodoroState>,
@@ -79,6 +85,8 @@ const api: EyeProtectApi = {
   updateTask: (id: string, input: TaskUpdateInput) =>
     ipcRenderer.invoke('task:update', id, input) as Promise<Task[]>,
   moveTask: (input: TaskMoveInput) => ipcRenderer.invoke('task:move', input) as Promise<Task[]>,
+  reorderTaskQueue: (orderedIds: string[]) =>
+    ipcRenderer.invoke('task:reorder-queue', orderedIds) as Promise<Task[]>,
   setTaskStatus: (id: string, status: TaskStatus) =>
     ipcRenderer.invoke('task:set-status', id, status) as Promise<Task[]>,
   deleteTask: (id: string) => ipcRenderer.invoke('task:delete', id) as Promise<Task[]>,

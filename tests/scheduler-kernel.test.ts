@@ -47,6 +47,8 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   todoBubbleTaskIds: [],
   petAppearance: 'cat',
   petOutfit: 'classic',
+  petCompanion: 'fighter',
+  restReadingScale: 1,
   petScale: 1,
   petMotion: true,
   petPosition: null,
@@ -69,6 +71,8 @@ const makeSchedulerSettings = (overrides: Partial<Settings> = {}): Settings => (
   alarms: [],
   todos: [],
   activeTaskId: null,
+  hydrationEnabled: true,
+  hydrationGoalCups: 8,
   ...overrides
 });
 

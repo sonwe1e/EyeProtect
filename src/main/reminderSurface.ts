@@ -1,4 +1,5 @@
-import { BrowserWindow, Notification, app } from 'electron';
+import { BrowserWindow, Notification, app, screen } from 'electron';
+import { getAlertBounds, resolveTargetDisplay } from './windowBounds';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from './logger';
@@ -54,7 +55,8 @@ export class ReminderSurfaceManager {
      * invariant "an active focused reminder always has an actionable surface or
      * its dim masks are destroyed". Defaults to a no-op.
      */
-    private readonly onFailOpen: () => void = () => {}
+    private readonly onFailOpen: () => void = () => {},
+    private readonly getReadingScale: () => number = () => 1
   ) {}
 
   /**
@@ -201,8 +203,7 @@ export class ReminderSurfaceManager {
 
     const title = emergencyTitleFor(active.kind);
     const window = new BrowserWindow({
-      width: 360,
-      height: 220,
+      ...getAlertBounds(resolveTargetDisplay(screen).workArea, this.getReadingScale()),
       frame: false,
       transparent: true,
       resizable: false,
@@ -249,6 +250,7 @@ export class ReminderSurfaceManager {
       this.update(active);
       window.show();
       window.flashFrame(true);
+      this.onAction('start', active.id);
       // These listeners are attached only after the initial load succeeded;
       // initial load rejection is already handled by the fallback chain.
       window.webContents.once('unresponsive', () => {
@@ -276,7 +278,7 @@ export class ReminderSurfaceManager {
     window: BrowserWindow,
     title: string
   ): Promise<void> {
-    const html = renderEmergencyHtml({ title });
+    const html = renderEmergencyHtml({ title, readingScale: this.getReadingScale() });
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   }
 

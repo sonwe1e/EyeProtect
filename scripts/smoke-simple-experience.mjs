@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { getAvailablePort, call, delay, evaluate, waitFor, waitForTarget, waitForTargetGone } from './lib/cdp.mjs';
+import { getAvailablePort, call, delay, evaluate, waitFor, waitForTarget, waitForTargetGone, openSession } from './lib/cdp.mjs';
 
 const scale = Number(process.argv[2] ?? 1);
 const output = resolve(process.argv[3] ?? `artifacts/simple-${scale}`);
@@ -27,8 +27,8 @@ const launch = () => spawn(resolve('release/win-unpacked/EyeProtect.exe'), [
 let child = launch();
 let log = '';
 child.stderr.on('data', (data) => { log += data; });
-const capture = async (target, name) => {
-  const frame = await call(target, 'Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+const capture = async (target, name, viewport) => {
+  const frame = await call(target, 'Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, ...(viewport ? { clip: { x: 0, y: 0, ...viewport, scale: 1 } } : {}) });
   writeFileSync(resolve(output, `${name}.png`), Buffer.from(frame.data, 'base64'));
 };
 const fill = async (target, selector, value) => evaluate(target, `(() => {
@@ -49,11 +49,14 @@ try {
   const pet = await waitForTarget(endpoint, '#pet');
   await waitFor(pet, `Boolean(document.querySelector('.pet-drag-surface'))`);
   await evaluate(pet, `window.__petReactions = []; window.eyeProtect.onPetReaction(event => window.__petReactions.push(event))`);
-  await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light', eyeIntervalMinutes: 240, walkIntervalMinutes: 240, eyeRestSeconds: 12, todoBubbleTaskIds: [] })`);
+  await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light', petCompanion: 'pixel', eyeIntervalMinutes: 240, walkIntervalMinutes: 240, eyeRestSeconds: 12, todoBubbleTaskIds: [] })`);
   await evaluate(pet, `window.eyeProtect.openWorkbench('today')`);
   const workbench = await waitForTarget(endpoint, '#workbench');
   await waitFor(workbench, `document.querySelector('.simple-add') !== null`);
   assert.equal(await evaluate(workbench, `document.querySelectorAll('.app-sidebar').length`), 0);
+  // AC-01: today is one flat queue, so no date heading may exist on this page.
+  assert.equal(await evaluate(workbench, `Boolean(document.querySelector('.simple-queue'))`), true, 'today must render the single queue sheet');
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.simple-group').length`), 0, 'today must not group tasks by due date');
   await fill(workbench, '[aria-label="添加任务"]', '整理今天的工作');
   await evaluate(workbench, `document.querySelector('[aria-label="添加任务"]').focus()`);
   await call(workbench, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r', unmodifiedText: '\r' });
@@ -68,23 +71,33 @@ try {
   await fill(workbench, '.simple-task-fields textarea', '只记录需要做的事，减少来回切换。');
   await click(workbench, '保存修改');
   await waitFor(pet, `(async () => (await window.eyeProtect.getTasks())[0].dueDate === ${JSON.stringify(date)})()`);
-  // Saving the date moves the task to another group and remounts its editor.
-  // Wait for that renderer commit before filling the new step's local draft.
-  await waitFor(workbench, `document.querySelector('.simple-due-tag')?.title === ${JSON.stringify(`截止日期：${date}`)} && Boolean(document.querySelector('.simple-task-fields .simple-saved-hint'))`);
+  // The save bumps revision, so the open editor resyncs and the inline due tag
+  // re-renders. Wait for that commit before filling the new step's local draft.
+  await waitFor(workbench, `document.querySelector('.simple-date-badge')?.title === ${JSON.stringify(`截止日期：${date}`)} && Boolean(document.querySelector('.simple-task-fields .simple-saved-hint'))`);
   await fill(workbench, '[aria-label="添加步骤"]', '整理反馈');
   await click(workbench, '添加步骤');
-  await waitFor(workbench, `document.querySelectorAll('.simple-step').length === 1`);
+  // The step shows up twice on purpose: once as an inline chip in the row and
+  // once as an editable line in the drawer. `.simple-step` only matches the
+  // drawer line, `.simple-step-chip` only the row chip.
+  await waitFor(workbench, `document.querySelectorAll('.simple-task-fields .simple-step').length === 1`);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.simple-queue-row .simple-step-chip').length`), 1, 'a new step must appear as an inline chip (AC-05)');
   assert.equal(await evaluate(workbench, 'document.querySelectorAll(".simple-task").length'), 1, 'steps must not duplicate into main list');
   await capture(workbench, 'task-expanded');
   await evaluate(workbench, `document.querySelector('[aria-label="放到浮窗"]').click()`);
   let bubble = await waitForTarget(endpoint, '#bubble');
   await waitFor(bubble, `document.querySelectorAll('.bubble-task-row').length === 1`);
   await capture(bubble, 'manual-task-bubble');
-  await evaluate(workbench, `document.querySelector('.simple-step input[type="checkbox"]').click()`);
-  await waitFor(workbench, `document.querySelector('.simple-step input').checked === true`);
+  await evaluate(workbench, `document.querySelector('.simple-task-fields .simple-step input[type="checkbox"]').click()`);
+  await waitFor(workbench, `document.querySelector('.simple-task-fields .simple-step input').checked === true`);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.simple-queue-row .simple-step-chip.is-done').length`), 1, 'a completed step must stay visible in the row (AC-04)');
+  await waitFor(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length === 1`);
   await evaluate(workbench, `document.querySelector('.simple-task-row input[type="checkbox"]').click()`);
-  await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 0`);
-  assert.equal(await evaluate(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length`), 2, 'step and root completion each react once');
+  // AC-06: a completed task sinks to the tail instead of leaving the queue, so
+  // the row must still be there and marked done.
+  await waitFor(workbench, `document.querySelectorAll('.simple-task.is-done').length === 1`);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.simple-task').length`), 1, 'the completed row stays in the queue');
+  assert.match(await evaluate(workbench, `document.querySelector('.simple-queue-meta').textContent`), /^都做完了 · .+$/, 'an all-done queue says so in its header');
+  assert.equal(await evaluate(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length`), 1, 'a burst of completions does not replay pet celebrations');
   await click(workbench, '完成记录');
   await waitFor(workbench, `document.querySelectorAll('.simple-history-row').length === 1`);
   await waitFor(workbench, `document.querySelector('.simple-rest-week') !== null`);
@@ -92,9 +105,10 @@ try {
   assert.match(await evaluate(workbench, `document.querySelector('.simple-rest-companion').textContent`), /自己的节奏/);
   await capture(workbench, 'completion-history');
   await click(workbench, '撤销');
-  assert.equal(await evaluate(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length`), 2, 'undo must not replay celebration');
+  assert.equal(await evaluate(pet, `window.__petReactions.filter(event => event.action === 'celebrate').length`), 1, 'undo must not replay celebration');
   await click(workbench, '待办');
   await waitFor(workbench, `document.querySelectorAll('.simple-task').length === 1`);
+  assert.equal(await evaluate(workbench, `document.querySelectorAll('.simple-task.is-done').length`), 0, 'undo must put the row back as an open queue item');
   const restored = await evaluate(pet, 'window.eyeProtect.getTasks()');
   assert.equal(restored.find(t => t.parentId)?.status, 'done', 'undo must preserve the previously completed step');
   await click(workbench, '＋清单');
@@ -109,7 +123,7 @@ try {
   await capture(workbench, 'task-home');
   await evaluate(workbench, `document.querySelector('[aria-label="设置"]').click()`);
   await waitFor(workbench, `document.querySelector('.simple-settings') !== null`);
-  assert.deepEqual(await evaluate(workbench, `[...document.querySelectorAll('.simple-settings > section > h2')].map(el => el.textContent)`), ['休息提醒', '桌面外观', '应用']);
+  assert.deepEqual(await evaluate(workbench, `[...document.querySelectorAll('.simple-settings > section > h2')].map(el => el.textContent)`), ['休息提醒', '喝水提醒', '桌面外观', '应用']);
   await capture(workbench, 'settings');
   console.log('Task UI, completion, undo and settings passed.');
   if (phase === 'all') {
@@ -138,92 +152,53 @@ try {
     await capture(bubble, 'pomodoro-running');
     await delay(1100);
     assert.ok((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).remainingMs < 59500);
+    if (emergency) await evaluate(pet, `window.eyeProtect.saveSettings({ restReadingScale: 1.5 })`);
     const reminder = await evaluate(pet, `window.eyeProtect.testReminder('eye')`);
     const alert = emergency ? await waitForTarget(endpoint, (page) => page.url.startsWith('data:text/html'), 'emergency') : await waitForTarget(endpoint, '#alert');
     await waitFor(alert, emergency ? `document.querySelector('#start') !== null` : `document.querySelector('.simple-rest') !== null`);
-    if (!emergency) {
-      // The rest card is an "art stage + reading panel": stage with the pixel
-      // companion and the reminder kind, panel with the copy, the micro-break
-      // activity picked by the main process, the countdown and the actions.
-      await waitFor(alert, `document.querySelector('.rest-card .rest-stage-art .pixel-animal') !== null`);
-      // Settings arrive over IPC after the first paint; wait for the panel to
-      // reflect the saved rest length before asserting on the copy.
-      await waitFor(alert, `document.querySelector('.rest-stage-count strong')?.textContent === '00:12'`);
-      const chrome = await evaluate(alert, `(() => ({
-        badge: document.querySelector('.rest-badge')?.textContent ?? '',
-        title: document.querySelector('#rest-title')?.textContent ?? '',
-        primary: document.querySelector('.rest-actions .rest-primary')?.textContent ?? '',
-        timer: document.querySelector('.rest-stage-count strong')?.textContent ?? '',
-        phaseLabel: document.querySelector('.rest-stage-count small')?.textContent ?? ''
-      }))()`);
-      assert.equal(chrome.badge, '护眼提醒', 'the stage must label the reminder kind');
-      assert.equal(chrome.title, '让眼睛休息一下', 'the panel must carry the reminder title');
-      assert.equal(chrome.primary, '开始休息', 'the primary action must start the rest');
-      assert.equal(chrome.timer, '00:12', 'the ready state previews the configured rest length');
-      assert.equal(chrome.phaseLabel, '计划休息', 'the ready state must name the rest it is previewing');
-      await capture(alert, 'rest-ready');
-      await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
-      await waitFor(alert, `document.documentElement.dataset.theme === 'dark'`);
-      assert.equal(await evaluate(alert, `getComputedStyle(document.documentElement).colorScheme`), 'dark', 'the alert must follow the dark theme');
-      await capture(alert, 'rest-dark');
-      await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light' })`);
-      await waitFor(alert, `document.documentElement.dataset.theme === 'light'`);
-    } else {
-      await capture(alert, 'rest-ready');
-    }
-    assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).running, true, 'pending prompt alone must not pause focus');
-    await click(alert, '开始休息');
+    await waitFor(pet, `(async () => typeof (await window.eyeProtect.getReminderStatus()).activeReminder?.restStartedAt === 'number')()`);
     await waitFor(pet, `(async () => !(await window.eyeProtect.getPomodoro()).running)()`);
     const paused = await evaluate(pet, 'window.eyeProtect.getPomodoro()');
     if (!emergency) {
-      // AlertView randomly picks follow/breathe/pet on each reminder; breathe
-      // rewrites the ring caption to "余 mm:ss". Pin 视线光球 so ring assertions
-      // are deterministic under the redesigned rest-card copy.
-      await evaluate(alert, `(() => {
-        const follow = [...document.querySelectorAll('.rest-mode-btn')].find((button) => (button.textContent ?? '').includes('视线光球'));
-        if (follow) follow.click();
+      await waitFor(alert, `Boolean(document.querySelector('.rest-stage-art .pixel-animal'))`);
+      assert.equal(await evaluate(alert, `document.querySelectorAll('.rest-mode-bar').length`), 0, 'rest must not ask for a mode');
+      assert.equal(await evaluate(alert, `[...document.querySelectorAll('button')].some(button => button.textContent.trim() === '开始休息')`), false);
+      const title = await evaluate(alert, `document.querySelector('.rest-title').textContent`);
+      const geometry = await evaluate(alert, `(() => {
+        const title = document.querySelector('.rest-title'); const instruction = document.querySelector('.rest-instruction'); const card = document.querySelector('.rest-card');
+        return { titleSize: parseFloat(getComputedStyle(title).fontSize), instructionSize: parseFloat(getComputedStyle(instruction).fontSize), scroll: card.scrollHeight > card.clientHeight + 2, width: innerWidth, height: innerHeight };
       })()`);
-      await waitFor(alert, `document.querySelector('.rest-stage-count small')?.textContent === '剩余时长'`);
-      // The disabled action carries the remaining wait, so the enforced pause is
-      // asserted on the primary action itself rather than on an exact caption.
-      await waitFor(alert, `document.querySelector('.rest-primary')?.disabled === true`);
-      const resting = await evaluate(alert, `(() => ({
-        ringLabel: document.querySelector('.rest-stage-count small')?.textContent ?? '',
-        lede: document.querySelector('.rest-lede')?.textContent ?? '',
-        primary: (document.querySelector('.rest-primary')?.textContent ?? '').replace(/\\s+/g, ' ').trim(),
-        completeDisabled: document.querySelector('.rest-primary')?.disabled ?? null,
-        activities: [...document.querySelectorAll('.rest-activity')].map((entry) => entry.textContent ?? '')
-      }))()`);
-      assert.equal(resting.ringLabel, '剩余时长', 'the running countdown must label its ring');
-      assert.match(resting.lede, /^还有 \d+ 秒/, 'the running countdown must be visible as text');
-      assert.equal(resting.completeDisabled, true, 'focused mode must enforce the rest wait');
-      assert.match(resting.primary, /^完成休息（还剩 \d+ 秒）$/, 'the disabled action must show the remaining wait');
-      // The panel only carries the activity in progress, so the picked micro-break
-      // activity and its pacing are asserted while the rest is running rather than
-      // before it starts.
-      assert.equal(resting.activities.length, 1, 'an eye reminder must show its picked micro-break activity');
-      assert.ok(resting.activities[0].includes('步'), `activity guide must show its pacing, got ${resting.activities[0]}`);
+      assert.ok(geometry.titleSize >= 28 && geometry.instructionSize >= 18, `rest must be readable: ${JSON.stringify(geometry)}`);
+      assert.equal(geometry.scroll, false, 'one-glance rest must fit without scrolling');
+      await capture(alert, 'rest-ready');
+      await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'dark' })`);
+      await waitFor(alert, `document.documentElement.dataset.theme === 'dark'`);
+      await capture(alert, 'rest-dark');
+      await evaluate(pet, `window.eyeProtect.saveSettings({ theme: 'light' })`);
       metrics.restActionKeys = [];
       for (let step = 0; step < 3; step += 1) {
-        await delay(2_000);
-        metrics.restActionKeys.push(await evaluate(alert, `({ action: document.querySelector('.pixel-animal')?.dataset.action, step: document.querySelector('.rest-step.is-active')?.textContent })`));
+        await delay(2000);
+        metrics.restActionKeys.push(await evaluate(alert, `document.querySelector('.pixel-animal')?.dataset.action`));
       }
-      assert.ok(new Set(metrics.restActionKeys.map(entry => entry.step)).size >= 2, 'the real rest window must advance activity steps');
+      assert.equal(await evaluate(alert, `document.querySelector('.rest-title').textContent`), title, 'the instruction must remain stable while the user looks away');
+    } else {
+      await capture(alert, 'rest-ready');
+      const restSession = await openSession(alert);
+      const viewport = { width: 480, height: 440 };
+      await restSession.call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: scale, mobile: false });
+      await waitFor(alert, `innerWidth === 480 && innerHeight === 440`);
+      const geometry = await evaluate(alert, `(() => ({ scale: getComputedStyle(document.documentElement).getPropertyValue('--reading-scale').trim(), scroll: document.body.scrollHeight > innerHeight + 2, collision: document.querySelector('p').getBoundingClientRect().bottom > document.querySelector('.actions').getBoundingClientRect().top }))()`);
+      assert.equal(geometry.scale, '1.5', 'emergency rest must respect reading size');
+      assert.equal(geometry.scroll, false, 'enlarged emergency rest must fit a compact viewport');
+      assert.equal(geometry.collision, false, 'emergency instruction must not cover actions');
+      await capture(alert, 'rest-compact-large-reading', viewport);
+      await restSession.call('Emulation.clearDeviceMetricsOverride');
+      restSession.close();
     }
-    // The rest window is 12s below; waitFor's default budget is shorter.
-    // Finished primary copy is 完成休息打卡 (redesigned rest card).
-    await waitFor(alert, `[...document.querySelectorAll('button')].some(b => (b.textContent ?? '').trim() === '${emergency ? '完成' : '完成休息打卡'}' && !b.disabled)`, 30_000);
-    if (!emergency) {
-      const finished = await evaluate(alert, `(() => ({
-        ringLabel: document.querySelector('.rest-stage-count small')?.textContent ?? '',
-        lede: document.querySelector('.rest-lede')?.textContent ?? ''
-      }))()`);
-      assert.equal(finished.ringLabel, '已到时间', 'the ring must settle once the rest window closed');
-      assert.equal(finished.lede, '这次休息时间已到', 'the panel must announce the finished rest');
-    }
+    await waitFor(alert, emergency ? `document.querySelector('#complete')?.disabled === false && document.querySelector('#start')?.hidden === true` : `Boolean(document.querySelector('.rest-away-card.is-finished'))`, 30000);
     await capture(alert, 'rest-finished');
-    await click(alert, emergency ? '完成' : '完成休息打卡', true);
     await waitFor(pet, `(async () => !(await window.eyeProtect.getReminderStatus()).activeReminder)()`);
+
     assert.equal((await evaluate(pet, 'window.eyeProtect.getPomodoro()')).remainingMs, paused.remainingMs);
     bubble = await waitForTarget(endpoint, '#bubble');
     await waitFor(bubble, `document.body?.textContent.includes('继续')`);
@@ -374,12 +349,11 @@ try {
     const before = await evaluate(currentWorkbench, `window.eyeProtect.getRestCompanion()`);
     const real = await evaluate(currentPet, `window.eyeProtect.triggerNow()`);
     const id = real.activeReminder.id;
-    await evaluate(currentPet, `window.eyeProtect.beginHealthRest(${JSON.stringify(id)})`);
+    await waitFor(currentPet, `(async () => typeof (await window.eyeProtect.getReminderStatus()).activeReminder?.restStartedAt === 'number')()`);
     const deadline = await evaluate(currentPet, `(async () => (await window.eyeProtect.getReminderStatus()).activeReminder.unlockAt)()`);
-    await delay(Math.max(0, deadline - Date.now()) + 150);
+    await delay(Math.max(0, deadline - Date.now()) + 2700);
     const ready = await evaluate(currentPet, `window.eyeProtect.getReminderStatus()`);
-    assert.equal(ready.activeReminder?.id, id, 'the real rest must remain active until completion');
-    await evaluate(currentPet, `window.eyeProtect.reminderAction('complete', ${JSON.stringify(id)})`);
+    assert.equal(ready.activeReminder, null, 'the real rest must finish without a click');
     await waitFor(currentWorkbench, `document.querySelector('.simple-rest-companion h2 small')?.textContent === '${before.completed + 1} 次'`);
     assert.equal((await evaluate(currentWorkbench, `window.eyeProtect.getRestCompanion()`)).completed, before.completed + 1);
     await capture(currentWorkbench, 'weekly-rest-completed');

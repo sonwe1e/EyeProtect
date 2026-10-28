@@ -11,25 +11,25 @@ export const BREAK_ACTIVITIES: BreakActivity[] = [
     id: 'eye-far-gaze',
     kind: 'eye',
     title: '看向远处，缓慢眨眼',
-    steps: ['找一个 5 米外的目标', '放松地盯着它', '缓慢地眨眼 10 次'],
+    steps: ['看向窗外或房间里较远的地方', '放松地看着远处', '自然地眨眨眼'],
     stepActions: ['gaze', 'gaze', 'blink'],
     durationSeconds: 30,
     tags: ['放松', '眨眼']
   },
   {
-    id: 'eye-focus-switch',
+    id: 'eye-soft-blink',
     kind: 'eye',
-    title: '远近焦点交替',
-    steps: ['伸出食指放在眼前 20 厘米', '盯住指尖 3 秒', '切换到远处 3 秒', '来回交替 5 次'],
-    stepActions: ['stretch', 'gaze', 'gaze', 'gaze'],
+    title: '移开视线，轻轻眨眼',
+    steps: ['看向屏幕以外，自然地眨眨眼', '放松双肩', '保持舒适的呼吸'],
+    stepActions: ['blink', 'stretch', 'breathe'],
     durationSeconds: 30,
     tags: ['对焦']
   },
   {
     id: 'eye-close-rest',
     kind: 'eye',
-    title: '闭眼放松',
-    steps: ['轻轻闭上眼睛', '把双手搓热敷在眼皮上', '深呼吸 5 次'],
+    title: '轻轻闭眼，放松片刻',
+    steps: ['轻轻闭上眼睛，自然呼吸', '放松双肩和面部', '不用数拍，按自己的节奏呼吸'],
     stepActions: ['sleep', 'sleep', 'breathe'],
     durationSeconds: 30,
     tags: ['闭眼', '深呼吸']
@@ -38,7 +38,7 @@ export const BREAK_ACTIVITIES: BreakActivity[] = [
     id: 'eye-window',
     kind: 'eye',
     title: '起身看看窗外',
-    steps: ['离开屏幕走两步', '看向窗外最远的东西', '让眼睛失焦一会儿'],
+    steps: ['把视线从屏幕移到窗外', '看向较远的地方', '慢慢放松下来'],
     stepActions: ['walk', 'gaze', 'gaze'],
     durationSeconds: 30,
     tags: ['远眺']
@@ -65,7 +65,7 @@ export const BREAK_ACTIVITIES: BreakActivity[] = [
     id: 'walk-neck',
     kind: 'walk',
     title: '肩颈活动',
-    steps: ['双肩向上耸起再落下，重复 5 次', '头缓慢向左向右各转 3 圈', '手臂向上伸展 10 秒'],
+    steps: ['站起来，舒适地活动一下肩膀', '轻轻转头看看周围', '放松地伸个懒腰'],
     stepActions: ['stretch', 'gaze', 'stretch'],
     durationSeconds: 60,
     tags: ['拉伸', '肩颈']

@@ -10,6 +10,7 @@ import {
   type TargetDisplayLike,
   type WindowRectangle
 } from '../src/main/windowBounds';
+import { HYDRATION_BUBBLE_SIZE } from '../src/shared/bubbleSurface';
 
 const assertInsideWorkArea = (bounds: WindowRectangle, workArea: WindowRectangle): void => {
   assert.ok(bounds.width > 0);
@@ -47,7 +48,7 @@ test('alert bounds adapt to common work areas without overflowing', () => {
   }
 });
 
-test('alert bounds use a compact maximum instead of inheriting legacy artwork dimensions', () => {
+test('alert bounds grow with the display while retaining a readable maximum', () => {
   const workAreas: WindowRectangle[] = [
     { x: 0, y: 0, width: 1280, height: 720 },
     { x: 0, y: 0, width: 1920, height: 1040 },
@@ -59,8 +60,23 @@ test('alert bounds use a compact maximum instead of inheriting legacy artwork di
     const bounds = getAlertBounds(workArea);
     assert.ok(bounds.width <= ALERT_LAYOUT.targetWidth);
     assert.ok(bounds.height <= ALERT_LAYOUT.targetHeight);
-    if (workArea.width >= ALERT_LAYOUT.targetWidth + ALERT_LAYOUT.edgeGapMax * 2) {
+    if (workArea.width * 0.66 >= ALERT_LAYOUT.targetWidth) {
       assert.equal(bounds.width, ALERT_LAYOUT.targetWidth);
+    }
+  }
+});
+
+test('large-screen rest grows and manual reading size still fits fractional-DPI work areas', () => {
+  const normal = getAlertBounds({ x: 0, y: 0, width: 1920, height: 1040 });
+  const large = getAlertBounds({ x: -3840, y: 0, width: 3840, height: 2080 });
+  assert.ok(normal.width > 880 && normal.height > 640);
+  assert.ok(large.width > normal.width && large.height > normal.height);
+  for (const scale of [1, 1.25, 1.5, 2]) {
+    const area = { x: -2560 / scale, y: 0, width: Math.floor(2560 / scale), height: Math.floor(1400 / scale) };
+    for (const reading of [.9, 1, 1.25, 1.5]) {
+      const bounds = getAlertBounds(area, reading);
+      assertInsideWorkArea(bounds, area);
+      assertCentered(bounds, area);
     }
   }
 });
@@ -191,3 +207,36 @@ test('resolveTargetDisplay falls back to primary display or safe defaults when a
   assert.ok(safeTarget.workArea.height > 0);
 });
 
+test('the hydration strip fits every common work area without clipping', () => {
+  // The strip is wider than the todo bubble, so it is the one that can overflow
+  // a small or negative-origin display. It must clamp, not get cropped.
+  for (const workArea of [
+    { x: 0, y: 0, width: 1280, height: 720 },
+    { x: 0, y: 0, width: 1024, height: 768 },
+    { x: -1920, y: 0, width: 1920, height: 1080 },
+    { x: 0, y: 0, width: 900, height: 1400 },
+    { x: 0, y: 0, width: 260, height: 260 }
+  ] as WindowRectangle[]) {
+    for (const petX of [workArea.x, workArea.x + workArea.width / 2 - 80, workArea.x + workArea.width - 160]) {
+      const layout = getPetBubbleLayout(
+        { x: petX, y: workArea.y + 40, width: 160, height: 160 },
+        workArea,
+        { width: HYDRATION_BUBBLE_SIZE.width, height: HYDRATION_BUBBLE_SIZE.height }
+      );
+      assertInsideWorkArea(layout.bounds, workArea);
+    }
+  }
+});
+
+test('the hydration strip keeps its full height when the display is tall enough', () => {
+  const workArea = { x: 0, y: 0, width: 1920, height: 1040 };
+  const layout = getPetBubbleLayout(
+    { x: 800, y: 600, width: 160, height: 160 },
+    workArea,
+    { width: HYDRATION_BUBBLE_SIZE.width, height: HYDRATION_BUBBLE_SIZE.height },
+    { top: 8 / 64, bottom: 60 / 64 }
+  );
+  assert.equal(layout.placement, 'above');
+  assert.equal(layout.bounds.height, HYDRATION_BUBBLE_SIZE.height);
+  assert.equal(layout.bounds.width, HYDRATION_BUBBLE_SIZE.width);
+});

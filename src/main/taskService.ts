@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { resolveRestoredTaskProjectId, taskSteps } from '../shared/simpleTasks';
+import { isCurrentTask, orderSimpleQueue, resolveRestoredTaskProjectId, taskSteps } from '../shared/simpleTasks';
 import { TASK_STALE_WRITE_MESSAGE } from '../shared/types';
 import { isProjectWritable } from '../shared/projectPolicy';
 import { nextRecurrenceFireAt } from '../shared/types';
@@ -263,6 +263,39 @@ export class TaskService extends EventEmitter {
   moveTask(input: TaskMoveInput, now: number = Date.now()): Task[] {
     const tasks = this.store.moveTask(input, now);
     return tasks;
+  }
+
+  /**
+   * Persist today's single queue order. `task:move` only reorders siblings
+   * inside one container, which cannot express "one queue across lists", so the
+   * renderer submits the whole visible order instead.
+   *
+   * Every id is validated BEFORE anything is written: one stale id (a step, a
+   * completed task, a task deleted in another window, a read-only list) rejects
+   * the whole request. A partial write would leave the user staring at an order
+   * they never chose. Root tasks missing from the payload are appended to the
+   * tail in their current order — a task created in another window between drag
+   * start and drop must not vanish from the queue.
+   */
+  reorderQueue(ids: string[]): Task[] {
+    const tasks = this.store.getTasks();
+    const projects = this.store.getProjects();
+    const listed = new Set<string>();
+    for (const id of ids) {
+      if (listed.has(id)) throw new Error('顺序里有重复项');
+      const task = tasks.find((entry) => entry.id === id);
+      if (!task) throw new Error('任务不存在');
+      if (task.parentId) throw new Error('只能调整主任务顺序');
+      if (task.status !== 'open') throw new Error('只能调整未完成任务顺序');
+      if (task.projectId && !isProjectWritable(this.store.getProject(task.projectId))) throw new Error('清单只读');
+      listed.add(id);
+    }
+    // `orderSimpleQueue` on an all-open set is the existing-order comparator, so
+    // the tail keeps the same rule the UI sorts by instead of a second copy.
+    const tail = orderSimpleQueue(
+      tasks.filter((task) => task.status === 'open' && !listed.has(task.id) && isCurrentTask(task, projects))
+    ).map((task) => task.id);
+    return this.store.reorderRootTasks([...ids, ...tail]);
   }
 
   // ── Project operations ────────────────────────────────────────────────────

@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+> 2.0 起主程序使用 Tauri 2 + Rust，Electron 1.x 已停止维护。当前实现与数据边界见 [docs/tauri-migration.md](docs/tauri-migration.md) 和 [docs/architecture.md](docs/architecture.md)。以下涉及 Electron 主进程、preload、SQLite、旧备份及其打包验收的章节为 1.x 历史参考，不作为 2.0 现状；React renderer、共享类型与通用工程准则仍适用。
+
+> 2.0 默认入口：`src-tauri/src/`（Rust 主程序）、`src/renderer/src/lib/tauriBridge.ts`、共享 React 界面；运行 `npm run dev`，打包 `npm run package`，验证 `npm run typecheck`、`npm test`、`cargo test --locked --manifest-path src-tauri/Cargo.toml`、`npm run lint` 与相关 Tauri 冒烟。保留用户原有未提交改动，勿提交本地数据或独立项目。
+
 ## 默认编码准则
 
 **所有编码工作必须遵循 [RULES.md](RULES.md) 中的工程准则。** 这 20 条规则是默认的编码标准，涵盖理解问题、选择最简单方案、保持范围、显式优于巧妙、验证重要行为等。CLAUDE.md 提供项目特定的架构和约定；RULES.md 提供通用的工程哲学。两者冲突时，RULES.md 优先。
@@ -76,7 +80,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 | 工作台待办/完成记录 UI | `src/renderer/src/views/WorkbenchView.tsx`、`src/features/simple/SimpleSettings.tsx`、`src/features/workbench/workbenchNavigation.ts` | 导航权威是 `workbenchNavigation.ts`（仅 `today`/`review`/`settings`）。任务列表 UI 目前内联在 WorkbenchView，**不要**默认挂载 `PlanWorkspace` / `FocusSurface` / `ProjectWorkspace` 等遗留组件。 |
 | 提醒遮罩卡片文案与进度 | `src/renderer/src/views/AlertView.tsx`、`src/renderer/src/features/reminders/restViewModel.ts` | 进度由 `restViewModel` 从主进程状态派生；仓库中**没有** `ActivityGuide.tsx`，活动解析在 AlertView 内完成。 |
 | 视觉令牌与窗口样式 | `src/renderer/src/styles/`、`src/renderer/src/styles.css` | 交互元素必须 `no-drag`；颜色用语义令牌。见 [docs/color-system.md](docs/color-system.md)。 |
-| 像素动物与装扮 | `src/shared/pixelAnimals.ts`、`src/renderer/src/features/characters/PixelAnimal.tsx`、`CatOutfit.tsx`、`features/simple/PetOutfitPicker.tsx` | 仅内置奋斗猫（像素 `cat`）；`PIXEL_ANIMALS` 与 `PET_OUTFITS` 是角色和装扮的唯一来源。装扮无解锁或养成。 |
+| 桌面伙伴与装扮 | `src/shared/petCompanions.ts`、`features/characters/CompanionArtwork.tsx`、`IllustratedPet.tsx`、`PetImage.tsx` | 内置原作火力奋斗猫 GIF、水獭、企鹅与可选像素猫。像素衣橱仍由 pixelAnimals.ts 定义。角色和衣服不需要解锁。 |
 | 打包与产物 | `package.json` `build`、`electron.vite.config.ts` | 默认输出 `release/`；NSIS + portable x64。 |
 | 备份导入/导出与旧资料 | `src/main/backup.ts`、`src/main/taskStore.ts` | 备份格式当前为 **v8**，数据库 schema **v5**；导入前建回滚快照。旧规划/专注/独立提醒域仍参与导出与只读恢复。 |
 | 产品边界 / 命令层 | [docs/architecture.md](docs/architecture.md) §产品边界 lint | 写操作走 `run`/`useCommand`；`npm run verify:product` / `npm run lint` |
@@ -102,7 +106,7 @@ EyeProtect 是 Windows 本地优先的护眼提醒与待办助手，技术栈是
 
 严格 TypeScript、两空格、单引号、分号；`camelCase` 变量/函数，`PascalCase` 类型与 React 组件。跨进程数据结构放在 `src/shared/types.ts`，不要在三端重复定义。Renderer 不直接访问 Node/Electron，只使用 `window.eyeProtect`。用户可见写操作优先走命令层（`useCommand` + `run`），失败要可见，不要静默吞掉。倒计时权威在主进程 `SchedulerKernel`，不要在 renderer 自建计时权威。
 
-桌宠待机仅允许 1 网格单位的呼吸与低频眨眼；较大动作由一次性事件或低频小动作触发，不抢焦点。`petMotion` 关闭、页面不可见或系统减少动态效果时停止美术帧。
+矢量/像素桌宠待机使用轻微呼吸与低频眨眼；较大动作由一次性事件或低频小动作触发。用户原作 GIF 保持原内容，随安装包分发。petMotion 关闭、页面不可见或系统减少动态效果时，GIF 与矢量美术帧都停止。
 
 更完整的模式说明见 [docs/coding-guide.md](docs/coding-guide.md)（注意其中规划/专注相关章节描述遗留面）。
 

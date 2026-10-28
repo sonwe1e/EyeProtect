@@ -1,4 +1,10 @@
-# EyeProtect 精简版架构
+# EyeProtect 2.0 架构
+
+2.0 的主程序为 Tauri 2 + Rust：`src-tauri/src/lib.rs` 装配应用，`state.rs` 拥有共享状态与心跳，`scheduler.rs`、`task_reminders.rs`、`tasks.rs`、`pomodoro.rs` 和 `hydration.rs` 分别负责休息、待办提醒、任务、番茄钟和喝水。`windows.rs` 管理窗口，`commands.rs` 和 `src/renderer/src/lib/tauriBridge.ts` 连接复用的 React 工作台。当前数据格式、已知差异和验证入口见 [Tauri 架构与迁移记录](tauri-migration.md)。
+
+Electron 1.x 不再维护。下面保留的是 1.x 设计与兼容资料；其中主进程、IPC、调度、数据迁移、打包和应急兜底描述不代表 2.0 实现。产品仍以待办、完成记录、设置、桌宠、休息与番茄钟为主。
+
+## Electron 1.x 历史资料
 
 ## 活跃执行链
 
@@ -18,15 +24,15 @@
 
 `BubbleView` 复用同一个窗口显示手选待办、番茄钟设置或计时。优先级为健康提醒 > 番茄钟 > 手选待办。遮罩健康提醒使用独立 Alert 窗口；原主界面故障时，Emergency HTML 和原生通知继续兜底。
 
-提醒方式（`settings.reminderMode`）有三种真实策略，映射集中在 `src/shared/reminderModes.ts`：`gentle` 走桌宠旁气泡（无 Alert 窗口、无暗化、桌宠留在屏幕上），`guided` 走 Alert 窗口但不暗化桌面，`focused` 走 Alert 窗口 + 暗化遮罩；只有 `focused` 强制等待休息时长（`unlockAt`），其它模式出现即可完成。旧字段值非法时回退 `focused`。
+当前主流程统一使用休息遮罩（主进程 effective mode 为 focused），设置页没有放松模式或提醒方式三选。`reminderModes.ts` 的 gentle/guided 映射保留供兼容纯函数使用，不代表当前 UI。
 
-Alert 窗口按「艺术舞台 + 阅读面板」组织：舞台显示像素动物、提醒类型与节拍文案，面板显示标题、主进程选中的微休息活动（`ActiveReminder.activityIds` 经 `breakActivities.getActivity` 解析；活动进度在 `AlertView.tsx` 内用 `restViewModel` 的 `getActivityProgress` 按 `restStartedAt` 推进。仓库中不存在独立的 `ActivityGuide.tsx`）、倒计时环、走动提醒携带的待办、开始/完成/稍后/跳过动作。文案、阶段与倒计时由 `features/reminders/restViewModel.ts` 从主进程状态派生（`tests/rest-view-model.test.ts`），渲染端不持有计时权威。
+Alert 窗口采用一眼读完的离屏引导：一条稳定的大字建议、当班伙伴、较弱的倒计时，以及稍后/跳过出口。建议由主进程选择并保存在 activityIds，避开近期重复；没有光球追踪或放松模式选择。真正显示 primary/emergency 后主进程 beginRest 开始计时并暂停专注，SchedulerKernel 在 unlockAt 后保留 2.5 秒结束反馈，再自动记录完成与收起。notification/none 不启动看不见的休息；测试提醒不进入休息记录。文案阶段与美术步骤从 restViewModel 派生，renderer 不掌握倒计时。
 
-桌宠右键菜单开启自由专注；任务行可以关联主任务启动。桌宠固定为奋斗猫（像素 `cat` 兜底）；用户可把动图放在 `custom-pet` 根目录替换动画。内置柴犬/白兔/仓鼠与经典像素小狗/白兔已删除，设置与托盘不再提供角色切换。
+桌宠右键菜单开启自由专注；任务行可以关联主任务启动。petCompanions.ts 是伙伴身份与文案的唯一来源：fighter（用户原作火力奋斗猫 GIF）、otter（水獭）、penguin（企鹅）、pixel（旧像素猫）与 custom（用户自定义）。原作四个 GIF 保存在 public/assets/pets/fighter，随包分发；不依赖 data/custom-pet。自定义文件夹有素材时才显示选择卡片。
 
-同一只奋斗猫提供四套免费装扮：`classic`（奋斗日常）、`coffee`（咖啡时光）、`explorer`（森林探险）、`stargazer`（星夜魔法）。`pixelAnimals.ts` 定义装扮白名单与文案，`settings.petOutfit` 保存选择，缺失/非法值回退原版 `classic`；无养成、解锁或收藏系统。设置的 `PetOutfitPicker` 经命令层保存，提供短动作预览。`CatOutfit.tsx` 在原来的 64 网格上绘制服装、头饰和道具；点击或低频小动作触发各装扮的招手、捧杯、望远镜、星星棒动作，完成/休息步骤等事件继续使用原有动作。所有内置猫视图同步装扮，自定义动图优先显示。装扮变化重新上报 SVG 轮廓以避让气泡。
+像素猫仍提供 classic/coffee/explorer/stargazer 四套免费装扮，选择 pixel 后显示衣橱。其他伙伴使用独立轮廓、画风和动作，不通过像素猫换色生成。CompanionArtwork 统一桌面、休息界面与陪伴卡片的角色；IllustratedPet 使用平滑 SVG，GIF 保留原文件。新装不再用像素猫兜底替代用户原作。
 
-`useAnimalFrame` 只推进美术帧，不参与业务倒计时。待机有 1 网格单位的呼吸起伏（约 3.2 秒周期）与约 8 秒一次的眨眼，每隔 14–24 秒执行一次小动作；互动约 1.6 秒，小动作约 2.9 秒，结束回到站姿。`pet:reaction` 只向桌宠推送一次性动作和事件 ID：任务事务提交后小跳、专注开始收拢坐下、休息预告伸展；新事件替换当前反应，撤销与重复完成不重播。休息活动的 `stepActions` 与 `restActivityStates` 把各活动按实际休息窗口依次分配，步骤变化时重播对应动作；完成时小跳一次。关闭 `petMotion`、窗口不可见或系统减少动态效果时停止像素帧推进。用户 GIF 沿用用户提供的动画，仅在系统“减少动态效果”时由 `PetImage` 截取静态画面；无法自动为任意 GIF 生成对应步骤动作。`node scripts/smoke-pet-ui.mjs 1 --packaged` 验证开关几何、键盘操作、奋斗猫与减少动态效果，并输出截图到 `artifacts/pet-ui/`。
+`useAnimalFrame` 只推进矢量/像素美术帧，不参与业务计时。pet:reaction 只向桌宠推送一次性事件，完成任务、专注、休息预告有回应。动画关闭、页面隐藏或系统减少动态效果时停止美术帧；PetImage 对 GIF 也采取静态快照。提醒 bounds 基于 Electron 已完成 DPI 换算的 workArea，默认随屏幕增长，极小屏不越界。restReadingScale 清洗在 0.9–1.5，扩大提醒 bounds 与字号，并用工作台局部 CSS zoom 调整阅读大小；不使用同源传播的 Electron 页面 zoom，以免改变桌宠和气泡几何。桌宠原作/插画基准 200 DIP、像素版 160 DIP，再乘 petScale。
 
 ## 自启与提醒时机
 
@@ -52,7 +58,13 @@ Windows 检测使用一个隐藏 PowerShell/C# 子进程：`GetForegroundWindow`
 
 服务不自行持有第二套倒计时：运行中的剩余时间由 `SchedulerKernel` 的阶段结束期限推导（`kernel.remainingMs('pomodoro', 'pomodoro-end')`），与 Kernel 用同一条 elapsed 时钟。键入闲置会冻结 Kernel 的 elapsed 时钟，番茄钟随之继承该语义——闲置期间倒计时停走，恢复输入后按真实活跃时间继续；只有 elapsed 期限享受冻结，wall 期限不受影响。`pomodoro-state.json` 原子写入成功后才发布状态和注册新期限。renderer 仅插值显示，不能自行完成计时。锁屏/休眠/退出暂停；重启一律恢复为暂停，失效关联任务使计时结束。
 
-健康提醒初次出现时不自动暂停专注；`reminder:begin-rest` 才启动实际休息并暂停 focus。休息结束不恢复番茄钟，必须手动继续。专注到点或短休息与健康提醒重叠时，开始健康休息会合并为一次展示，使用健康时长与短休息剩余时长的较大值；结束短休息绝不自动记录护眼或走动完成。
+健康提醒在可操作窗口真正显示后自动开始并暂停专注；休息结束不恢复番茄钟，必须手动继续。专注到点或短休息与健康提醒重叠时，开始健康休息合并为一次展示，采用较长的剩余休息时长。单独短休息不会记录健康完成；自动完成只属于确实开始的健康休息。
+
+## 喝水
+
+喝水**不是**第四种提醒：`ReminderKind` 仍是 eye/walk/combined，`HydrationService` 不注册 Kernel 期限、不打开 Alert、不写休息记录，只读复用 `ReminderContextMonitor.decision()`，所以不可能改动或重置护眼/走动日程。节拍是派生的：`interval = clamp(floor((workEnd-workStart)/goal), 30, 120)` 分钟，slot 为 `workStart + k*interval` 且不晚于 `workEnd`，因此设置项只有开关与每日目标（默认开启、8 杯）。首个 slot 不早于「工作开始 + 一个间隔」。**取 floor 而不是 round**：取整向上会让 slot 数少于目标（840min 窗口下 13/16/18/19/20 杯曾经永远到不了），floor 保证 1–20 每个目标都排得出 ≥ 目标数的 slot（AC-16）。间隔以「上一次提示所属的 slot」为基准，回应提示所得的杯记在该 slot 时刻（B4），所以用户晚几秒点「记一杯」不会把节拍往后推、更不会吃掉下一个 slot。chip 分母与「够了」一律用配置目标本身，不引入「有效目标」。
+
+状态在 `hydration-state.json`（`.tmp` + rename 原子写，不进备份）：`localDate`、`cups`、`lastCupAt`、`lastPromptAt`。跨天读取时惰性清零。计时权威在主进程：`sipping` 2.6s → `strip` 8s 由服务自己收起，renderer 只按 `endsAt` 画进度；`petMotion` 关闭时跳过 `sipping` 直接出条，记录路径完全一致。`tick()` 的每个分支（关闭、已达标、刚记过、`gate` 延后、界面被占用）都会写入 `lastPromptAt` 再重排——间隔被消费而不是排队，所以唤醒或解除勿扰后不会补发。`tick(now, slotAt)` 区分「这个 slot 计划在什么时候」与「回调实际跑到什么时候」：`lastPromptAt` 的记账、`recordCup` 的归属、以及「刚记过」的比较全部按 `slotAt`，定时器迟到 3s 不会把 slot 网格往后推（真实 `setTimeout` 从不准时，按 `now` 记账会让后一个 slot 与上一杯只差 `interval - 迟到`，于是每两个 slot 被吃掉一个，默认 8 杯实际只能记 4 杯）；重复触发的判据是 `slotAt <= lastPromptAt || now <= lastPromptAt`，后一项同时兜住时钟回拨。休眠/锁屏清定时器，恢复只 `arm()` 不 `tick()`；`recordCup` 上限为目标杯数并立即收起，`dismissHydrationPrompt` 只收起不记杯。`hydration:get` / `hydration:record` / `hydration:dismiss`，广播 `hydration:changed` 到桌宠、气泡与工作台；杯子动作沿用 `pet:reaction`（值 `sip`），不新增通道。气泡与桌宠两处显示共用 `src/shared/bubbleSurface.ts` 的 `resolveBubbleSurface`（`prealert > gentle > pomodoro > hydration > todo`，只有 `strip` 阶段占用气泡），主进程据此决定窗口尺寸、渲染端据此决定挂哪个组件，避免两套优先级各自漂移。条子保留 `.bubble-card` 以让高度上报继续生效，尺寸只是默认值。桌宠窗口不因杯数 chip 变大：chip 在窗口内底部、`pointer-events:none`，点击仍落在拖拽面上；`prompt != null` 期间单击桌宠等于「记一杯」（被更高优先级表面挤走时也不会丢失记录路径）。像素猫画出玻璃杯并按帧降三级水位（`sipWaterLevel`，12 帧 × 216ms ≈ 2.6s），`petMotion` 关闭时为静态举杯；GIF 与自定义动图无杯可画，降级为一次通用反应，条子文案、`记一杯`、计数与跨天重置不受影响。`hydration.test.ts` 用注入的 `now` 与假定时器覆盖派生间隔、slot 边界、跨天/勿扰/达标/刚记过、只 arm 不 tick 与损坏状态回退；`bubble-surface.test.ts` 覆盖五级优先级与 key 变化；`sipWaterLevel` 与 `fighterArtwork('sip')` 在 `pet-companions` / `pet-themes` 中断言。
 
 ## 窗口、安全与测试
 
@@ -60,7 +72,7 @@ Windows 检测使用一个隐藏 PowerShell/C# 子进程：`GetForegroundWindow`
 
 Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态，不暴露一般应用 API 或由页面指定提醒 ID。
 
-`simple-experience.test.ts` 覆盖迁移、日期/DST、备份、原子完成及回滚；`pomodoro.test.ts` 覆盖时钟、暂停恢复、休息和结束阶段。保留旧存储/备份测试作为兼容验证。`smoke-simple-experience.mjs` 与 `smoke-simple-pet-failure.mjs` 是当前打包验收入口；旧 UI 专项脚本不再用于当前 CI。
+`simple-experience.test.ts` 覆盖迁移、日期/DST、备份、原子完成及回滚；`pomodoro.test.ts` 覆盖时钟、暂停恢复、休息和结束阶段。保留旧存储/备份测试作为兼容验证。当前打包验收使用 `smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`smoke-pet-ui.mjs` 与 `smoke-companion-experience.mjs`，分别覆盖工作流程、桌宠失败、像素衣橱与多角色/阅读大小。
 
 ## 遗留面清单
 
@@ -76,7 +88,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 | 工作台 UI | `WorkbenchView.tsx` + `workbenchNavigation.ts`（仅 today/review/settings）+ `SimpleSettings.tsx` |
 | 其它窗口 UI | `PetView.tsx`、`BubbleView.tsx`、`AlertView.tsx` |
 | 样式 | `styles/simple.css`（工作台）、`styles.css` + `styles/theme.css`（桌宠/气泡/提醒） |
-| CI smoke | `scripts/smoke-simple-experience.mjs`、`scripts/smoke-simple-pet-failure.mjs` |
+| CI smoke | `scripts/smoke-simple-experience.mjs`、`scripts/smoke-simple-pet-failure.mjs`、`scripts/smoke-pet-ui.mjs`、`scripts/smoke-companion-experience.mjs` |
 
 ### 冗余清理轮次（死代码与半死 IPC）
 
@@ -107,7 +119,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 归档后同步调整：`tests/design-system-contract.test.ts`、`tests/modal-keyboard-contract.test.ts`、`scripts/verify-ui-contract.mjs` 只约束**活跃** chrome/样式路径；`scripts/legacy/README.md` 说明这些脚本不在 CI。
 
-**Packaged smoke 与改版休息卡对齐**：`2827ae3` 改版后环标签为「剩余时长 / 已到时间」，进行中主按钮为「完成休息（还剩 N 秒）」，完成按钮为「完成休息打卡」；`AlertView` 每次提醒随机 follow/breathe/pet，breathe 会把环文案改成「余 mm:ss」。`smoke-simple-experience.mjs` 在断言前固定「视线光球」模式，并按上述现行文案断言。master 在该对齐合入前，`verify-and-package` 会因旧 smoke 文案红。
+**历史休息卡验收**：`2827ae3` 曾对齐视线光球、环标签与手动打卡流程。1.9 的离屏休息已取代该交互；当前 packaged smoke 验证无点击开始、稳定的大字建议、自动结束及休息记录，不再选择模式或手动打卡。
 
 ### 主进程与 preload 收口结论（本轮）
 
@@ -200,7 +212,7 @@ Emergency preload 只提供绑定当前提醒的动作和只读倒计时状态�
 
 **脚本**
 
-- **权威（package.json / CI）**：`scripts/verify-build-contract.mjs`、`verify-ui-contract.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`build-app-icon.mjs`
+- **权威（package.json / CI）**：`scripts/verify-build-contract.mjs`、`verify-ui-contract.mjs`、`smoke-simple-experience.mjs`、`smoke-simple-pet-failure.mjs`、`smoke-pet-ui.mjs`、`smoke-companion-experience.mjs`、`build-app-icon.mjs`
 - **已删除**：历史 `scripts/legacy/**`（smoke/capture 等，从未进 CI）
 
 **测试仍覆盖但对应 UI 已下线**

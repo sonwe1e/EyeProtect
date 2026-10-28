@@ -434,6 +434,39 @@ export class TaskStore extends EventEmitter {
     return this.getTasks();
   }
 
+  /**
+   * Rewrite the manual order of root tasks in ONE transaction, `index * 10`.
+   * The gaps are left for a future "insert between two rows" write; today
+   * `nextSortOrder()` is MAX + 1, so nothing currently relies on them — they
+   * only keep the persisted order readable (0, 10, 20 …) and stable.
+   *
+   * Only `sort_order` is written. `revision` must not move: the open drawer
+   * holds a draft whose `baseRevision` would otherwise be rejected as a stale
+   * write on its next save. `updated_at` must not move either — reordering is
+   * not an edit of the task, so it must not look like one.
+   */
+  reorderRootTasks(orderedIds: string[]): Task[] {
+    const changedIds: string[] = [];
+    this.transaction(() => {
+      const update = this.db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?');
+      orderedIds.forEach((id, index) => {
+        const current = this.getTask(id);
+        if (!current) throw new Error('任务不存在');
+        const sortOrder = index * 10;
+        if (current.sortOrder === sortOrder) return;
+        update.run(sortOrder, id);
+        changedIds.push(id);
+      });
+    });
+    this.emitTasksChanged();
+    // Delta stream: only the rows whose order actually changed are re-sent.
+    for (const id of changedIds) {
+      const fresh = this.getTask(id);
+      if (fresh) this.emit('task-upserted', fresh);
+    }
+    return this.getTasks();
+  }
+
   deleteTask(id: string, now: number = Date.now()): boolean {
     if (!this.getTask(id)) {
       return false;

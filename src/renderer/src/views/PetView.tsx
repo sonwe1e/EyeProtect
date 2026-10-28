@@ -3,6 +3,7 @@ import { PetCharacter } from '../features/pet/PetCharacter';
 import { useCommand } from '../hooks/useCommand';
 import { run } from '../lib/commands';
 import { useReminderStatus } from '../hooks/useReminderStatus';
+import { useHydration } from '../hooks/useHydration';
 import { useSettings } from '../hooks/useSettings';
 import type { PetReactionEvent } from '../../../shared/types';
 
@@ -10,6 +11,7 @@ const REACTION_MS = 1_600;
 
 export default function PetView(): JSX.Element {
   const reminderStatus = useReminderStatus();
+  const hydration = useHydration();
   const { settings } = useSettings();
   const animal = settings.petAppearance;
   const action = useCommand((callback: () => Promise<unknown>) => run(callback));
@@ -32,7 +34,7 @@ export default function PetView(): JSX.Element {
     if (document.querySelector('.pet-character img')) {
       void window.eyeProtect.reportPetArtworkBounds({ top: 0.04, bottom: 0.96 });
     }
-  }, [animal, settings.petOutfit]);
+  }, [animal, settings.petOutfit, settings.petCompanion]);
 
   const dragRef = useRef<{
     pointerId: number;
@@ -55,7 +57,9 @@ export default function PetView(): JSX.Element {
     setReacting(false);
     setEventReaction(event);
     if (reactionTimer.current !== null) clearTimeout(reactionTimer.current);
-    reactionTimer.current = window.setTimeout(() => setEventReaction(null), event.action === 'celebrate' ? 600 : 3_000);
+    // Round 2: celebrations stay visible long enough to be noticed (lead's
+    // merged decision, 600 → 1400ms); other reactions keep the long hold.
+    reactionTimer.current = window.setTimeout(() => setEventReaction(null), event.action === 'celebrate' ? 1_400 : 3_000);
   }), []);
 
   const handlePetDoubleClick = useCallback(() => {
@@ -111,6 +115,26 @@ export default function PetView(): JSX.Element {
   }, []);
 
   const compactPet = settings.petScale < 0.7;
+  // The prompt is the main process's decision; while it is up, a single click
+  // means "记一杯" — the recording path must survive even if the strip was pushed
+  // off screen by a higher-priority surface (B2).
+  const hydrationPrompt = hydration?.prompt ?? null;
+  const showCupChip = Boolean(hydration?.enabled);
+  // Reaching the goal is worth exactly one small acknowledgement on the chip —
+  // no celebration, no score, no rest record (S1-1).
+  const [cupPop, setCupPop] = useState(false);
+  const wasAchieved = useRef(false);
+  useEffect(() => {
+    const achieved = hydration?.achieved ?? false;
+    if (!achieved || wasAchieved.current) {
+      wasAchieved.current = achieved;
+      return;
+    }
+    wasAchieved.current = achieved;
+    setCupPop(true);
+    const timer = window.setTimeout(() => setCupPop(false), 320);
+    return () => window.clearTimeout(timer);
+  }, [hydration?.achieved]);
 
   // Pointer capture on the drag surface retargets the synthesized `click`
   // event to the surface itself, so it never reaches the PetCharacter child.
@@ -118,12 +142,16 @@ export default function PetView(): JSX.Element {
   // only fires on a genuine single click (detail === 1), never after a drag.
   const handleReact = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (event.detail !== 1) return;
+    if (hydrationPrompt) {
+      void action.run(() => window.eyeProtect.recordHydrationCup());
+      return;
+    }
     setEventReaction(null);
     setClickKey((key) => key + 1);
     setReacting(true);
     if (reactionTimer.current) clearTimeout(reactionTimer.current);
     reactionTimer.current = window.setTimeout(() => setReacting(false), REACTION_MS);
-  }, []);
+  }, [action, hydrationPrompt]);
 
   return (
     <main className={`pet-shell ${compactPet ? 'pet-compact' : ''}`.trim()} onContextMenu={handleContextMenu}>
@@ -147,6 +175,7 @@ export default function PetView(): JSX.Element {
         >
           <PetCharacter
             animal={animal}
+            companion={settings.petCompanion}
             outfit={settings.petOutfit}
             reacting={reacting}
             reaction={eventReaction}
@@ -160,6 +189,15 @@ export default function PetView(): JSX.Element {
           />
         </div>
         <div className="pet-drag-handle" aria-hidden="true" title="按住拖动桌宠" />
+        {/* A quiet counter, not a control: it never takes the click that belongs
+            to "记一杯", and it is sized from the window so the window itself
+            never has to grow for it. */}
+        {showCupChip && hydration ? (
+          <p className={`pet-hydration-chip ${hydration.achieved ? 'is-achieved' : ''} ${cupPop ? 'is-popped' : ''}`.trim()}>
+            <strong>{hydration.cups}/{hydration.goalCups}</strong>
+            <span> 杯{hydration.achieved ? ' · 够了' : ''}</span>
+          </p>
+        ) : null}
       </div>
     </main>
   );
