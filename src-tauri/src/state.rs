@@ -585,18 +585,25 @@ pub fn tick(app: &AppHandle, state: &AppState) {
   publish(app, state);
 }
 
+#[cfg(windows)]
+fn use_installed_notification_id(exe: &std::path::Path, smoke: bool, test_installed: bool) -> bool {
+  exe.parent().is_some_and(|dir| dir.join("uninstall.exe").is_file()) && (!smoke || test_installed)
+}
+
 fn send_task_notification(app: &AppHandle, delivery: &Delivery) -> Result<(), String> {
   #[cfg(windows)]
   {
     use tauri_winrt_notification::Toast;
-    // Development executables do not have the installer's registered app ID.
+    // The installer creates both uninstall.exe and a Start-menu shortcut with
+    // this app ID. A standalone copy has no registered shortcut on a fresh
+    // machine, so use the Windows-provided PowerShell identity for its toast.
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let build_dir = exe.parent().and_then(|path| path.file_name()).and_then(|name| name.to_str());
-    let app_id = if std::env::var("EYEPROTECT_SMOKE").as_deref() == Ok("1")
-      || matches!(build_dir, Some("debug") | Some("release")) {
-      Toast::POWERSHELL_APP_ID
-    } else {
+    let smoke = std::env::var("EYEPROTECT_SMOKE").as_deref() == Ok("1");
+    let test_installed = std::env::var("EYEPROTECT_TEST_INSTALLED_NOTIFICATIONS").as_deref() == Ok("1");
+    let app_id = if use_installed_notification_id(&exe, smoke, test_installed) {
       &app.config().identifier
+    } else {
+      Toast::POWERSHELL_APP_ID
     };
     Toast::new(app_id).title(&delivery.title).text1(&delivery.body)
       .show().map_err(|error| error.to_string())
@@ -605,6 +612,25 @@ fn send_task_notification(app: &AppHandle, delivery: &Delivery) -> Result<(), St
   {
     let _ = (app, delivery);
     Err("任务提醒目前仅支持 Windows".into())
+  }
+}
+
+#[cfg(all(test, windows))]
+mod notification_identity_tests {
+  use super::use_installed_notification_id;
+
+  #[test]
+  fn standalone_uses_a_registered_fallback_and_installed_uses_its_own_identity() {
+    let dir = std::env::temp_dir().join(format!("eyeprotect-identity-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    let exe = dir.join("eyeprotect.exe");
+    assert!(!use_installed_notification_id(&exe, false, false));
+    std::fs::write(dir.join("uninstall.exe"), b"marker").unwrap();
+    assert!(use_installed_notification_id(&exe, false, false));
+    assert!(!use_installed_notification_id(&exe, true, false));
+    assert!(use_installed_notification_id(&exe, true, true));
+    std::fs::remove_file(dir.join("uninstall.exe")).unwrap();
+    std::fs::remove_dir(dir).unwrap();
   }
 }
 

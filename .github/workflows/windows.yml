@@ -67,6 +67,9 @@ jobs:
           $env:EYEPROTECT_TAURI_EXE = $exe.FullName
           npm run smoke:tauri
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:EYEPROTECT_TEST_INSTALLED_NOTIFICATIONS = '1'
+          npm run smoke:tauri-task-reminder
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload interaction evidence
         if: always()
         uses: actions/upload-artifact@v7
